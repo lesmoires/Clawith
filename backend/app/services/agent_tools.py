@@ -1479,6 +1479,15 @@ async def _execute_via_smithery_connect(mcp_url: str, tool_name: str, arguments:
                 headers=headers,
             )
 
+            # Detect auth/connection failures and attempt auto-recovery
+            if tool_resp.status_code in (401, 403, 404):
+                recovery_result = await _smithery_auto_recover(
+                    api_key, mcp_url, namespace, connection_id, agent_id
+                )
+                if recovery_result:
+                    return recovery_result
+                # If recovery returned None, fall through to normal parsing
+
             # Smithery Connect returns SSE format: "event: message\ndata: {...}\n"
             raw = tool_resp.text
             data = None
@@ -1503,6 +1512,14 @@ async def _execute_via_smithery_connect(mcp_url: str, tool_name: str, arguments:
             if "error" in data:
                 err = data["error"]
                 msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                # Check if error indicates auth/connection issue
+                auth_keywords = ["auth", "unauthorized", "forbidden", "expired", "not found", "connection"]
+                if any(kw in msg.lower() for kw in auth_keywords):
+                    recovery_result = await _smithery_auto_recover(
+                        api_key, mcp_url, namespace, connection_id, agent_id
+                    )
+                    if recovery_result:
+                        return recovery_result
                 return f"❌ MCP tool error: {msg[:300]}"
 
             result = data.get("result", {})
@@ -1528,6 +1545,67 @@ async def _execute_via_smithery_connect(mcp_url: str, tool_name: str, arguments:
 
     except Exception as e:
         return f"❌ Smithery Connect error: {str(e)[:200]}"
+
+
+async def _smithery_auto_recover(api_key: str, mcp_url: str, namespace: str, connection_id: str, agent_id=None) -> str | None:
+    """Attempt to auto-recover a failed Smithery connection.
+
+    Re-creates the Smithery Connect connection. If OAuth is needed,
+    returns the auth URL for the user. Returns None if recovery fails silently.
+    """
+    try:
+        from app.services.resource_discovery import _ensure_smithery_connection
+        display_name = connection_id.replace("-", " ").title() if connection_id else "MCP Server"
+
+        conn_result = await _ensure_smithery_connection(api_key, mcp_url, display_name)
+        if "error" in conn_result:
+            return (
+                f"❌ MCP tool connection expired and auto-recovery failed: {conn_result['error']}\n\n"
+                f"💡 Please re-authorize by telling me: `import_mcp_server(server_id=\"...\", reauthorize=true)`"
+            )
+
+        # Update stored config with new connection info
+        new_config = {
+            "smithery_namespace": conn_result["namespace"],
+            "smithery_connection_id": conn_result["connection_id"],
+        }
+        if agent_id:
+            try:
+                from app.models.tool import Tool, AgentTool
+                async with async_session() as db:
+                    # Update all MCP tools for this server URL
+                    r = await db.execute(
+                        select(Tool).where(Tool.mcp_server_url == mcp_url, Tool.type == "mcp")
+                    )
+                    for tool in r.scalars().all():
+                        at_r = await db.execute(
+                            select(AgentTool).where(
+                                AgentTool.agent_id == agent_id,
+                                AgentTool.tool_id == tool.id,
+                            )
+                        )
+                        at = at_r.scalar_one_or_none()
+                        if at:
+                            at.config = {**(at.config or {}), **new_config}
+                    await db.commit()
+            except Exception:
+                pass  # Non-critical — connection may still work
+
+        if conn_result.get("auth_url"):
+            return (
+                f"🔐 MCP tool connection expired. Re-authorization needed.\n\n"
+                f"Please visit the following URL to re-authorize:\n"
+                f"{conn_result['auth_url']}\n\n"
+                f"After completing authorization, the tools will work again automatically."
+            )
+
+        # Connection re-created without OAuth — should work now
+        return None  # Signal caller to retry (but we don't retry here to avoid loops)
+
+    except Exception as e:
+        return f"❌ Auto-recovery failed: {str(e)[:200]}"
+
+
 def _list_files(ws: Path, rel_path: str) -> str:
     # Handle enterprise_info/ as shared directory
     if rel_path and rel_path.startswith("enterprise_info"):
