@@ -236,6 +236,24 @@ export default function Layout() {
         });
     };
 
+    // Sidebar agent search & pin
+    const [sidebarSearch, setSidebarSearch] = useState('');
+    const [pinnedAgents, setPinnedAgents] = useState<Set<string>>(() => {
+        try {
+            const stored = localStorage.getItem('pinned_agents');
+            return stored ? new Set(JSON.parse(stored)) : new Set();
+        } catch { return new Set(); }
+    });
+    const togglePin = (agentId: string) => {
+        setPinnedAgents(prev => {
+            const next = new Set(prev);
+            if (next.has(agentId)) next.delete(agentId);
+            else next.add(agentId);
+            localStorage.setItem('pinned_agents', JSON.stringify([...next]));
+            return next;
+        });
+    };
+
     // Tenant state
     const [currentTenant, setCurrentTenant] = useState(() => localStorage.getItem('current_tenant_id') || '');
     const [showNewCompany, setShowNewCompany] = useState(false);
@@ -387,51 +405,89 @@ export default function Layout() {
                 </div>
 
                 <div className="sidebar-scrollable">
-                    {/* My created agents */}
+                    {/* Sidebar search */}
+                    {!isSidebarCollapsed && agents.length >= 5 && (
+                        <div style={{ padding: '4px 12px 4px', position: 'relative' }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round" style={{ position: 'absolute', left: '20px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+                                <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+                            </svg>
+                            <input
+                                type="text"
+                                value={sidebarSearch}
+                                onChange={e => setSidebarSearch(e.target.value)}
+                                placeholder={isChinese ? '搜索...' : 'Search...'}
+                                style={{
+                                    width: '100%', padding: '5px 24px 5px 28px', border: '1px solid var(--border-subtle)',
+                                    borderRadius: '6px', background: 'var(--bg-secondary)', color: 'var(--text-primary)',
+                                    fontSize: '12px', outline: 'none', boxSizing: 'border-box',
+                                }}
+                                onFocus={e => e.target.style.borderColor = 'var(--primary)'}
+                                onBlur={e => e.target.style.borderColor = 'var(--border-subtle)'}
+                            />
+                            {sidebarSearch && (
+                                <button onClick={() => setSidebarSearch('')} style={{ position: 'absolute', right: '18px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '12px', padding: '2px', lineHeight: 1 }}>&#x2715;</button>
+                            )}
+                        </div>
+                    )}
+                    {/* Agent list */}
                     {(() => {
-                        const myAgents = agents.filter((a: any) => a.created_by === user?.id);
-                        const sharedAgents = agents.filter((a: any) => a.created_by !== user?.id);
+                        const q = sidebarSearch.trim().toLowerCase();
+                        const filterAgent = (a: any) => !q || (a.name || '').toLowerCase().includes(q) || (a.role_description || '').toLowerCase().includes(q);
+                        const sortAgents = (list: any[]) => [...list].sort((a, b) => {
+                            const ap = pinnedAgents.has(a.id) ? 1 : 0;
+                            const bp = pinnedAgents.has(b.id) ? 1 : 0;
+                            return bp - ap;
+                        });
+                        const myAgents = sortAgents(agents.filter((a: any) => a.created_by === user?.id).filter(filterAgent));
+                        const sharedAgents = sortAgents(agents.filter((a: any) => a.created_by !== user?.id).filter(filterAgent));
+                        const renderAgent = (agent: any) => (
+                            <div key={agent.id} style={{ position: 'relative' }} className="sidebar-agent-item">
+                                <NavLink
+                                    to={`/agents/${agent.id}`}
+                                    className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
+                                    title={agent.name}
+                                    style={{ paddingRight: '28px' }}
+                                >
+                                    <span className="sidebar-item-icon">
+                                        <span className={`status-dot ${statusDotClass(agent.status)}`} />
+                                    </span>
+                                    <span className="sidebar-item-text">{agent.name}</span>
+                                </NavLink>
+                                {!isSidebarCollapsed && (
+                                    <button
+                                        onClick={e => { e.preventDefault(); e.stopPropagation(); togglePin(agent.id); }}
+                                        className={`sidebar-pin-btn ${pinnedAgents.has(agent.id) ? 'pinned' : ''}`}
+                                        title={pinnedAgents.has(agent.id) ? (isChinese ? '取消置顶' : 'Unpin') : (isChinese ? '置顶' : 'Pin to top')}
+                                    >
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill={pinnedAgents.has(agent.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M12 17v5" /><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16h14v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V5a1 1 0 0 1 1-1h1V2H7v2h1a1 1 0 0 1 1 1z" />
+                                        </svg>
+                                    </button>
+                                )}
+                            </div>
+                        );
                         return (
                             <>
                                 {myAgents.length > 0 && (
                                     <div className="sidebar-section">
                                         <div className="sidebar-section-title">{t('nav.myCreated')}</div>
-                                        {myAgents.map((agent: any) => (
-                                            <NavLink
-                                                key={agent.id}
-                                                to={`/agents/${agent.id}`}
-                                                className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
-                                                title={agent.name}
-                                            >
-                                                <span className="sidebar-item-icon">
-                                                    <span className={`status-dot ${statusDotClass(agent.status)}`} />
-                                                </span>
-                                                <span className="sidebar-item-text">{agent.name}</span>
-                                            </NavLink>
-                                        ))}
+                                        {myAgents.map(renderAgent)}
                                     </div>
                                 )}
                                 {sharedAgents.length > 0 && (
                                     <div className="sidebar-section">
                                         <div className="sidebar-section-title">{t('nav.companyShared')}</div>
-                                        {sharedAgents.map((agent: any) => (
-                                            <NavLink
-                                                key={agent.id}
-                                                to={`/agents/${agent.id}`}
-                                                className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
-                                                title={agent.name}
-                                            >
-                                                <span className="sidebar-item-icon">
-                                                    <span className={`status-dot ${statusDotClass(agent.status)}`} />
-                                                </span>
-                                                <span className="sidebar-item-text">{agent.name}</span>
-                                            </NavLink>
-                                        ))}
+                                        {sharedAgents.map(renderAgent)}
                                     </div>
                                 )}
                                 {agents.length === 0 && (
                                     <div className="sidebar-section">
                                         <div className="sidebar-section-title">{t('nav.myAgents')}</div>
+                                    </div>
+                                )}
+                                {agents.length > 0 && myAgents.length === 0 && sharedAgents.length === 0 && q && (
+                                    <div style={{ padding: '12px 16px', fontSize: '12px', color: 'var(--text-tertiary)', textAlign: 'center' }}>
+                                        {isChinese ? '无匹配结果' : 'No matches'}
                                     </div>
                                 )}
                             </>
