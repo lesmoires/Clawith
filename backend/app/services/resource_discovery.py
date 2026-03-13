@@ -288,13 +288,19 @@ async def import_mcp_from_smithery(
         pass  # non-critical — key is still usable from MCP tool configs
 
     # ---- Early exit: check if this server's tools are already installed for this agent ----
+    # Check by both tool name prefix AND mcp_server_name to catch different server_id variants
+    # (e.g., "github" vs "@anthropic/github" both produce server_name "GitHub")
     clean_id_check = server_id.replace("/", "_").replace("@", "")
     try:
         async with async_session() as db:
+            from sqlalchemy import or_
             existing_server_r = await db.execute(
                 select(Tool).where(
-                    Tool.name.like(f"mcp_{clean_id_check}%"),
                     Tool.type == "mcp",
+                    or_(
+                        Tool.name.like(f"mcp_{clean_id_check}%"),
+                        Tool.name.like(f"mcp_{clean_id_check.split('_')[-1]}%"),
+                    ),
                 )
             )
             existing_server_tools = existing_server_r.scalars().all()
