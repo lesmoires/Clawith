@@ -11,7 +11,7 @@ import PromptModal from '../components/PromptModal';
 import { activityApi, agentApi, channelApi, enterpriseApi, fileApi, scheduleApi, skillApi, taskApi, triggerApi, uploadFileWithProgress } from '../services/api';
 import { useAuthStore } from '../stores';
 
-const TABS = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'settings'] as const;
+const TABS = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'approvals', 'settings'] as const;
 
 // Format large token numbers with K/M suffixes
 const formatTokens = (n: number) => {
@@ -631,7 +631,7 @@ function AgentDetailInner() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const location = useLocation();
-    const validTabs = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'settings'];
+    const validTabs = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'approvals', 'settings'];
     const hashTab = location.hash?.replace('#', '');
     const [activeTab, setActiveTabRaw] = useState<string>(hashTab && validTabs.includes(hashTab) ? hashTab : 'status');
 
@@ -1628,9 +1628,9 @@ function AgentDetailInner() {
                 {/* Tabs */}
                 <div className="tabs">
                     {TABS.filter(tab => {
-                        // 'use' access: hide only settings tab
+                        // 'use' access: hide settings and approvals tabs
                         if ((agent as any)?.access_level === 'use') {
-                            return tab !== 'settings';
+                            return tab !== 'settings' && tab !== 'approvals';
                         }
                         return true;
                     }).map((tab) => (
@@ -3099,6 +3099,118 @@ function AgentDetailInner() {
                 }
 
                 {/* ── Feishu Channel Tab ── */}
+
+                {/* ── Approvals Tab ── */}
+                {
+                    activeTab === 'approvals' && (() => {
+                        const ApprovalsTab = () => {
+                            const isChinese = i18n.language?.startsWith('zh');
+                            const { data: approvals = [], refetch: refetchApprovals } = useQuery({
+                                queryKey: ['agent-approvals', id],
+                                queryFn: () => fetchAuth<any[]>(`/agents/${id}/approvals`),
+                                enabled: !!id,
+                                refetchInterval: 15000,
+                            });
+                            const resolveMut = useMutation({
+                                mutationFn: async ({ approvalId, action }: { approvalId: string; action: string }) => {
+                                    const token = localStorage.getItem('token');
+                                    return fetch(`/api/agents/${id}/approvals/${approvalId}/resolve`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                                        body: JSON.stringify({ action }),
+                                    });
+                                },
+                                onSuccess: () => {
+                                    refetchApprovals();
+                                    queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
+                                },
+                            });
+                            const pending = (approvals as any[]).filter((a: any) => a.status === 'pending');
+                            const resolved = (approvals as any[]).filter((a: any) => a.status !== 'pending');
+                            const statusStyle = (s: string) => ({
+                                padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                                background: s === 'approved' ? 'rgba(0,180,120,0.12)' : s === 'rejected' ? 'rgba(255,80,80,0.12)' : 'rgba(255,180,0,0.12)',
+                                color: s === 'approved' ? 'var(--success)' : s === 'rejected' ? 'var(--error)' : 'var(--warning)',
+                            });
+                            return (
+                                <div style={{ padding: '20px 24px' }}>
+                                    {/* Pending */}
+                                    {pending.length > 0 && (
+                                        <>
+                                            <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--warning)' }}>
+                                                {isChinese ? `${pending.length} 个待审批` : `${pending.length} Pending`}
+                                            </h4>
+                                            {pending.map((a: any) => (
+                                                <div key={a.id} style={{
+                                                    padding: '14px 16px', marginBottom: '8px', borderRadius: '8px',
+                                                    background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
+                                                }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                                        <span style={statusStyle(a.status)}>{a.status}</span>
+                                                        <span style={{ fontSize: '13px', fontWeight: 500 }}>{a.action_type}</span>
+                                                        <span style={{ flex: 1 }} />
+                                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                                            {a.created_at ? new Date(a.created_at).toLocaleString() : ''}
+                                                        </span>
+                                                    </div>
+                                                    {a.details && (
+                                                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px', lineHeight: '1.5', maxHeight: '80px', overflow: 'hidden' }}>
+                                                            {typeof a.details === 'string' ? a.details : JSON.stringify(a.details, null, 2)}
+                                                        </div>
+                                                    )}
+                                                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                                        <button
+                                                            className="btn btn-primary"
+                                                            style={{ padding: '6px 16px', fontSize: '12px' }}
+                                                            onClick={() => resolveMut.mutate({ approvalId: a.id, action: 'approve' })}
+                                                            disabled={resolveMut.isPending}
+                                                        >
+                                                            {isChinese ? '批准' : 'Approve'}
+                                                        </button>
+                                                        <button
+                                                            className="btn btn-danger"
+                                                            style={{ padding: '6px 16px', fontSize: '12px' }}
+                                                            onClick={() => resolveMut.mutate({ approvalId: a.id, action: 'reject' })}
+                                                            disabled={resolveMut.isPending}
+                                                        >
+                                                            {isChinese ? '拒绝' : 'Reject'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '16px 0' }} />
+                                        </>
+                                    )}
+                                    {/* History */}
+                                    <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                        {isChinese ? '审批历史' : 'History'}
+                                    </h4>
+                                    {resolved.length === 0 && pending.length === 0 && (
+                                        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                                            {isChinese ? '暂无审批记录' : 'No approval records'}
+                                        </div>
+                                    )}
+                                    {resolved.map((a: any) => (
+                                        <div key={a.id} style={{
+                                            padding: '12px 16px', marginBottom: '6px', borderRadius: '8px',
+                                            background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
+                                            opacity: 0.7,
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span style={statusStyle(a.status)}>{a.status}</span>
+                                                <span style={{ fontSize: '12px' }}>{a.action_type}</span>
+                                                <span style={{ flex: 1 }} />
+                                                <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
+                                                    {a.resolved_at ? new Date(a.resolved_at).toLocaleString() : ''}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            );
+                        };
+                        return <ApprovalsTab />;
+                    })()}
 
                 {/* ── Settings Tab ── */}
                 {

@@ -61,6 +61,12 @@ const SidebarIcons = {
             <path d="M9 18l6-6-6-6" />
         </svg>
     ),
+    bell: (
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 6a4 4 0 018 0c0 2 1 3.5 1.5 4.5H2.5C3 9.5 4 8 4 6z" />
+            <path d="M6.5 12.5a1.5 1.5 0 003 0" />
+        </svg>
+    ),
 };
 
 const fetchJson = async <T,>(url: string): Promise<T> => {
@@ -175,6 +181,35 @@ export default function Layout() {
     const queryClient = useQueryClient();
     const isChinese = i18n.language?.startsWith('zh');
     const [showAccountSettings, setShowAccountSettings] = useState(false);
+    const [showNotifications, setShowNotifications] = useState(false);
+
+    // Notification polling
+    const { data: unreadCount = 0 } = useQuery({
+        queryKey: ['notifications-unread'],
+        queryFn: async () => {
+            const res = await fetchJson<{ unread_count: number }>('/notifications/unread-count');
+            return (res as any)?.unread_count || 0;
+        },
+        refetchInterval: 30000,
+        enabled: !!user,
+    });
+    const { data: notifications = [], refetch: refetchNotifications } = useQuery({
+        queryKey: ['notifications'],
+        queryFn: () => fetchJson<any[]>('/notifications?limit=30'),
+        enabled: !!user && showNotifications,
+    });
+    const markAllRead = async () => {
+        const token = localStorage.getItem('token');
+        await fetch('/api/notifications/read-all', { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
+        queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    };
+    const markOneRead = async (id: string) => {
+        const token = localStorage.getItem('token');
+        await fetch(`/api/notifications/${id}/read`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
+        queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    };
 
     // Theme
     const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -436,6 +471,22 @@ export default function Layout() {
                                 {isSidebarCollapsed ? SidebarIcons.expand : SidebarIcons.collapse}
                             </button>
                             <div style={{ flex: 1 }} />
+                            {/* Notification bell */}
+                            <button className="btn btn-ghost" onClick={() => { setShowNotifications(v => !v); if (!showNotifications) refetchNotifications(); }} style={{
+                                padding: '4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
+                            }} title={isChinese ? '通知' : 'Notifications'}>
+                                {SidebarIcons.bell}
+                                {(unreadCount as number) > 0 && (
+                                    <span style={{
+                                        position: 'absolute', top: '-2px', right: '-2px',
+                                        width: '16px', height: '16px', borderRadius: '50%',
+                                        background: 'var(--error)', color: '#fff',
+                                        fontSize: '10px', fontWeight: 600,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        lineHeight: 1,
+                                    }}>{(unreadCount as number) > 9 ? '9+' : unreadCount}</span>
+                                )}
+                            </button>
                             <button className="btn btn-ghost" onClick={toggleTheme} style={{
                                 fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px',
                                 padding: '4px 8px',
@@ -492,6 +543,62 @@ export default function Layout() {
                     </div>
                 </div>
             </nav>
+
+            {/* Notification Panel */}
+            {showNotifications && (
+                <div style={{
+                    position: 'fixed', top: 0, bottom: 0, left: isSidebarCollapsed ? '60px' : '220px',
+                    width: '360px', background: 'var(--bg-primary)', borderRight: '1px solid var(--border-subtle)',
+                    zIndex: 9999, display: 'flex', flexDirection: 'column',
+                    boxShadow: '4px 0 24px rgba(0,0,0,0.15)', transition: 'left 0.2s',
+                }}>
+                    <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, flex: 1 }}>{isChinese ? '通知' : 'Notifications'}</h3>
+                        {(unreadCount as number) > 0 && (
+                            <button className="btn btn-ghost" onClick={markAllRead} style={{ fontSize: '11px', padding: '4px 8px' }}>
+                                {isChinese ? '全部已读' : 'Mark all read'}
+                            </button>
+                        )}
+                        <button className="btn btn-ghost" onClick={() => setShowNotifications(false)} style={{ padding: '4px 8px', fontSize: '16px', lineHeight: 1 }}>×</button>
+                    </div>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+                        {(notifications as any[]).length === 0 && (
+                            <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                                {isChinese ? '暂无通知' : 'No notifications'}
+                            </div>
+                        )}
+                        {(notifications as any[]).map((n: any) => (
+                            <div
+                                key={n.id}
+                                onClick={() => {
+                                    if (!n.is_read) markOneRead(n.id);
+                                    if (n.link) { navigate(n.link); setShowNotifications(false); }
+                                }}
+                                style={{
+                                    padding: '12px 20px', cursor: n.link ? 'pointer' : 'default',
+                                    borderBottom: '1px solid var(--border-subtle)',
+                                    background: n.is_read ? 'transparent' : 'var(--bg-secondary)',
+                                    transition: 'background 0.15s',
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-tertiary)')}
+                                onMouseLeave={e => (e.currentTarget.style.background = n.is_read ? 'transparent' : 'var(--bg-secondary)')}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                                    {!n.is_read && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--accent-primary)', flexShrink: 0 }} />}
+                                    <span style={{ fontSize: '12px', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {n.title}
+                                    </span>
+                                </div>
+                                {n.body && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.body}</div>}
+                                <div style={{ fontSize: '10px', color: 'var(--text-quaternary)', marginTop: '4px' }}>
+                                    {n.created_at ? new Date(n.created_at).toLocaleString() : ''}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {showNotifications && <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setShowNotifications(false)} />}
 
             <main className="main-content">
                 <Outlet />

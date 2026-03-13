@@ -105,6 +105,12 @@ class AutonomyService:
         if approval.status != "pending":
             raise ValueError("Approval already resolved")
 
+        # Permission check: only agent creator or platform admin can resolve
+        agent_result = await db.execute(select(Agent).where(Agent.id == approval.agent_id))
+        agent = agent_result.scalar_one_or_none()
+        if agent and agent.creator_id != user.id and user.role != "platform_admin":
+            raise ValueError("Only the agent creator or platform admin can resolve approvals")
+
         approval.status = "approved" if action == "approve" else "rejected"
         approval.resolved_at = datetime.now(timezone.utc)
         approval.resolved_by = user.id
@@ -117,23 +123,44 @@ class AutonomyService:
             details={"approval_id": str(approval.id), "action_type": approval.action_type},
         ))
 
+        # Web notification to agent creator about the result
+        if agent:
+            from app.services.notification_service import send_notification
+            status_label = "approved" if approval.status == "approved" else "rejected"
+            await send_notification(
+                db,
+                user_id=agent.creator_id,
+                type="approval_resolved",
+                title=f"[{agent.name}] {approval.action_type} — {status_label}",
+                body=json.dumps(approval.details, ensure_ascii=False)[:200],
+                link=f"/agents/{agent.id}#approvals",
+                ref_id=approval.id,
+            )
+
         await db.flush()
         return approval
 
     async def _notify_creator(self, db: AsyncSession, agent: Agent,
                                action_type: str, details: dict) -> None:
-        """Send L2 notification to agent creator via Feishu or web push."""
+        """Send L2 notification to agent creator via Feishu + web."""
+        # Web notification (always)
+        from app.services.notification_service import send_notification
+        await send_notification(
+            db,
+            user_id=agent.creator_id,
+            type="autonomy_l2",
+            title=f"[{agent.name}] executed: {action_type}",
+            body=json.dumps(details, ensure_ascii=False)[:200],
+            link=f"/agents/{agent.id}#activityLog",
+        )
+
         # Try Feishu notification if channel is configured
         channel_result = await db.execute(
             select(ChannelConfig).where(ChannelConfig.agent_id == agent.id)
         )
-        # Use first() instead of scalar_one_or_none() because an agent may have
-        # multiple channel_config rows (Feishu, Slack, Discord). Picking the first
-        # Feishu-configured one is sufficient for L2 notifications.
         channel = channel_result.scalars().first()
 
         if channel and channel.app_id and channel.app_secret:
-            # Get creator's Feishu open_id
             creator_result = await db.execute(
                 select(User).where(User.id == agent.creator_id)
             )
@@ -142,16 +169,28 @@ class AutonomyService:
                 await feishu_service.send_message(
                     channel.app_id, channel.app_secret,
                     creator.feishu_open_id, "text",
-                    json.dumps({"text": f"ℹ️ [{agent.name}] 执行了操作: {action_type}"})
+                    json.dumps({"text": f"[{agent.name}] executed: {action_type}"})
                 )
 
     async def _request_approval(self, db: AsyncSession, agent: Agent,
                                  approval: ApprovalRequest) -> None:
-        """Send L3 approval request to creator via Feishu card."""
+        """Send L3 approval request to creator via Feishu card + web notification."""
+        # Web notification (always)
+        from app.services.notification_service import send_notification
+        await send_notification(
+            db,
+            user_id=agent.creator_id,
+            type="approval_pending",
+            title=f"[{agent.name}] requests approval: {approval.action_type}",
+            body=json.dumps(approval.details, ensure_ascii=False)[:200],
+            link=f"/agents/{agent.id}#approvals",
+            ref_id=approval.id,
+        )
+
+        # Try Feishu notification
         channel_result = await db.execute(
             select(ChannelConfig).where(ChannelConfig.agent_id == agent.id)
         )
-        # Use first() for the same reason as _notify_creator above.
         channel = channel_result.scalars().first()
 
         if channel and channel.app_id and channel.app_secret:

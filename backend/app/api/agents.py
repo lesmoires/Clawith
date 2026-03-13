@@ -572,3 +572,67 @@ async def stop_agent(
     await agent_manager.stop_container(agent)
     await db.flush()
     return AgentOut.model_validate(agent)
+
+
+# ─── Agent-Level Approvals ──────────────────────────────
+
+
+@router.get("/{agent_id}/approvals")
+async def list_agent_approvals(
+    agent_id: uuid.UUID,
+    status_filter: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List approval requests for a specific agent. Only creator or admin can view."""
+    agent, _access = await check_agent_access(db, current_user, agent_id)
+    if not is_agent_creator(current_user, agent) and current_user.role not in ("platform_admin", "org_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only agent creator or admin can view approvals")
+
+    from app.models.audit import ApprovalRequest
+    query = select(ApprovalRequest).where(ApprovalRequest.agent_id == agent_id)
+    if status_filter:
+        query = query.where(ApprovalRequest.status == status_filter)
+    query = query.order_by(ApprovalRequest.created_at.desc())
+    result = await db.execute(query)
+    approvals = result.scalars().all()
+
+    return [
+        {
+            "id": str(a.id),
+            "agent_id": str(a.agent_id),
+            "action_type": a.action_type,
+            "details": a.details,
+            "status": a.status,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+            "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
+            "resolved_by": str(a.resolved_by) if a.resolved_by else None,
+        }
+        for a in approvals
+    ]
+
+
+@router.post("/{agent_id}/approvals/{approval_id}/resolve")
+async def resolve_agent_approval(
+    agent_id: uuid.UUID,
+    approval_id: uuid.UUID,
+    data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Approve or reject a pending approval for a specific agent."""
+    agent, _access = await check_agent_access(db, current_user, agent_id)
+
+    from app.services.autonomy_service import autonomy_service
+    action = data.get("action", "reject")
+    try:
+        approval = await autonomy_service.resolve_approval(db, approval_id, current_user, action)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    await db.commit()
+    return {
+        "id": str(approval.id),
+        "status": approval.status,
+        "resolved_at": approval.resolved_at.isoformat() if approval.resolved_at else None,
+    }

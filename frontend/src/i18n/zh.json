@@ -113,6 +113,7 @@
       "workspace": "工作区",
       "chat": "聊天",
       "activityLog": "工作日志",
+      "approvals": "审批",
       "settings": "设置"
     },
     "fields": {

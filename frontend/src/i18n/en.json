@@ -113,6 +113,7 @@
       "workspace": "Workspace",
       "chat": "Chat",
       "activityLog": "Activity Log",
+      "approvals": "Approvals",
       "settings": "Settings"
     },
     "fields": {

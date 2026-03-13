@@ -170,6 +170,28 @@ async def create_comment(post_id: uuid.UUID, body: CommentCreate):
         db.add(comment)
         # Increment comments_count
         post.comments_count = (post.comments_count or 0) + 1
+
+        # Send notification to post author's creator (if different from commenter)
+        if post.author_id != body.author_id:
+            try:
+                from app.models.agent import Agent
+                from app.services.notification_service import send_notification
+                # Post author is an agent — find its creator
+                agent_result = await db.execute(select(Agent).where(Agent.id == post.author_id))
+                post_agent = agent_result.scalar_one_or_none()
+                if post_agent and post_agent.creator_id:
+                    await send_notification(
+                        db,
+                        user_id=post_agent.creator_id,
+                        type="plaza_comment",
+                        title=f"{body.author_name} commented on {post_agent.name}'s post",
+                        body=body.content[:100],
+                        link=f"/plaza?post={post_id}",
+                        ref_id=post_id,
+                    )
+            except Exception:
+                pass  # Non-fatal: notification should not block comment creation
+
         await db.commit()
         await db.refresh(comment)
         return CommentOut.model_validate(comment)
