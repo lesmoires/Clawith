@@ -36,7 +36,7 @@ const getCategoryLabels = (t: any): Record<string, string> => ({
     general: t('agent.toolCategories.general'),
 });
 
-function ToolsManager({ agentId }: { agentId: string }) {
+function ToolsManager({ agentId, canManage = false }: { agentId: string; canManage?: boolean }) {
     const { t } = useTranslation();
     const [tools, setTools] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -45,6 +45,7 @@ function ToolsManager({ agentId }: { agentId: string }) {
     const [configJson, setConfigJson] = useState('');
     const [configSaving, setConfigSaving] = useState(false);
     const [toolTab, setToolTab] = useState<'platform' | 'installed'>('platform');
+    const [deletingToolId, setDeletingToolId] = useState<string | null>(null);
 
     const loadTools = async () => {
         try {
@@ -148,32 +149,59 @@ function ToolsManager({ agentId }: { agentId: string }) {
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                                    {hasConfig && (
+                                    {canManage && hasConfig && (
                                         <button
                                             onClick={() => openConfig(tool)}
                                             style={{ background: 'none', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', color: 'var(--text-secondary)' }}
                                             title="Configure per-agent settings"
                                         >⚙️ Config</button>
                                     )}
-                                    <label style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px', cursor: 'pointer', flexShrink: 0 }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={tool.enabled}
-                                            onChange={e => toggleTool(tool.id, e.target.checked)}
-                                            style={{ opacity: 0, width: 0, height: 0 }}
-                                        />
-                                        <span style={{
-                                            position: 'absolute', inset: 0,
-                                            background: tool.enabled ? '#22c55e' : 'var(--bg-tertiary)',
-                                            borderRadius: '11px', transition: 'background 0.2s',
-                                        }}>
+                                    {canManage && tool.source === 'user_installed' && tool.agent_tool_id && (
+                                        <button
+                                            onClick={async () => {
+                                                if (!confirm(t('agent.tools.confirmDelete', `Remove "${tool.display_name}" from this agent?`))) return;
+                                                setDeletingToolId(tool.id);
+                                                try {
+                                                    const token = localStorage.getItem('token');
+                                                    const res = await fetch(`/api/tools/agent-tool/${tool.agent_tool_id}`, {
+                                                        method: 'DELETE',
+                                                        headers: { Authorization: `Bearer ${token}` },
+                                                    });
+                                                    if (res.ok) await loadTools();
+                                                    else alert('Delete failed');
+                                                } catch (e) { alert('Delete failed: ' + e); }
+                                                setDeletingToolId(null);
+                                            }}
+                                            disabled={deletingToolId === tool.id}
+                                            style={{ background: 'none', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', color: 'var(--text-tertiary)', opacity: deletingToolId === tool.id ? 0.5 : 1 }}
+                                            title={t('agent.tools.removeTool', 'Remove from agent')}
+                                        >{deletingToolId === tool.id ? '...' : '✕'}</button>
+                                    )}
+                                    {canManage ? (
+                                        <label style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px', cursor: 'pointer', flexShrink: 0 }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={tool.enabled}
+                                                onChange={e => toggleTool(tool.id, e.target.checked)}
+                                                style={{ opacity: 0, width: 0, height: 0 }}
+                                            />
                                             <span style={{
-                                                position: 'absolute', left: tool.enabled ? '20px' : '2px', top: '2px',
-                                                width: '18px', height: '18px', background: '#fff',
-                                                borderRadius: '50%', transition: 'left 0.2s',
-                                            }} />
+                                                position: 'absolute', inset: 0,
+                                                background: tool.enabled ? '#22c55e' : 'var(--bg-tertiary)',
+                                                borderRadius: '11px', transition: 'background 0.2s',
+                                            }}>
+                                                <span style={{
+                                                    position: 'absolute', left: tool.enabled ? '20px' : '2px', top: '2px',
+                                                    width: '18px', height: '18px', background: '#fff',
+                                                    borderRadius: '50%', transition: 'left 0.2s',
+                                                }} />
+                                            </span>
+                                        </label>
+                                    ) : (
+                                        <span style={{ fontSize: '11px', color: tool.enabled ? '#22c55e' : 'var(--text-tertiary)', fontWeight: 500 }}>
+                                            {tool.enabled ? t('common.enabled', 'On') : t('common.disabled', 'Off')}
                                         </span>
-                                    </label>
+                                    )}
                                 </div>
                             </div>
                         );
@@ -2496,7 +2524,7 @@ function AgentDetailInner() {
                                 <h3 style={{ marginBottom: '4px' }}>{t('agent.toolMgmt.title')}</h3>
                                 <p style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{t('agent.toolMgmt.description')}</p>
                             </div>
-                            <ToolsManager agentId={id!} />
+                            <ToolsManager agentId={id!} canManage={canManage} />
                         </div>
                     )
                 }

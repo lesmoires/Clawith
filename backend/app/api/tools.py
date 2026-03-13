@@ -387,6 +387,7 @@ async def get_agent_tools_with_config(
         enabled = at.enabled if at else t.is_default
         result.append({
             "id": tid,
+            "agent_tool_id": str(at.id) if at else None,
             "name": t.name,
             "display_name": t.display_name,
             "description": t.description,
