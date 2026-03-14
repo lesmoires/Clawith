@@ -2566,6 +2566,26 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
 
                             tool_result = await execute_tool(tool_name, tool_args, target.id, owner_id)
 
+                            # Save tool_call to DB so it appears in chat history
+                            try:
+                                async with async_session() as _tc_db:
+                                    _tc_db.add(ChatMessage(
+                                        agent_id=session_agent_id,
+                                        user_id=owner_id,
+                                        role="tool_call",
+                                        content=json.dumps({
+                                            "name": tool_name,
+                                            "args": tool_args,
+                                            "status": "done",
+                                            "result": str(tool_result)[:500],
+                                        }, ensure_ascii=False),
+                                        conversation_id=session_id,
+                                        participant_id=tgt_participant.id if tgt_participant else None,
+                                    ))
+                                    await _tc_db.commit()
+                            except Exception as _tc_err:
+                                print(f"[A2A] Failed to save tool_call: {_tc_err}")
+
                             # Add tool result to conversation
                             full_msgs.append(LLMMessage(
                                 role="tool",
