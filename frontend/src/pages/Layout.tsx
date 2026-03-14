@@ -444,8 +444,8 @@ export default function Layout() {
                             const bp = pinnedAgents.has(b.id) ? 1 : 0;
                             return bp - ap;
                         });
-                        const myAgents = sortAgents(agents.filter((a: any) => a.created_by === user?.id).filter(filterAgent));
-                        const sharedAgents = sortAgents(agents.filter((a: any) => a.created_by !== user?.id).filter(filterAgent));
+                        const myAgents = sortAgents(agents.filter((a: any) => a.creator_id === user?.id).filter(filterAgent));
+                        const sharedAgents = sortAgents(agents.filter((a: any) => a.creator_id !== user?.id).filter(filterAgent));
                         const renderAgent = (agent: any, isOwned = false) => (
                             <div key={agent.id} style={{ position: 'relative' }} className={`sidebar-agent-item${isOwned ? ' owned' : ''}`}>
                                 <NavLink
