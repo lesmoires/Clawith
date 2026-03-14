@@ -3093,7 +3093,7 @@ function AgentDetailInner() {
                                         )}
                                         <div style={{ display: 'flex', gap: '8px', padding: '6px 12px', borderTop: '1px solid var(--border-subtle)' }}>
                                             <input type="file" ref={fileInputRef} onChange={handleChatFile} style={{ display: 'none' }} />
-                                            <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()} disabled={!wsConnected || uploading || isWaiting || isStreaming} style={{ padding: '6px 10px', fontSize: '14px', minWidth: 'auto' }}>{uploading ? '⏳' : '⦹'}</button>
+                                            <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()} disabled={!wsConnected || uploading || isWaiting || isStreaming} style={{ padding: '6px 10px', fontSize: '14px', minWidth: 'auto', ...( (!wsConnected || uploading || isWaiting || isStreaming) ? { cursor: 'not-allowed', opacity: 0.4 } : {}) }}>{uploading ? '⏳' : '⦹'}</button>
                                             {uploading && uploadProgress >= 0 && (
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: '0 0 140px' }}>
                                                     {uploadProgress <= 100 ? (
