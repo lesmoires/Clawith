@@ -131,7 +131,7 @@ async def list_agents(
     return [AgentOut.model_validate(a) for a in agents]
 
 
-@router.post("/", response_model=AgentOut, status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_agent(
     data: AgentCreate,
     current_user: User = Depends(get_current_user),
