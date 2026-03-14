@@ -513,6 +513,7 @@ async def delete_agent(
         "chat_sessions",
         "tasks",
         "agent_schedules",
+        "agent_triggers",
         "channel_configs",
         "agent_permissions",
         "agent_tools",

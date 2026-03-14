@@ -1698,9 +1698,9 @@ function AgentDetailInner() {
                         if ((agent as any)?.access_level === 'use') {
                             if (tab === 'settings' || tab === 'approvals') return false;
                         }
-                        // OpenClaw agents: only show status, chat, activityLog, approvals, settings
+                        // OpenClaw agents: only show status, chat, activityLog, settings
                         if ((agent as any)?.agent_type === 'openclaw') {
-                            return ['status', 'chat', 'activityLog', 'approvals', 'settings'].includes(tab);
+                            return ['status', 'chat', 'activityLog', 'settings'].includes(tab);
                         }
                         return true;
                     }).map((tab) => (
@@ -1742,6 +1742,8 @@ function AgentDetailInner() {
                                     <div style={{ fontSize: '22px', fontWeight: 600 }}>{formatTokens(agent.tokens_used_month)}</div>
                                     {agent.max_tokens_per_month && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{t('agent.settings.noLimit')} {formatTokens(agent.max_tokens_per_month)}</div>}
                                 </div>
+                                {/* Native agent metrics */}
+                                {(agent as any)?.agent_type !== 'openclaw' && (<>
                                 <div className="card">
                                     <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>LLM Calls Today</div>
                                     <div style={{ fontSize: '22px', fontWeight: 600 }}>{((agent as any).llm_calls_today || 0).toLocaleString()}</div>
@@ -1771,6 +1773,20 @@ function AgentDetailInner() {
                                             <div style={{ fontSize: '22px', fontWeight: 600 }}>{metrics.activity?.actions_last_24h || 0}</div>
                                         </div>
                                     </>
+                                )}
+                                </>)}
+                                {/* OpenClaw-specific metrics */}
+                                {(agent as any)?.agent_type === 'openclaw' && (
+                                    <div className="card">
+                                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>
+                                            {i18n.language?.startsWith('zh') ? '最近连接' : 'Last Seen'}
+                                        </div>
+                                        <div style={{ fontSize: '16px', fontWeight: 500 }}>
+                                            {(agent as any).openclaw_last_seen
+                                                ? new Date((agent as any).openclaw_last_seen).toLocaleString()
+                                                : (i18n.language?.startsWith('zh') ? '尚未连接' : 'Not connected')}
+                                        </div>
+                                    </div>
                                 )}
                             </div>
 
@@ -1803,8 +1819,9 @@ function AgentDetailInner() {
                                         </div>
                                     </div>
                                 </div>
+                                {(agent as any)?.agent_type !== 'openclaw' ? (
                                 <div className="card">
-                                    <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>🤖 Model Config</h3>
+                                    <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>Model Config</h3>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                                             <span style={{ color: 'var(--text-tertiary)' }}>Model</span>
@@ -1820,6 +1837,36 @@ function AgentDetailInner() {
                                         </div>
                                     </div>
                                 </div>
+                                ) : (
+                                <div className="card">
+                                    <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>
+                                        {i18n.language?.startsWith('zh') ? 'OpenClaw 连接' : 'OpenClaw Connection'}
+                                    </h3>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                            <span style={{ color: 'var(--text-tertiary)' }}>{i18n.language?.startsWith('zh') ? '类型' : 'Type'}</span>
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <span style={{
+                                                    fontSize: '10px', padding: '2px 6px', borderRadius: '4px',
+                                                    background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', fontWeight: 600,
+                                                }}>OpenClaw</span>
+                                                Lab
+                                            </span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                            <span style={{ color: 'var(--text-tertiary)' }}>{i18n.language?.startsWith('zh') ? '最近连接' : 'Last Seen'}</span>
+                                            <span>{(agent as any).openclaw_last_seen
+                                                ? new Date((agent as any).openclaw_last_seen).toLocaleString()
+                                                : (i18n.language?.startsWith('zh') ? '尚未连接' : 'Never')}
+                                            </span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                            <span style={{ color: 'var(--text-tertiary)' }}>{i18n.language?.startsWith('zh') ? '模型' : 'Model'}</span>
+                                            <span style={{ color: 'var(--text-secondary)' }}>{i18n.language?.startsWith('zh') ? '由 OpenClaw 实例管理' : 'Managed by OpenClaw'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                )}
                             </div>
 
                             {/* Recent Activity */}
@@ -1844,9 +1891,9 @@ function AgentDetailInner() {
 
                             {/* Quick Actions */}
                             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-                                <button className="btn btn-secondary" onClick={() => setActiveTab('chat')}>💬 {t('agent.actions.chat')}</button>
-                                <button className="btn btn-secondary" onClick={() => setActiveTab('aware')}>Aware</button>
-                                <button className="btn btn-secondary" onClick={() => setActiveTab('settings')}>⚙️ {t('agent.tabs.settings')}</button>
+                                <button className="btn btn-secondary" onClick={() => setActiveTab('chat')}>{t('agent.actions.chat')}</button>
+                                {(agent as any)?.agent_type !== 'openclaw' && <button className="btn btn-secondary" onClick={() => setActiveTab('aware')}>Aware</button>}
+                                <button className="btn btn-secondary" onClick={() => setActiveTab('settings')}>{t('agent.tabs.settings')}</button>
                             </div>
                         </div>
                     );
@@ -2964,37 +3011,33 @@ function AgentDetailInner() {
                                                         </div>
                                                     );
                                                 }
-                                                {/* Assistant message with no text content: either show inline thinking or skip entirely */}
+                                                {/* Assistant message with no text content: show inline thinking or skip */}
                                                 if (msg.role === 'assistant' && !msg.content) {
-                                                    // Only show as full bubble with thinking dots if it's the very last message AND actively streaming
-                                                    if (i < chatMessages.length - 1 || !(isStreaming || isWaiting)) {
-                                                        if (msg.thinking) {
-                                                            return (
-                                                                <div key={i} style={{ paddingLeft: '36px', marginBottom: '6px' }}>
-                                                                    <details style={{
-                                                                        fontSize: '12px',
-                                                                        background: 'rgba(147, 130, 220, 0.08)', borderRadius: '6px',
-                                                                        border: '1px solid rgba(147, 130, 220, 0.15)',
-                                                                    }}>
-                                                                        <summary style={{
-                                                                            padding: '6px 10px', cursor: 'pointer',
-                                                                            color: 'rgba(147, 130, 220, 0.9)', fontWeight: 500,
-                                                                            userSelect: 'none', display: 'flex', alignItems: 'center', gap: '4px',
-                                                                        }}>Thinking</summary>
-                                                                        <div style={{
-                                                                            padding: '4px 10px 8px',
-                                                                            fontSize: '12px', lineHeight: '1.6',
-                                                                            color: 'var(--text-secondary)',
-                                                                            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                                                                            maxHeight: '300px', overflow: 'auto',
-                                                                        }}>{msg.thinking}</div>
-                                                                    </details>
-                                                                </div>
-                                                            );
-                                                        }
-                                                        // No content, no thinking — skip rendering entirely
-                                                        return null;
+                                                    if (msg.thinking) {
+                                                        return (
+                                                            <div key={i} style={{ paddingLeft: '36px', marginBottom: '6px' }}>
+                                                                <details style={{
+                                                                    fontSize: '12px',
+                                                                    background: 'rgba(147, 130, 220, 0.08)', borderRadius: '6px',
+                                                                    border: '1px solid rgba(147, 130, 220, 0.15)',
+                                                                }}>
+                                                                    <summary style={{
+                                                                        padding: '6px 10px', cursor: 'pointer',
+                                                                        color: 'rgba(147, 130, 220, 0.9)', fontWeight: 500,
+                                                                        userSelect: 'none', display: 'flex', alignItems: 'center', gap: '4px',
+                                                                    }}>Thinking</summary>
+                                                                    <div style={{
+                                                                        padding: '4px 10px 8px',
+                                                                        fontSize: '12px', lineHeight: '1.6',
+                                                                        color: 'var(--text-secondary)',
+                                                                        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                                                        maxHeight: '300px', overflow: 'auto',
+                                                                    }}>{msg.thinking}</div>
+                                                                </details>
+                                                            </div>
+                                                        );
                                                     }
+                                                    return null;
                                                 }
                                                 return (
                                                     <div key={i} style={{ display: 'flex', flexDirection: msg.role === 'assistant' ? 'row' : 'row-reverse', gap: '8px', marginBottom: '8px' }}>
@@ -3449,7 +3492,8 @@ function AgentDetailInner() {
                                     </div>
                                 </div>
 
-                                {/* Model Selection */}
+                                {/* Model Selection — native agents only */}
+                                {(agent as any)?.agent_type !== 'openclaw' && (
                                 <div className="card" style={{ marginBottom: '12px' }}>
                                     <h4 style={{ marginBottom: '12px' }}>{t('agent.settings.modelConfig')}</h4>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -3483,8 +3527,10 @@ function AgentDetailInner() {
                                         </div>
                                     </div>
                                 </div>
+                                )}
 
-                                {/* Context Window */}
+                                {/* Context Window — native agents only */}
+                                {(agent as any)?.agent_type !== 'openclaw' && (<>
                                 <div className="card" style={{ marginBottom: '12px' }}>
                                     <h4 style={{ marginBottom: '12px' }}>{t('agent.settings.conversationContext')}</h4>
                                     <div>
@@ -3519,6 +3565,7 @@ function AgentDetailInner() {
                                         <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('agent.settings.maxToolRoundsDesc', 'How many tool-calling rounds the agent can perform per message (search, write, etc). Default: 50')}</div>
                                     </div>
                                 </div>
+                                </>)}
 
                                 {/* Token Limits */}
                                 <div className="card" style={{ marginBottom: '12px' }}>
@@ -3553,8 +3600,8 @@ function AgentDetailInner() {
                                     </div>
                                 </div>
 
-                                {/* Trigger Limits */}
-                                {(() => {
+                                {/* Trigger Limits — native agents only */}
+                                {(agent as any)?.agent_type !== 'openclaw' && (() => {
                                     const isChinese = i18n.language?.startsWith('zh');
                                     return (
                                         <div className="card" style={{ marginBottom: '12px' }}>
@@ -3659,8 +3706,8 @@ function AgentDetailInner() {
                                     );
                                 })()}
 
-                                {/* Autonomy Policy */}
-                                <div className="card" style={{ marginBottom: '12px' }}>
+                                {/* Autonomy Policy — native agents only */}
+                                {(agent as any)?.agent_type !== 'openclaw' && <div className="card" style={{ marginBottom: '12px' }}>
                                     <h4 style={{ marginBottom: '4px' }}>{t('agent.settings.autonomy.title')}</h4>
                                     <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '16px' }}>
                                         {t('agent.settings.autonomy.description')}
@@ -3707,7 +3754,7 @@ function AgentDetailInner() {
                                             );
                                         })}
                                     </div>
-                                </div>
+                                </div>}
 
                                 {/* Permission Management */}
                                 {(() => {

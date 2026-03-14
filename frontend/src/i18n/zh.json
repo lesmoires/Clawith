@@ -596,6 +596,14 @@
       "teams": "Microsoft Teams"
     }
   },
+  "openclaw": {
+    "created": "OpenClaw Agent 已创建",
+    "createdDesc2": "您的 OpenClaw Agent 已注册。复制以下指令并发送给您的 OpenClaw Agent 完成配置。",
+    "setupInstruction": "配置指令",
+    "setupInstructionDesc": "复制并发送给您的 OpenClaw Agent，它将自动完成配置。",
+    "keyNote": "API Key 已嵌入在上方指令中。如需手动配置可单独保存。",
+    "goToAgent": "前往 Agent 页面"
+  },
   "channelGuide": {
     "setupGuide": "配置说明",
     "feishuPermJson": "权限批量导入 JSON",

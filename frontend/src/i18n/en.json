@@ -583,6 +583,14 @@
       "teams": "Microsoft Teams"
     }
   },
+  "openclaw": {
+    "created": "OpenClaw Agent Created",
+    "createdDesc2": "Your OpenClaw agent has been registered. Copy the instruction below and send it to your OpenClaw agent to complete the setup.",
+    "setupInstruction": "Setup Instruction",
+    "setupInstructionDesc": "Copy and send this to your OpenClaw agent. It will configure itself automatically.",
+    "keyNote": "This key is already embedded in the instruction above. Save it separately if needed for manual configuration.",
+    "goToAgent": "Go to Agent Page"
+  },
   "channelGuide": {
     "setupGuide": "Setup Guide",
     "feishuPermJson": "Permission JSON (bulk import)",
