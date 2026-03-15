@@ -981,24 +981,14 @@ function AgentDetailInner() {
         const chanFmt = !newFmt && msg.content.match(/^\[\u6587\u4ef6\u5df2\u4e0a\u4f20: (?:workspace\/uploads\/)?([^\]\n]+)\]/);
         if (chanFmt) {
             const raw = chanFmt[1]; const fileName = raw.split('/').pop() || raw;
-            parsed = { ...parsed, fileName, content: parsed.content.slice(chanFmt[0].length).trim() };
+            parsed = { ...msg, fileName, content: msg.content.slice(chanFmt[0].length).trim() };
         }
         // Old format: [File: name.pdf]\nFile location:...\nQuestion: user_msg
         const oldFmt = !newFmt && !chanFmt && msg.content.match(/^\[File: ([^\]]+)\]/);
         if (oldFmt) {
             const fileName = oldFmt[1];
             const qMatch = msg.content.match(/\nQuestion: ([\s\S]+)$/);
-            parsed = { ...parsed, fileName, content: qMatch ? qMatch[1].trim() : '' };
-        }
-        // Extract embedded image data: [image_data:...]
-        const imgMatches = [...parsed.content.matchAll(/\[image_data:([^\]]+)\]/g)];
-        if (imgMatches.length > 0) {
-            // Take the first image as the preview image
-            parsed.imageUrl = imgMatches[0][1];
-            // If we don't have a filename, give it a default one
-            if (!parsed.fileName) parsed.fileName = 'image.jpg';
-            // Strip out all image data markers from the text content
-            parsed.content = parsed.content.replace(/\[image_data:[^\]]+\]\n?/g, '').trim();
+            parsed = { ...msg, fileName, content: qMatch ? qMatch[1].trim() : '' };
         }
         // If file is an image and no imageUrl yet, build download URL for preview
         if (parsed.fileName && !parsed.imageUrl && id) {
@@ -2974,22 +2964,12 @@ function AgentDetailInner() {
                                                                                 </div>
                                                                             </details>
                                                                         )}
-                                                                        {pm.fileName && (() => {
-                                                                            const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(fe);
-                                                                            if (isImage && pm.imageUrl) {
-                                                                                return (
-                                                                                    <div style={{ marginBottom: '4px' }}>
-                                                                                        <img src={pm.imageUrl} alt={pm.fileName} style={{ maxWidth: '200px', maxHeight: '150px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }} />
-                                                                                    </div>
-                                                                                );
-                                                                            }
-                                                                            return (
-                                                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: 'var(--bg-elevated)', borderRadius: '6px', padding: '4px 8px', marginBottom: pm.content ? '4px' : '0', fontSize: '11px', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>
-                                                                                    <span>{fi}</span>
-                                                                                    <span style={{ fontWeight: 500, color: 'var(--text-primary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pm.fileName}</span>
-                                                                                </div>
-                                                                            );
-                                                                        })()}
+                                                                        {pm.fileName && (
+                                                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: 'var(--bg-elevated)', borderRadius: '6px', padding: '4px 8px', marginBottom: pm.content ? '4px' : '0', fontSize: '11px', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>
+                                                                                <span>{fi}</span>
+                                                                                <span style={{ fontWeight: 500, color: 'var(--text-primary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pm.fileName}</span>
+                                                                            </div>
+                                                                        )}
                                                                         {pm.content ? (m.role === 'assistant' ? <MarkdownRenderer content={pm.content} /> : <div style={{ whiteSpace: 'pre-wrap' }}>{pm.content}</div>) : null}
                                                                     </>
                                                                 );

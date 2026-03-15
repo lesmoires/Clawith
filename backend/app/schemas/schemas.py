@@ -390,12 +390,22 @@ class HealthResponse(BaseModel):
 
 # ─── Gateway (OpenClaw) ─────────────────────────────────
 
+class GatewayHistoryItem(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+    sender_name: str | None = None
+    created_at: datetime
+
+
 class GatewayMessageOut(BaseModel):
     id: uuid.UUID
+    conversation_id: str | None = None
     sender_agent_name: str | None = None
     sender_user_name: str | None = None
+    sender_user_id: str | None = None
     content: str
     created_at: datetime
+    history: list[GatewayHistoryItem] = []
 
 
 class GatewayPollResponse(BaseModel):

@@ -17,7 +17,7 @@ from app.database import get_db
 from app.models.agent import Agent
 from app.models.gateway_message import GatewayMessage
 from app.models.user import User
-from app.schemas.schemas import GatewayPollResponse, GatewayMessageOut, GatewayReportRequest
+from app.schemas.schemas import GatewayPollResponse, GatewayMessageOut, GatewayReportRequest, GatewayHistoryItem
 
 router = APIRouter(prefix="/gateway", tags=["gateway"])
 
@@ -122,12 +122,41 @@ async def poll_messages(
             r = await db.execute(select(User.display_name).where(User.id == msg.sender_user_id))
             sender_user_name = r.scalar_one_or_none()
 
+        # Fetch conversation history (last 10 messages) for context
+        history = []
+        if msg.conversation_id:
+            from app.models.audit import ChatMessage
+            hist_result = await db.execute(
+                select(ChatMessage)
+                .where(ChatMessage.conversation_id == msg.conversation_id)
+                .order_by(ChatMessage.created_at.desc())
+                .limit(10)
+            )
+            hist_msgs = list(reversed(hist_result.scalars().all()))
+            for h in hist_msgs:
+                # Resolve sender name for each history message
+                h_sender = None
+                if h.role == "user" and h.user_id:
+                    r = await db.execute(select(User.display_name).where(User.id == h.user_id))
+                    h_sender = r.scalar_one_or_none()
+                elif h.role == "assistant":
+                    h_sender = agent.name
+                history.append(GatewayHistoryItem(
+                    role=h.role,
+                    content=h.content or "",
+                    sender_name=h_sender,
+                    created_at=h.created_at,
+                ))
+
         out.append(GatewayMessageOut(
             id=msg.id,
+            conversation_id=msg.conversation_id,
             sender_agent_name=sender_agent_name,
             sender_user_name=sender_user_name,
+            sender_user_id=str(msg.sender_user_id) if msg.sender_user_id else None,
             content=msg.content,
             created_at=msg.created_at,
+            history=history,
         ))
 
     await db.commit()
@@ -242,7 +271,18 @@ Make an HTTP GET request:
 - URL: {base_url}/api/gateway/poll
 - Header: X-Api-Key: {x_api_key}
 
-If the response contains messages, process each one and report the result.
+The response contains a `messages` array. Each message includes:
+- `id` — unique message ID (use this for reporting)
+- `content` — the message text
+- `sender_user_name` — name of the Clawith user who sent it
+- `sender_user_id` — unique ID of the sender (to distinguish different users)
+- `conversation_id` — the conversation this message belongs to
+- `history` — array of previous messages in this conversation for context
+  Each history item has: `role` (user/assistant), `content`, `sender_name`, `created_at`
+
+**IMPORTANT**: Use the `history` array to understand the conversation context before replying.
+If the same user sent previous messages, your reply should be contextually aware.
+Different `sender_user_name` values mean different people — address them accordingly.
 
 ### 2. Report results
 For each completed message, make an HTTP POST request:
