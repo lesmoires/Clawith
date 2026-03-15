@@ -269,6 +269,22 @@ async def report_result(
         except Exception:
             pass  # User may have disconnected
 
+    # If the original message was from another agent (OpenClaw-to-OpenClaw),
+    # write the reply back as a gateway_message for the sender agent to poll
+    if body.result and msg.sender_agent_id:
+        async with async_session() as reply_db:
+            conv_id = msg.conversation_id or f"gw_agent_{msg.sender_agent_id}_{agent.id}"
+            gw_reply = GatewayMessage(
+                agent_id=msg.sender_agent_id,
+                sender_agent_id=agent.id,
+                content=body.result,
+                status="pending",
+                conversation_id=conv_id,
+            )
+            reply_db.add(gw_reply)
+            await reply_db.commit()
+            logger.info(f"[Gateway] Reply routed back to sender agent {msg.sender_agent_id}")
+
     return {"status": "ok"}
 
 
@@ -418,15 +434,35 @@ async def send_message(
     target_agent = result.scalars().first()
 
     if target_agent and (not channel_hint or channel_hint == "agent"):
-        # Route to agent — async LLM processing
-        await db.commit()
-        asyncio.create_task(_send_to_agent_background(agent, target_agent, content))
-        return {
-            "status": "accepted",
-            "target": target_agent.name,
-            "type": "agent",
-            "message": f"Message sent to {target_agent.name}. Reply will appear in your next poll.",
-        }
+        conv_id = f"gw_agent_{agent.id}_{target_agent.id}"
+
+        if getattr(target_agent, 'agent_type', None) == 'openclaw':
+            # OpenClaw-to-OpenClaw: write to gateway_messages directly
+            gw_msg = GatewayMessage(
+                agent_id=target_agent.id,
+                sender_agent_id=agent.id,
+                content=content,
+                status="pending",
+                conversation_id=conv_id,
+            )
+            db.add(gw_msg)
+            await db.commit()
+            return {
+                "status": "accepted",
+                "target": target_agent.name,
+                "type": "openclaw_agent",
+                "message": f"Message sent to {target_agent.name}. Reply will appear in your next poll.",
+            }
+        else:
+            # Native agent: async LLM processing
+            await db.commit()
+            asyncio.create_task(_send_to_agent_background(agent, target_agent, content))
+            return {
+                "status": "accepted",
+                "target": target_agent.name,
+                "type": "agent",
+                "message": f"Message sent to {target_agent.name}. Reply will appear in your next poll.",
+            }
 
     # 2. Try to find target as a human (via relationships)
     from app.models.org import AgentRelationship
