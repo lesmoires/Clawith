@@ -742,20 +742,20 @@ export default function EnterpriseSettings() {
 
     // ─── LLM Models
     const { data: models = [] } = useQuery({
-        queryKey: ['llm-models'],
-        queryFn: () => fetchJson<LLMModel[]>('/enterprise/llm-models'),
+        queryKey: ['llm-models', selectedTenantId],
+        queryFn: () => fetchJson<LLMModel[]>(`/enterprise/llm-models${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`),
         enabled: activeTab === 'llm',
     });
     const [showAddModel, setShowAddModel] = useState(false);
     const [editingModelId, setEditingModelId] = useState<string | null>(null);
     const [modelForm, setModelForm] = useState({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false });
     const addModel = useMutation({
-        mutationFn: (data: any) => fetchJson('/enterprise/llm-models', { method: 'POST', body: JSON.stringify(data) }),
-        onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models'] }); setShowAddModel(false); setEditingModelId(null); },
+        mutationFn: (data: any) => fetchJson(`/enterprise/llm-models${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
+        onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }); setShowAddModel(false); setEditingModelId(null); },
     });
     const updateModel = useMutation({
         mutationFn: ({ id, data }: { id: string; data: any }) => fetchJson(`/enterprise/llm-models/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-        onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models'] }); setShowAddModel(false); setEditingModelId(null); },
+        onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }); setShowAddModel(false); setEditingModelId(null); },
     });
     const deleteModel = useMutation({
         mutationFn: async ({ id, force = false }: { id: string; force?: boolean }) => {
@@ -780,7 +780,7 @@ export default function EnterpriseSettings() {
             }
             if (!res.ok && res.status !== 204) throw new Error('Delete failed');
         },
-        onSuccess: () => qc.invalidateQueries({ queryKey: ['llm-models'] }),
+        onSuccess: () => qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }),
     });
 
     // ─── Approvals
@@ -1019,10 +1019,10 @@ export default function EnterpriseSettings() {
 
                         {/* ── 0. Company Name ── */}
                         <h3 style={{ marginBottom: '8px' }}>{t('enterprise.companyName.title', 'Company Name')}</h3>
-                        <CompanyNameEditor />
+                        <CompanyNameEditor key={`name-${selectedTenantId}`} />
 
                         {/* ── 0.5. Company Timezone ── */}
-                        <CompanyTimezoneEditor />
+                        <CompanyTimezoneEditor key={`tz-${selectedTenantId}`} />
 
                         {/* ── 1. Company Intro ── */}
                         <h3 style={{ marginBottom: '8px' }}>{t('enterprise.companyIntro.title', 'Company Intro')}</h3>

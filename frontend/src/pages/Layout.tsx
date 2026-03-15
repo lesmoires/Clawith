@@ -271,6 +271,7 @@ export default function Layout() {
     // Auto-select user's tenant or first available tenant; also fix stale localStorage values
     useEffect(() => {
         if (!user) return;
+        if (tenants.length === 0) return; // Don't override while tenants are still loading
         const validTenantIds = tenants.map((t: any) => t.id);
         const storedIsValid = currentTenant &&
             (validTenantIds.includes(currentTenant) || currentTenant === user.tenant_id);

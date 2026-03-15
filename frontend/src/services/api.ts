@@ -252,7 +252,10 @@ export const channelApi = {
 
 // ─── Enterprise ───────────────────────────────────────
 export const enterpriseApi = {
-    llmModels: () => request<any[]>('/enterprise/llm-models'),
+    llmModels: () => {
+        const tid = localStorage.getItem('current_tenant_id');
+        return request<any[]>(`/enterprise/llm-models${tid ? `?tenant_id=${tid}` : ''}`);
+    },
     templates: () => request<any[]>('/agents/templates'),
 
     // Enterprise Knowledge Base

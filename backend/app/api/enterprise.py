@@ -27,21 +27,28 @@ router = APIRouter(prefix="/enterprise", tags=["enterprise"])
 
 @router.get("/llm-models", response_model=list[LLMModelOut])
 async def list_llm_models(
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all LLM models in the pool."""
-    result = await db.execute(select(LLMModel).order_by(LLMModel.created_at.desc()))
+    """List LLM models scoped to the selected tenant."""
+    tid = tenant_id or str(current_user.tenant_id) if current_user.tenant_id else None
+    query = select(LLMModel).order_by(LLMModel.created_at.desc())
+    if tid:
+        query = query.where(LLMModel.tenant_id == uuid.UUID(tid))
+    result = await db.execute(query)
     return [LLMModelOut.model_validate(m) for m in result.scalars().all()]
 
 
 @router.post("/llm-models", response_model=LLMModelOut, status_code=status.HTTP_201_CREATED)
 async def add_llm_model(
     data: LLMModelCreate,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Add a new LLM model to the pool (admin)."""
+    """Add a new LLM model to the tenant's pool (admin)."""
+    tid = tenant_id or (str(current_user.tenant_id) if current_user.tenant_id else None)
     model = LLMModel(
         provider=data.provider,
         model=data.model,
@@ -51,6 +58,7 @@ async def add_llm_model(
         max_tokens_per_day=data.max_tokens_per_day,
         enabled=data.enabled,
         supports_vision=data.supports_vision,
+        tenant_id=uuid.UUID(tid) if tid else None,
     )
     db.add(model)
     await db.flush()
