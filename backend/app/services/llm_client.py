@@ -870,13 +870,21 @@ def get_provider_base_url(provider: str, custom_base_url: str | None = None) -> 
     return PROVIDER_URLS.get(provider)
 
 
-def get_max_tokens(provider: str, model: str | None = None) -> int:
-    """Return a safe max_tokens value for the given provider/model pair."""
+def get_max_tokens(provider: str, model: str | None = None, max_output_tokens: int | None = None) -> int:
+    """Return a safe max_tokens value for the given provider/model pair.
+    
+    Priority: max_output_tokens (DB override) > model prefix > provider default > 4096
+    """
+    # Highest priority: per-model DB override
+    if max_output_tokens and max_output_tokens > 0:
+        return max_output_tokens
+    # Check model-specific limits
     if model:
         for prefix, limit in MAX_TOKENS_BY_MODEL.items():
             if model.lower().startswith(prefix):
                 return limit
-    return MAX_TOKENS_BY_PROVIDER.get(provider, 16384)
+    # Provider default, falling back to safe 4096
+    return MAX_TOKENS_BY_PROVIDER.get(provider, 4096)
 
 
 def create_llm_client(

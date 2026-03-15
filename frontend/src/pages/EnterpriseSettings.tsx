@@ -25,7 +25,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 
 interface LLMModel {
     id: string; provider: string; model: string; label: string;
-    base_url?: string; max_tokens_per_day?: number; enabled: boolean; supports_vision?: boolean; created_at: string;
+    base_url?: string; max_tokens_per_day?: number; enabled: boolean; supports_vision?: boolean; max_output_tokens?: number; created_at: string;
 }
 
 
@@ -750,7 +750,7 @@ export default function EnterpriseSettings() {
     });
     const [showAddModel, setShowAddModel] = useState(false);
     const [editingModelId, setEditingModelId] = useState<string | null>(null);
-    const [modelForm, setModelForm] = useState({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false });
+    const [modelForm, setModelForm] = useState({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false, max_output_tokens: '' as string });
     const addModel = useMutation({
         mutationFn: (data: any) => fetchJson(`/enterprise/llm-models${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
         onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }); setShowAddModel(false); setEditingModelId(null); },
@@ -838,7 +838,7 @@ export default function EnterpriseSettings() {
                 {activeTab === 'llm' && (
                     <div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-                            <button className="btn btn-primary" onClick={() => { setEditingModelId(null); setModelForm({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false }); setShowAddModel(true); }}>+ {t('enterprise.llm.addModel')}</button>
+                            <button className="btn btn-primary" onClick={() => { setEditingModelId(null); setModelForm({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false, max_output_tokens: '' }); setShowAddModel(true); }}>+ {t('enterprise.llm.addModel')}</button>
                         </div>
 
                         {showAddModel && (
@@ -881,14 +881,21 @@ export default function EnterpriseSettings() {
                                             <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>— Enable for models that can analyze images (GPT-4o, Claude, Qwen-VL, etc.)</span>
                                         </label>
                                     </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Max Output Tokens</label>
+                                        <input className="form-input" type="number" placeholder="Auto (provider default)" value={modelForm.max_output_tokens} onChange={e => setModelForm({ ...modelForm, max_output_tokens: e.target.value })} />
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Override the default output token limit. Leave empty to use provider default (4096).</div>
+                                    </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                                     <button className="btn btn-secondary" onClick={() => { setShowAddModel(false); setEditingModelId(null); }}>{t('common.cancel')}</button>
                                     <button className="btn btn-primary" onClick={() => {
                                         if (editingModelId) {
-                                            updateModel.mutate({ id: editingModelId, data: modelForm });
+                                            const data = { ...modelForm, max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null };
+                                            updateModel.mutate({ id: editingModelId, data });
                                         } else {
-                                            addModel.mutate(modelForm);
+                                            const data = { ...modelForm, max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null };
+                                            addModel.mutate(data);
                                         }
                                     }} disabled={!modelForm.model || (!editingModelId && !modelForm.api_key)}>
                                         {t('common.save')}
@@ -914,7 +921,7 @@ export default function EnterpriseSettings() {
                                         {m.supports_vision && <span className="badge" style={{ background: 'rgba(99,102,241,0.15)', color: 'rgb(99,102,241)', fontSize: '10px' }}>👁 Vision</span>}
                                         <button className="btn btn-ghost" onClick={() => {
                                             setEditingModelId(m.id);
-                                            setModelForm({ provider: m.provider, model: m.model, label: m.label, base_url: m.base_url || '', api_key: '', supports_vision: m.supports_vision || false });
+                                            setModelForm({ provider: m.provider, model: m.model, label: m.label, base_url: m.base_url || '', api_key: '', supports_vision: m.supports_vision || false, max_output_tokens: m.max_output_tokens ? String(m.max_output_tokens) : '' });
                                             setShowAddModel(true);
                                         }} style={{ fontSize: '12px' }}>✏️ Edit</button>
                                         <button className="btn btn-ghost" onClick={() => deleteModel.mutate({ id: m.id })} style={{ color: 'var(--error)' }}>{t('common.delete')}</button>

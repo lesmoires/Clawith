@@ -251,6 +251,7 @@ class LLMModelCreate(BaseModel):
     max_tokens_per_day: int | None = None
     enabled: bool = True
     supports_vision: bool = False
+    max_output_tokens: int | None = None
 
 class LLMModelUpdate(BaseModel):
     provider: str | None = None
@@ -261,6 +262,7 @@ class LLMModelUpdate(BaseModel):
     max_tokens_per_day: int | None = None
     enabled: bool | None = None
     supports_vision: bool | None = None
+    max_output_tokens: int | None = None
 
 
 class LLMModelOut(BaseModel):
@@ -272,6 +274,7 @@ class LLMModelOut(BaseModel):
     max_tokens_per_day: int | None = None
     enabled: bool
     supports_vision: bool = False
+    max_output_tokens: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

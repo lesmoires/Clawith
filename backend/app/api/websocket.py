@@ -218,7 +218,7 @@ async def call_llm(
     except Exception as e:
         return f"[Error] Failed to create LLM client: {e}"
 
-    max_tokens = get_max_tokens(model.provider, model.model)
+    max_tokens = get_max_tokens(model.provider, model.model, getattr(model, 'max_output_tokens', None))
 
     # ── Per-round token accumulator ──
     from app.services.token_tracker import record_token_usage, extract_usage_tokens, estimate_tokens_from_chars
