@@ -4383,7 +4383,7 @@ function AgentDetailInner() {
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#07C160"/><path d="M7.5 9.5a1 1 0 110-2 1 1 0 010 2zm4 0a1 1 0 110-2 1 1 0 010 2zm4 0a1 1 0 110-2 1 1 0 010 2zM6 13h5l2 3h-3l-1 2-1-2H6v-3z" fill="white"/></svg>
                                                 <div>
                                                     <div style={{ fontWeight: 600, fontSize: '14px' }}>{t('common.channels.wecom')}</div>
-                                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Webhook</div>
+                                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{wecomConfig?.extra_config?.connection_mode === 'websocket' ? 'WebSocket Mode' : 'Webhook'}</div>
                                                 </div>
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -4398,13 +4398,22 @@ function AgentDetailInner() {
                                                 </div>
                                             ) : wecomConfig?.is_configured && !wecomEditing ? (
                                                 <div>
-                                                    <div style={{ background: 'var(--bg-secondary)', borderRadius: '6px', padding: '10px', fontSize: '12px', fontFamily: 'var(--font-mono)', marginBottom: '12px' }}>
-                                                        <div style={{ color: 'var(--text-tertiary)', marginBottom: '6px' }}>Webhook URL</div>
-                                                        <div style={{ lineHeight: 1.6, wordBreak: 'break-all' }}>
-                                                            <span style={{ color: 'var(--accent-primary)' }}>{wecomWebhookData?.webhook_url || `${window.location.origin}/api/channel/wecom/${id}/webhook`}</span>
-                                                            <CopyBtn url={wecomWebhookData?.webhook_url || `${window.location.origin}/api/channel/wecom/${id}/webhook`} />
+                                                    {wecomConfig?.extra_config?.connection_mode === 'websocket' ? (
+                                                        <div style={{ background: 'var(--bg-secondary)', borderRadius: '6px', padding: '10px', fontSize: '12px', marginBottom: '12px' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#07C160', display: 'inline-block' }}></span>
+                                                                <span style={{ color: 'var(--text-secondary)' }}>Connected via WebSocket (No callback URL needed)</span>
+                                                            </div>
                                                         </div>
-                                                    </div>
+                                                    ) : (
+                                                        <div style={{ background: 'var(--bg-secondary)', borderRadius: '6px', padding: '10px', fontSize: '12px', fontFamily: 'var(--font-mono)', marginBottom: '12px' }}>
+                                                            <div style={{ color: 'var(--text-tertiary)', marginBottom: '6px' }}>Webhook URL</div>
+                                                            <div style={{ lineHeight: 1.6, wordBreak: 'break-all' }}>
+                                                                <span style={{ color: 'var(--accent-primary)' }}>{wecomWebhookData?.webhook_url || `${window.location.origin}/api/channel/wecom/${id}/webhook`}</span>
+                                                                <CopyBtn url={wecomWebhookData?.webhook_url || `${window.location.origin}/api/channel/wecom/${id}/webhook`} />
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                     <details style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                                                         <summary style={{ cursor: 'pointer', fontWeight: 500, color: 'var(--text-primary)', userSelect: 'none', listStyle: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                             <span style={{ fontSize: '10px' }}>&#9654;</span> {t('channelGuide.setupGuide')}
