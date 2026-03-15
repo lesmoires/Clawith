@@ -24,6 +24,7 @@ class DingTalkStreamManager:
     def __init__(self):
         self._threads: Dict[uuid.UUID, threading.Thread] = {}
         self._stop_events: Dict[uuid.UUID, threading.Event] = {}
+        self._main_loop: asyncio.AbstractEventLoop | None = None
 
     async def start_client(
         self,
@@ -34,10 +35,14 @@ class DingTalkStreamManager:
     ):
         """Start a DingTalk Stream client for a specific agent."""
         if not app_key or not app_secret:
-            logger.warning(f"[DingTalk Stream] Missing credentials for {agent_id}, skipping")
+            print(f"[DingTalk Stream] Missing credentials for {agent_id}, skipping", flush=True)
             return
 
-        logger.info(f"[DingTalk Stream] Starting client for agent {agent_id} (AppKey: {app_key[:8]}...)")
+        print(f"[DingTalk Stream] Starting client for agent {agent_id} (AppKey: {app_key[:8]}...)", flush=True)
+
+        # Capture the main event loop so threads can dispatch coroutines back
+        if self._main_loop is None:
+            self._main_loop = asyncio.get_running_loop()
 
         # Stop existing client if any
         if stop_existing:
@@ -55,7 +60,7 @@ class DingTalkStreamManager:
         )
         self._threads[agent_id] = thread
         thread.start()
-        logger.info(f"[DingTalk Stream] Client thread started for agent {agent_id}")
+        print(f"[DingTalk Stream] Client thread started for agent {agent_id}", flush=True)
 
     def _run_client_thread(
         self,
@@ -68,64 +73,36 @@ class DingTalkStreamManager:
         try:
             import dingtalk_stream
 
-            def on_bot_message(data):
-                """Handle incoming bot message callback."""
-                try:
-                    incoming = dingtalk_stream.ChatbotMessage.from_dict(data)
-                    user_text = (incoming.text.content or "").strip() if incoming.text else ""
+            # Reference to manager's main loop for async dispatch
+            main_loop = self._main_loop
 
-                    if not user_text:
-                        return dingtalk_stream.AckMessage.STATUS_OK, "empty message"
+            class ClawithChatbotHandler(dingtalk_stream.ChatbotHandler):
+                """Custom handler that dispatches messages to the Clawith LLM pipeline."""
 
-                    sender_staff_id = incoming.sender_staff_id or incoming.sender_id or ""
-                    conversation_id = incoming.conversation_id or ""
-                    conversation_type = incoming.conversation_type or "1"  # "1"=single, "2"=group
-                    session_webhook = incoming.session_webhook or ""
-
-                    logger.info(
-                        f"[DingTalk Stream] Message from {sender_staff_id}: {user_text[:80]}"
-                    )
-
-                    # Dispatch to async handler in the main event loop
-                    from app.api.dingtalk import process_dingtalk_message
-
-                    # Find the main event loop from FastAPI
+                async def process(self, callback: dingtalk_stream.CallbackMessage):
+                    """Handle incoming bot message from DingTalk Stream."""
                     try:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            asyncio.run_coroutine_threadsafe(
-                                process_dingtalk_message(
-                                    agent_id=agent_id,
-                                    sender_staff_id=sender_staff_id,
-                                    user_text=user_text,
-                                    conversation_id=conversation_id,
-                                    conversation_type=conversation_type,
-                                    session_webhook=session_webhook,
-                                ),
-                                loop,
-                            )
-                        else:
-                            # Create new loop if needed
-                            asyncio.run(
-                                process_dingtalk_message(
-                                    agent_id=agent_id,
-                                    sender_staff_id=sender_staff_id,
-                                    user_text=user_text,
-                                    conversation_id=conversation_id,
-                                    conversation_type=conversation_type,
-                                    session_webhook=session_webhook,
-                                )
-                            )
-                    except RuntimeError:
-                        # No event loop in this thread — use run_coroutine_threadsafe
-                        # We need to find the main asyncio loop
-                        import sys
-                        main_loop = None
-                        for task in asyncio.all_tasks():
-                            main_loop = task.get_loop()
-                            break
-                        if main_loop:
-                            asyncio.run_coroutine_threadsafe(
+                        incoming = dingtalk_stream.ChatbotMessage(callback)
+                        user_text = self.extract_text_from_incoming_message(incoming)
+
+                        if not user_text:
+                            return dingtalk_stream.AckMessage.STATUS_OK, "empty message"
+
+                        sender_staff_id = incoming.sender_staff_id or incoming.sender_id or ""
+                        conversation_id = incoming.conversation_id or ""
+                        conversation_type = incoming.conversation_type or "1"
+                        session_webhook = incoming.session_webhook or ""
+
+                        print(
+                            f"[DingTalk Stream] Message from {sender_staff_id}: {user_text[:80]}",
+                            flush=True,
+                        )
+
+                        # Dispatch to the main FastAPI event loop for DB + LLM processing
+                        from app.api.dingtalk import process_dingtalk_message
+
+                        if main_loop and main_loop.is_running():
+                            future = asyncio.run_coroutine_threadsafe(
                                 process_dingtalk_message(
                                     agent_id=agent_id,
                                     sender_staff_id=sender_staff_id,
@@ -136,36 +113,46 @@ class DingTalkStreamManager:
                                 ),
                                 main_loop,
                             )
+                            # Wait for result (with timeout)
+                            try:
+                                future.result(timeout=120)
+                            except Exception as e:
+                                print(f"[DingTalk Stream] LLM processing error: {e}", flush=True)
                         else:
-                            logger.error("[DingTalk Stream] No event loop found for async dispatch")
+                            print("[DingTalk Stream] Main loop not available for dispatch", flush=True)
 
-                    return dingtalk_stream.AckMessage.STATUS_OK, "ok"
-                except Exception as e:
-                    logger.error(f"[DingTalk Stream] Error in message handler: {e}", exc_info=True)
-                    return dingtalk_stream.AckMessage.STATUS_SYSTEM_EXCEPTION, str(e)
+                        return dingtalk_stream.AckMessage.STATUS_OK, "ok"
+                    except Exception as e:
+                        print(f"[DingTalk Stream] Error in message handler: {e}", flush=True)
+                        import traceback
+                        traceback.print_exc()
+                        return dingtalk_stream.AckMessage.STATUS_SYSTEM_EXCEPTION, str(e)
 
             credential = dingtalk_stream.Credential(client_id=app_key, client_secret=app_secret)
             client = dingtalk_stream.DingTalkStreamClient(credential=credential)
             client.register_callback_handler(
                 dingtalk_stream.chatbot.ChatbotMessage.TOPIC,
-                dingtalk_stream.ChatbotHandler(on_bot_message),
+                ClawithChatbotHandler(),
             )
 
-            logger.info(f"[DingTalk Stream] Connecting for agent {agent_id}...")
+            print(f"[DingTalk Stream] Connecting for agent {agent_id}...", flush=True)
             # start_forever() blocks until disconnected
             client.start_forever()
 
         except ImportError:
-            logger.error(
+            print(
                 "[DingTalk Stream] dingtalk-stream package not installed. "
-                "Install with: pip install dingtalk-stream"
+                "Install with: pip install dingtalk-stream",
+                flush=True,
             )
         except Exception as e:
-            logger.error(f"[DingTalk Stream] Client error for {agent_id}: {e}", exc_info=True)
+            print(f"[DingTalk Stream] Client error for {agent_id}: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
         finally:
             self._threads.pop(agent_id, None)
             self._stop_events.pop(agent_id, None)
-            logger.info(f"[DingTalk Stream] Client stopped for agent {agent_id}")
+            print(f"[DingTalk Stream] Client stopped for agent {agent_id}", flush=True)
 
     async def stop_client(self, agent_id: uuid.UUID):
         """Stop a running Stream client for an agent."""
@@ -174,13 +161,11 @@ class DingTalkStreamManager:
             stop_event.set()
         thread = self._threads.pop(agent_id, None)
         if thread and thread.is_alive():
-            logger.info(f"[DingTalk Stream] Stopping client for agent {agent_id}")
-            # The thread will exit when start_forever() detects disconnection
-            # or when the daemon thread is cleaned up on process exit
+            print(f"[DingTalk Stream] Stopping client for agent {agent_id}", flush=True)
 
     async def start_all(self):
         """Start Stream clients for all configured DingTalk agents."""
-        logger.info("[DingTalk Stream] Initializing all active DingTalk channels...")
+        print("[DingTalk Stream] Initializing all active DingTalk channels...", flush=True)
         async with async_session() as db:
             result = await db.execute(
                 select(ChannelConfig).where(
@@ -190,6 +175,8 @@ class DingTalkStreamManager:
             )
             configs = result.scalars().all()
 
+        print(f"[DingTalk Stream] Found {len(configs)} configured DingTalk channel(s)", flush=True)
+
         for config in configs:
             if config.app_id and config.app_secret:
                 await self.start_client(
@@ -197,8 +184,9 @@ class DingTalkStreamManager:
                     stop_existing=False,
                 )
             else:
-                logger.warning(
-                    f"[DingTalk Stream] Skipping agent {config.agent_id}: missing credentials"
+                print(
+                    f"[DingTalk Stream] Skipping agent {config.agent_id}: missing credentials",
+                    flush=True,
                 )
 
     def status(self) -> dict:
