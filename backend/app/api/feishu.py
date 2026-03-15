@@ -275,12 +275,49 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
             _final_content = _extracted_text
             if _image_markers:
                 _final_content += "\n" + "\n".join(_image_markers)
+            
+            _display_content = _extracted_text
+            if _image_markers:
+                _display_content += f"\n[包含了 {len(_image_markers)} 张图片]"
+
             # Rewrite as text message so existing handler processes it
-            message["content"] = _json_post.dumps({"text": _final_content})
+            message["content"] = _json_post.dumps({"text": _final_content, "display_text": _display_content})
             msg_type = "text"
             print(f"[Feishu] Normalized post → text='{_extracted_text[:100]}', images={len(_image_markers)}")
 
-        if msg_type in ("file", "image"):
+        if msg_type == "image":
+            import json as _j
+            import base64 as _b64
+            from pathlib import Path as _ImgP
+            from app.config import get_settings as _img_gs
+            
+            _img_content = _j.loads(message.get("content", "{}"))
+            _ik = _img_content.get("image_key", "")
+            if _ik:
+                _msg_id = message.get("message_id", "")
+                _up_dir = _ImgP(_img_gs().AGENT_DATA_DIR) / str(agent_id) / "workspace" / "uploads"
+                _up_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    _ibytes = await feishu_service.download_message_resource(
+                        config.app_id, config.app_secret, _msg_id, _ik, "image"
+                    )
+                    _save = _up_dir / f"image_{_ik[-8:]}.jpg"
+                    _save.write_bytes(_ibytes)
+                    
+                    _b64str = _b64.b64encode(_ibytes).decode("ascii")
+                    _marker = f"[image_data:data:image/jpeg;base64,{_b64str}]"
+                    message["content"] = _j.dumps({
+                        "text": f"[用户发送了图片，请看图片内容]\n{_marker}",
+                        "display_text": "[图片]"
+                    })
+                    msg_type = "text"
+                except Exception as _dl_e:
+                    print(f"[Feishu] Failed to download image {_ik}: {_dl_e}")
+                    msg_type = "file" # Fallback
+            else:
+                msg_type = "file" # Fallback
+
+        if msg_type == "file":
             import asyncio as _asyncio
             _asyncio.create_task(_handle_feishu_file(db, agent_id, config, message, sender_open_id, chat_type, chat_id))
             return {"code": 0, "msg": "ok"}
@@ -290,14 +327,16 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
             import re
             content = json.loads(message.get("content", "{}"))
             user_text = content.get("text", "")
+            display_text = content.get("display_text", user_text)
 
             # Strip @mention tags (e.g. @_user_1) from group messages
             user_text = re.sub(r'@_user_\d+', '', user_text).strip()
+            display_text = re.sub(r'@_user_\d+', '', display_text).strip()
 
-            if not user_text:
+            if not user_text and not display_text:
                 return {"code": 0, "msg": "empty message after stripping mentions"}
 
-            print(f"[Feishu] User text: {user_text[:100]}")
+            print(f"[Feishu] User text: {display_text[:100]}")
 
             # Detect task creation intent
             task_match = re.search(
@@ -446,12 +485,12 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
                 user_id=platform_user_id,
                 external_conv_id=conv_id,
                 source_channel="feishu",
-                first_message_title=user_text,
+                first_message_title=display_text,
             )
             session_conv_id = str(_sess.id)
 
             # Save user message
-            db.add(ChatMessage(agent_id=agent_id, user_id=platform_user_id, role="user", content=user_text, conversation_id=session_conv_id))
+            db.add(ChatMessage(agent_id=agent_id, user_id=platform_user_id, role="user", content=display_text, conversation_id=session_conv_id))
             _sess.last_message_at = _dt.now(_tz.utc)
             await db.commit()
 
@@ -480,7 +519,7 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
                         reverse=True,
                     )
                     for _fp in _candidates:
-                        if _fp.is_file() and (_now - _fp.stat().st_mtime) < 1800:  # 30 min
+                        if _fp.is_file() and _fp.suffix.lower() not in ('.jpg', '.jpeg', '.png', '.gif') and (_now - _fp.stat().st_mtime) < 1800:  # 30 min
                             _recent_file_path = f"uploads/{_fp.name}"
                             break
                 if _recent_file_path:
