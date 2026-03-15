@@ -344,6 +344,25 @@ Body: {"message_id": "<id>", "result": "<response>"}
                 ))}
             </div>
 
+            {/* Navigation — sticky between stepper and card */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', maxWidth: '640px', marginBottom: '16px', position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-primary)', paddingTop: '4px', paddingBottom: '4px' }}>
+                <button className="btn btn-secondary" onClick={() => step > 0 ? setStep(step - 1) : navigate('/')}
+                    disabled={createMutation.isPending}>
+                    {step === 0 ? t('common.cancel') : t('wizard.prev')}
+                </button>
+                {step < STEPS.length - 1 ? (
+                    <button className="btn btn-primary" onClick={() => setStep(step + 1)}
+                        disabled={step === 0 && !form.name}>
+                        {t('wizard.next')} →
+                    </button>
+                ) : (
+                    <button className="btn btn-primary" onClick={handleFinish}
+                        disabled={createMutation.isPending || !form.name}>
+                        {createMutation.isPending ? t('common.loading') : t('wizard.finish')}
+                    </button>
+                )}
+            </div>
+
             {error && (
                 <div style={{ background: 'var(--error-subtle)', color: 'var(--error)', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px' }}>
                     {error}
@@ -813,24 +832,7 @@ Body: {"message_id": "<id>", "result": "<response>"}
                     </div>
                 )}
 
-                {/* Navigation */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '24px' }}>
-                    <button className="btn btn-secondary" onClick={() => step > 0 ? setStep(step - 1) : navigate('/')}
-                        disabled={createMutation.isPending}>
-                        {step === 0 ? t('common.cancel') : t('wizard.prev')}
-                    </button>
-                    {step < STEPS.length - 1 ? (
-                        <button className="btn btn-primary" onClick={() => setStep(step + 1)}
-                            disabled={step === 0 && !form.name}>
-                            {t('wizard.next')} →
-                        </button>
-                    ) : (
-                        <button className="btn btn-primary" onClick={handleFinish}
-                            disabled={createMutation.isPending || !form.name}>
-                            {createMutation.isPending ? t('common.loading') : t('wizard.finish')}
-                        </button>
-                    )}
-                </div>
+
             </div>
 
             {/* Summary sidebar */}
