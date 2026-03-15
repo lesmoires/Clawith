@@ -628,7 +628,15 @@
       "step6": "Left sidebar → Permissions & Scopes → click 'Bulk Import/Export Permissions' → paste the permission JSON below → confirm import",
       "step7": "Left sidebar → App Release (版本管理与发布) → Create Version → fill in description → click Release for Review → for internal apps, you can approve it yourself in the admin console",
       "step8": "After publishing, invite the bot to a Feishu group or have users add it as a direct contact to start chatting",
-      "note": "For internal company apps, the review is usually instant. You must re-publish the app each time you add new permissions."
+      "note": "For internal company apps, the review is usually instant. You must re-publish the app each time you add new permissions.",
+      "ws_step1": "Go to open.feishu.cn → log in → Developer Console → Create Enterprise Self-Built App → fill in name and description → Confirm",
+      "ws_step2": "Left sidebar → Add App Capabilities → click Add next to Bot",
+      "ws_step3": "Left sidebar → Credentials & Basic Info → copy App ID and App Secret",
+      "ws_step4": "Select Long Connection (WebSocket) mode above → paste App ID and App Secret → click Save Config",
+      "ws_step5": "Left sidebar → Permissions & Scopes → click Bulk Import/Export Permissions → paste the permission JSON below → confirm import",
+      "ws_step6": "Left sidebar → App Release → Create Version → Release for Review → approve it in the admin console",
+      "ws_step7": "After publishing, invite the bot to a Feishu group or add it as a direct contact to start chatting",
+      "ws_note": "WebSocket mode requires no public IP or callback URL. The connection is managed automatically."
     },
     "teams": {
       "step1": "Go to portal.azure.com → Azure Active Directory → App registrations → New registration → enter name → select 'Accounts in this organizational directory only' (single-tenant) → Register",
@@ -657,7 +665,14 @@
       "step4": "Fill in the info above → click Save Config → copy the Webhook URL that appears",
       "step5": "Paste the Webhook URL into WeCom's API Receive Message URL field → Save",
       "step6": "Find the app in WeCom and send a test message",
-      "note": "The callback URL must be publicly accessible. WeCom will verify the URL and send encrypted messages."
+      "note": "The callback URL must be publicly accessible. WeCom will verify the URL and send encrypted messages.",
+      "ws_step1": "Log in to work.weixin.qq.com → Security & Management → Management Tools → Intelligent Bots",
+      "ws_step2": "Click Create Bot → select Manual Creation → choose API Mode at the bottom",
+      "ws_step3": "Select 'Long Connection' as the connection method (not URL callback)",
+      "ws_step4": "Fill in bot name, avatar, and set visible scope → Save",
+      "ws_step5": "Copy the Bot ID and Secret that are generated → paste them above → click Save Config",
+      "ws_step6": "Find the bot in WeCom and send a test message",
+      "ws_note": "WebSocket mode requires no public IP, callback URL, or domain verification (ICP). The connection is managed automatically."
     }
   }
 }
