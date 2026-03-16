@@ -271,6 +271,7 @@ export default function Layout() {
     // Auto-select user's tenant or first available tenant; also fix stale localStorage values
     useEffect(() => {
         if (!user) return;
+        if (tenants.length === 0) return; // Don't override while tenants are still loading
         const validTenantIds = tenants.map((t: any) => t.id);
         const storedIsValid = currentTenant &&
             (validTenantIds.includes(currentTenant) || currentTenant === user.tenant_id);
@@ -343,8 +344,8 @@ export default function Layout() {
                                     cursor: 'pointer',
                                 }}
                             >
-                                {tenants.map((t: any) => (
-                                    <option key={t.id} value={t.id}>{t.name}</option>
+                                {tenants.map((tn: any) => (
+                                    <option key={tn.id} value={tn.id}>{tn.name}</option>
                                 ))}
                             </select>
                             {showNewCompany ? (
@@ -588,6 +589,11 @@ export default function Layout() {
                             }} title={t('layout.logout', 'Logout')}>
                                 {SidebarIcons.logout}
                             </button>
+                        </div>
+                        {/* Version */}
+                        <div style={{ textAlign: 'center', fontSize: '10px', color: 'var(--text-quaternary)', marginTop: '8px', letterSpacing: '0.3px' }}>
+                            v{(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '').split('+')[0]}
+                            <span style={{ opacity: 0.6 }}>{(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '').includes('+') ? ` b${(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '').split('+')[1]}` : ''}</span>
                         </div>
                     </div>
                 </div>

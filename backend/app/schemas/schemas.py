@@ -251,6 +251,7 @@ class LLMModelCreate(BaseModel):
     max_tokens_per_day: int | None = None
     enabled: bool = True
     supports_vision: bool = False
+    max_output_tokens: int | None = None
 
 class LLMModelUpdate(BaseModel):
     provider: str | None = None
@@ -261,6 +262,7 @@ class LLMModelUpdate(BaseModel):
     max_tokens_per_day: int | None = None
     enabled: bool | None = None
     supports_vision: bool | None = None
+    max_output_tokens: int | None = None
 
 
 class LLMModelOut(BaseModel):
@@ -272,6 +274,7 @@ class LLMModelOut(BaseModel):
     max_tokens_per_day: int | None = None
     enabled: bool
     supports_vision: bool = False
+    max_output_tokens: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -390,18 +393,45 @@ class HealthResponse(BaseModel):
 
 # ─── Gateway (OpenClaw) ─────────────────────────────────
 
+class GatewayHistoryItem(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+    sender_name: str | None = None
+    created_at: datetime
+
+
+class GatewayRelationshipItem(BaseModel):
+    name: str
+    type: str  # "human" or "agent"
+    role: str | None = None  # e.g. "collaborator", "supervisor"
+    description: str | None = None
+    channels: list[str] = []  # e.g. ["feishu"], ["agent"]
+
+
 class GatewayMessageOut(BaseModel):
     id: uuid.UUID
+    conversation_id: str | None = None
     sender_agent_name: str | None = None
     sender_user_name: str | None = None
+    sender_user_id: str | None = None
     content: str
     created_at: datetime
+    history: list[GatewayHistoryItem] = []
+
 
 
 class GatewayPollResponse(BaseModel):
     messages: list[GatewayMessageOut] = []
+    relationships: list[GatewayRelationshipItem] = []
 
 
 class GatewayReportRequest(BaseModel):
     message_id: uuid.UUID
     result: str = Field(min_length=1)
+
+
+class GatewaySendMessageRequest(BaseModel):
+    target: str  # Name of target person or agent
+    content: str = Field(min_length=1)
+    channel: str | None = None  # Optional: "feishu", "agent", etc. Auto-detected if omitted.
+

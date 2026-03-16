@@ -25,7 +25,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 
 interface LLMModel {
     id: string; provider: string; model: string; label: string;
-    base_url?: string; max_tokens_per_day?: number; enabled: boolean; supports_vision?: boolean; created_at: string;
+    base_url?: string; max_tokens_per_day?: number; enabled: boolean; supports_vision?: boolean; max_output_tokens?: number; created_at: string;
 }
 
 interface LLMProviderSpec {
@@ -705,16 +705,18 @@ export default function EnterpriseSettings() {
     const [toolsView, setToolsView] = useState<'global' | 'agent-installed'>('global');
     const [agentInstalledTools, setAgentInstalledTools] = useState<any[]>([]);
     const loadAllTools = async () => {
-        const data = await fetchJson<any[]>('/tools');
+        const tid = selectedTenantId;
+        const data = await fetchJson<any[]>(`/tools${tid ? `?tenant_id=${tid}` : ''}`);
         setAllTools(data);
     };
     const loadAgentInstalledTools = async () => {
         try {
-            const data = await fetchJson<any[]>('/tools/agent-installed');
+            const tid = selectedTenantId;
+            const data = await fetchJson<any[]>(`/tools/agent-installed${tid ? `?tenant_id=${tid}` : ''}`);
             setAgentInstalledTools(data);
         } catch { }
     };
-    useEffect(() => { if (activeTab === 'tools') { loadAllTools(); loadAgentInstalledTools(); } }, [activeTab]);
+    useEffect(() => { if (activeTab === 'tools') { loadAllTools(); loadAgentInstalledTools(); } }, [activeTab, selectedTenantId]);
 
     // ─── Jina API Key
     const [jinaKey, setJinaKey] = useState('');
@@ -763,13 +765,13 @@ export default function EnterpriseSettings() {
 
     // ─── LLM Models
     const { data: models = [] } = useQuery({
-        queryKey: ['llm-models'],
-        queryFn: () => fetchJson<LLMModel[]>('/enterprise/llm-models'),
+        queryKey: ['llm-models', selectedTenantId],
+        queryFn: () => fetchJson<LLMModel[]>(`/enterprise/llm-models${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`),
         enabled: activeTab === 'llm',
     });
     const [showAddModel, setShowAddModel] = useState(false);
     const [editingModelId, setEditingModelId] = useState<string | null>(null);
-    const [modelForm, setModelForm] = useState({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false });
+    const [modelForm, setModelForm] = useState({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false, max_output_tokens: '' as string });
     const { data: providerSpecs = [] } = useQuery({
         queryKey: ['llm-provider-specs'],
         queryFn: () => fetchJson<LLMProviderSpec[]>('/enterprise/llm-providers'),
@@ -777,12 +779,12 @@ export default function EnterpriseSettings() {
     });
     const providerOptions = providerSpecs.length > 0 ? providerSpecs : FALLBACK_LLM_PROVIDERS;
     const addModel = useMutation({
-        mutationFn: (data: any) => fetchJson('/enterprise/llm-models', { method: 'POST', body: JSON.stringify(data) }),
-        onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models'] }); setShowAddModel(false); setEditingModelId(null); },
+        mutationFn: (data: any) => fetchJson(`/enterprise/llm-models${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
+        onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }); setShowAddModel(false); setEditingModelId(null); },
     });
     const updateModel = useMutation({
         mutationFn: ({ id, data }: { id: string; data: any }) => fetchJson(`/enterprise/llm-models/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-        onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models'] }); setShowAddModel(false); setEditingModelId(null); },
+        onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }); setShowAddModel(false); setEditingModelId(null); },
     });
     const deleteModel = useMutation({
         mutationFn: async ({ id, force = false }: { id: string; force?: boolean }) => {
@@ -807,26 +809,26 @@ export default function EnterpriseSettings() {
             }
             if (!res.ok && res.status !== 204) throw new Error('Delete failed');
         },
-        onSuccess: () => qc.invalidateQueries({ queryKey: ['llm-models'] }),
+        onSuccess: () => qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }),
     });
 
     // ─── Approvals
     const { data: approvals = [] } = useQuery({
-        queryKey: ['approvals'],
-        queryFn: () => fetchJson<any[]>('/enterprise/approvals'),
+        queryKey: ['approvals', selectedTenantId],
+        queryFn: () => fetchJson<any[]>(`/enterprise/approvals${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`),
         enabled: activeTab === 'approvals',
     });
     const resolveApproval = useMutation({
         mutationFn: ({ id, action }: { id: string; action: string }) =>
             fetchJson(`/enterprise/approvals/${id}/resolve`, { method: 'POST', body: JSON.stringify({ action }) }),
-        onSuccess: () => qc.invalidateQueries({ queryKey: ['approvals'] }),
+        onSuccess: () => qc.invalidateQueries({ queryKey: ['approvals', selectedTenantId] }),
     });
 
     // ─── Audit Logs
     const BG_ACTIONS = ['supervision_tick', 'supervision_fire', 'supervision_error', 'schedule_tick', 'schedule_fire', 'schedule_error', 'heartbeat_tick', 'heartbeat_fire', 'heartbeat_error', 'server_startup'];
     const { data: auditLogs = [] } = useQuery({
-        queryKey: ['audit-logs'],
-        queryFn: () => fetchJson<any[]>('/enterprise/audit-logs?limit=200'),
+        queryKey: ['audit-logs', selectedTenantId],
+        queryFn: () => fetchJson<any[]>(`/enterprise/audit-logs?limit=200${selectedTenantId ? `&tenant_id=${selectedTenantId}` : ''}`),
         enabled: activeTab === 'audit',
     });
     const filteredAuditLogs = auditLogs.filter((log: any) => {
@@ -863,7 +865,7 @@ export default function EnterpriseSettings() {
                 {activeTab === 'llm' && (
                     <div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-                            <button className="btn btn-primary" onClick={() => { setEditingModelId(null); setModelForm({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false }); setShowAddModel(true); }}>+ {t('enterprise.llm.addModel')}</button>
+                            <button className="btn btn-primary" onClick={() => { setEditingModelId(null); setModelForm({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false, max_output_tokens: '' }); setShowAddModel(true); }}>+ {t('enterprise.llm.addModel')}</button>
                         </div>
 
                         {showAddModel && (
@@ -904,14 +906,21 @@ export default function EnterpriseSettings() {
                                             <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>— Enable for models that can analyze images (GPT-4o, Claude, Qwen-VL, etc.)</span>
                                         </label>
                                     </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Max Output Tokens</label>
+                                        <input className="form-input" type="number" placeholder="Auto (provider default)" value={modelForm.max_output_tokens} onChange={e => setModelForm({ ...modelForm, max_output_tokens: e.target.value })} />
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Override the default output token limit. Leave empty to use provider default (4096).</div>
+                                    </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                                     <button className="btn btn-secondary" onClick={() => { setShowAddModel(false); setEditingModelId(null); }}>{t('common.cancel')}</button>
                                     <button className="btn btn-primary" onClick={() => {
                                         if (editingModelId) {
-                                            updateModel.mutate({ id: editingModelId, data: modelForm });
+                                            const data = { ...modelForm, max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null };
+                                            updateModel.mutate({ id: editingModelId, data });
                                         } else {
-                                            addModel.mutate(modelForm);
+                                            const data = { ...modelForm, max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null };
+                                            addModel.mutate(data);
                                         }
                                     }} disabled={!modelForm.model || (!editingModelId && !modelForm.api_key)}>
                                         {t('common.save')}
@@ -937,7 +946,7 @@ export default function EnterpriseSettings() {
                                         {m.supports_vision && <span className="badge" style={{ background: 'rgba(99,102,241,0.15)', color: 'rgb(99,102,241)', fontSize: '10px' }}>👁 Vision</span>}
                                         <button className="btn btn-ghost" onClick={() => {
                                             setEditingModelId(m.id);
-                                            setModelForm({ provider: m.provider, model: m.model, label: m.label, base_url: m.base_url || '', api_key: '', supports_vision: m.supports_vision || false });
+                                            setModelForm({ provider: m.provider, model: m.model, label: m.label, base_url: m.base_url || '', api_key: '', supports_vision: m.supports_vision || false, max_output_tokens: m.max_output_tokens ? String(m.max_output_tokens) : '' });
                                             setShowAddModel(true);
                                         }} style={{ fontSize: '12px' }}>✏️ Edit</button>
                                         <button className="btn btn-ghost" onClick={() => deleteModel.mutate({ id: m.id })} style={{ color: 'var(--error)' }}>{t('common.delete')}</button>
@@ -1044,10 +1053,10 @@ export default function EnterpriseSettings() {
 
                         {/* ── 0. Company Name ── */}
                         <h3 style={{ marginBottom: '8px' }}>{t('enterprise.companyName.title', 'Company Name')}</h3>
-                        <CompanyNameEditor />
+                        <CompanyNameEditor key={`name-${selectedTenantId}`} />
 
                         {/* ── 0.5. Company Timezone ── */}
-                        <CompanyTimezoneEditor />
+                        <CompanyTimezoneEditor key={`tz-${selectedTenantId}`} />
 
                         {/* ── 1. Company Intro ── */}
                         <h3 style={{ marginBottom: '8px' }}>{t('enterprise.companyIntro.title', 'Company Intro')}</h3>
@@ -1092,6 +1101,39 @@ export default function EnterpriseSettings() {
 
                         {/* ── Theme Color ── */}
                         <ThemeColorPicker />
+
+                        {/* ── Danger Zone: Delete Company ── */}
+                        <div style={{ marginTop: '32px', padding: '16px', border: '1px solid var(--status-error, #e53e3e)', borderRadius: '8px' }}>
+                            <h3 style={{ marginBottom: '4px', color: 'var(--status-error, #e53e3e)' }}>{t('enterprise.dangerZone', 'Danger Zone')}</h3>
+                            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                                {t('enterprise.deleteCompanyDesc', 'Permanently delete this company and all its data including agents, models, tools, and skills. This action cannot be undone.')}
+                            </p>
+                            <button
+                                className="btn"
+                                onClick={async () => {
+                                    const name = document.querySelector<HTMLInputElement>('.company-name-input')?.value || selectedTenantId;
+                                    if (!confirm(t('enterprise.deleteCompanyConfirm', 'Are you sure you want to delete this company and ALL its data? This cannot be undone.'))) return;
+                                    try {
+                                        const res = await fetchJson<any>(`/tenants/${selectedTenantId}`, { method: 'DELETE' });
+                                        // Switch to fallback tenant
+                                        const fallbackId = res.fallback_tenant_id;
+                                        localStorage.setItem('current_tenant_id', fallbackId);
+                                        setSelectedTenantId(fallbackId);
+                                        window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: fallbackId }));
+                                        qc.invalidateQueries({ queryKey: ['tenants'] });
+                                    } catch (e: any) {
+                                        alert(e.message || 'Delete failed');
+                                    }
+                                }}
+                                style={{
+                                    background: 'transparent', color: 'var(--status-error, #e53e3e)',
+                                    border: '1px solid var(--status-error, #e53e3e)', borderRadius: '6px',
+                                    padding: '6px 16px', fontSize: '13px', cursor: 'pointer',
+                                }}
+                            >
+                                {t('enterprise.deleteCompany', 'Delete This Company')}
+                            </button>
+                        </div>
                     </div>
                 )}
 

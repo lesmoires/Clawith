@@ -143,36 +143,62 @@ export default function AgentCreate() {
                                 padding: '12px', background: 'var(--bg-secondary)', borderRadius: '6px',
                                 fontSize: '11px', lineHeight: 1.6, overflow: 'auto', maxHeight: '280px',
                                 border: '1px solid var(--border-default)', whiteSpace: 'pre-wrap',
-                            }}>{`Please configure yourself to sync with Clawith platform by doing the following two things:
-
-1. Create a skill file at skills/clawith_sync.md with this content:
+                            }}>{`Please create a skill file at skills/clawith_sync.md with the following content, then add "Check Clawith inbox using the clawith_sync skill and process any pending messages" to your HEARTBEAT.md:
 
 ---
 name: clawith_sync
-description: Sync with Clawith platform
+description: Sync with Clawith platform — check inbox, submit results, and send messages.
 ---
 
 # Clawith Sync
 
 ## When to use
-Check for new messages from Clawith during every heartbeat.
+Check for new messages from the Clawith platform during every heartbeat cycle.
+You can also proactively send messages to people and agents in your relationships.
 
 ## Instructions
 
 ### 1. Check inbox
-GET ${window.location.origin}/api/gateway/poll
-Header: X-Api-Key: ${createdApiKey}
+Make an HTTP GET request:
+- URL: ${window.location.origin}/api/gateway/poll
+- Header: X-Api-Key: ${createdApiKey}
+
+The response contains a \`messages\` array. Each message includes:
+- \`id\` — unique message ID (use this for reporting)
+- \`content\` — the message text
+- \`sender_user_name\` — name of the Clawith user who sent it
+- \`sender_user_id\` — unique ID of the sender
+- \`conversation_id\` — the conversation this message belongs to
+- \`history\` — array of previous messages in this conversation for context
+
+The response also contains a \`relationships\` array describing your colleagues:
+- \`name\` — the person or agent name
+- \`type\` — "human" or "agent"
+- \`role\` — relationship type (e.g. collaborator, supervisor)
+- \`channels\` — available communication channels (e.g. ["feishu"], ["agent"])
+
+**IMPORTANT**: Use the \`history\` array to understand conversation context before replying.
+Different \`sender_user_name\` values mean different people — address them accordingly.
 
 ### 2. Report results
-POST ${window.location.origin}/api/gateway/report
-Header: X-Api-Key: ${createdApiKey}
-Body: {"message_id": "<id>", "result": "<response>"}
+For each completed message, make an HTTP POST request:
+- URL: ${window.location.origin}/api/gateway/report
+- Header: X-Api-Key: ${createdApiKey}
+- Header: Content-Type: application/json
+- Body: {"message_id": "<id from the message>", "result": "<your response>"}
 
-2. Add this line to your HEARTBEAT.md:
-- Check Clawith inbox using the clawith_sync skill`}</pre>
+### 3. Send a message to someone
+To proactively contact a person or agent, make an HTTP POST request:
+- URL: ${window.location.origin}/api/gateway/send-message
+- Header: X-Api-Key: ${createdApiKey}
+- Header: Content-Type: application/json
+- Body: {"target": "<name of person or agent>", "content": "<your message>"}
+
+The system auto-detects the best channel. For agents, the reply appears in your next poll.
+For humans, the message is delivered via their available channel (e.g. Feishu).`}</pre>
                             <button className="btn btn-ghost" style={{ position: 'absolute', top: '4px', right: '4px', fontSize: '11px' }}
                                 onClick={() => {
-                                    const text = `Please configure yourself to sync with Clawith platform by doing the following two things:\n\n1. Create a skill file at skills/clawith_sync.md with this content:\n\n---\nname: clawith_sync\ndescription: Sync with Clawith platform\n---\n\n# Clawith Sync\n\n## When to use\nCheck for new messages from Clawith during every heartbeat.\n\n## Instructions\n\n### 1. Check inbox\nGET ${window.location.origin}/api/gateway/poll\nHeader: X-Api-Key: ${createdApiKey}\n\n### 2. Report results\nPOST ${window.location.origin}/api/gateway/report\nHeader: X-Api-Key: ${createdApiKey}\nBody: {"message_id": "<id>", "result": "<response>"}\n\n2. Add this line to your HEARTBEAT.md:\n- Check Clawith inbox using the clawith_sync skill`;
+                                    const text = `Please create a skill file at skills/clawith_sync.md with the following content, then add "Check Clawith inbox using the clawith_sync skill and process any pending messages" to your HEARTBEAT.md:\n\n---\nname: clawith_sync\ndescription: Sync with Clawith platform — check inbox, submit results, and send messages.\n---\n\n# Clawith Sync\n\n## When to use\nCheck for new messages from the Clawith platform during every heartbeat cycle.\nYou can also proactively send messages to people and agents in your relationships.\n\n## Instructions\n\n### 1. Check inbox\nMake an HTTP GET request:\n- URL: ${window.location.origin}/api/gateway/poll\n- Header: X-Api-Key: ${createdApiKey}\n\nThe response contains a \`messages\` array. Each message includes:\n- \`id\` — unique message ID (use this for reporting)\n- \`content\` — the message text\n- \`sender_user_name\` — name of the Clawith user who sent it\n- \`sender_user_id\` — unique ID of the sender\n- \`conversation_id\` — the conversation this message belongs to\n- \`history\` — array of previous messages in this conversation for context\n\nThe response also contains a \`relationships\` array describing your colleagues:\n- \`name\` — the person or agent name\n- \`type\` — "human" or "agent"\n- \`role\` — relationship type (e.g. collaborator, supervisor)\n- \`channels\` — available communication channels (e.g. ["feishu"], ["agent"])\n\n**IMPORTANT**: Use the \`history\` array to understand conversation context before replying.\nDifferent \`sender_user_name\` values mean different people — address them accordingly.\n\n### 2. Report results\nFor each completed message, make an HTTP POST request:\n- URL: ${window.location.origin}/api/gateway/report\n- Header: X-Api-Key: ${createdApiKey}\n- Header: Content-Type: application/json\n- Body: {"message_id": "<id from the message>", "result": "<your response>"}\n\n### 3. Send a message to someone\nTo proactively contact a person or agent, make an HTTP POST request:\n- URL: ${window.location.origin}/api/gateway/send-message\n- Header: X-Api-Key: ${createdApiKey}\n- Header: Content-Type: application/json\n- Body: {"target": "<name of person or agent>", "content": "<your message>"}\n\nThe system auto-detects the best channel. For agents, the reply appears in your next poll.\nFor humans, the message is delivered via their available channel (e.g. Feishu).`;
                                     navigator.clipboard.writeText(text);
                                 }}
                             >{t('common.copy', 'Copy')}</button>
@@ -342,6 +368,25 @@ Body: {"message_id": "<id>", "result": "<response>"}
                         {i < STEPS.length - 1 && <div className="wizard-connector" />}
                     </div>
                 ))}
+            </div>
+
+            {/* Navigation — sticky between stepper and card */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', maxWidth: '640px', marginBottom: '16px', position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-primary)', paddingTop: '4px', paddingBottom: '4px' }}>
+                <button className="btn btn-secondary" onClick={() => step > 0 ? setStep(step - 1) : navigate('/')}
+                    disabled={createMutation.isPending}>
+                    {step === 0 ? t('common.cancel') : t('wizard.prev')}
+                </button>
+                {step < STEPS.length - 1 ? (
+                    <button className="btn btn-primary" onClick={() => setStep(step + 1)}
+                        disabled={step === 0 && !form.name}>
+                        {t('wizard.next')} →
+                    </button>
+                ) : (
+                    <button className="btn btn-primary" onClick={handleFinish}
+                        disabled={createMutation.isPending || !form.name}>
+                        {createMutation.isPending ? t('common.loading') : t('wizard.finish')}
+                    </button>
+                )}
             </div>
 
             {error && (
@@ -727,7 +772,7 @@ Body: {"message_id": "<id>", "result": "<response>"}
                                         borderBottom: feishuOpen ? '1px solid var(--border-default)' : 'none',
                                     }}
                                 >
-                                    <span style={{ fontSize: '20px' }}>🐦</span>
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3.64 7.2c.83 2.33 2.52 4.36 4.76 5.53L19.2 3.2c-.32-.09-.67-.11-1.03-.04L3.64 7.2z" fill="#00D6B9"/><path d="M8.4 12.73c.68.35 1.41.6 2.16.73l10.2-7.52c-.26-.56-.72-1.02-1.36-1.24L8.4 12.73z" fill="#3370FF"/><path d="M10.56 13.46c1.18.19 2.39.09 3.5-.3l6.86-5.06-.12-.14L10.56 13.46z" fill="#3370FF"/><path d="M14.06 13.16a8.1 8.1 0 002.62-1.67l4.24-3.13-.12-.42L14.06 13.16z" fill="#3370FF"/><path d="M16.68 11.49a8 8 0 001.7-2.15l2.54-1.87-.12-.53-4.12 4.55z" fill="#3370FF"/><path d="M3.64 7.2l-.24.7c-.94 2.82-.37 5.6 1.36 7.7L16.68 3.96 3.64 7.2z" fill="#00D6B9"/><path d="M4.76 15.6a8.02 8.02 0 003.64 3.94V12.73l-3.64 2.87z" fill="#3370FF"/><path d="M8.4 19.54c.68.35 1.41.56 2.16.64v-6.72l-2.16 6.08z" fill="#3370FF"/></svg>
                                     <div style={{ flex: 1 }}>
                                         <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('wizard.step5.feishu', 'Feishu / Lark')}</div>
                                         <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('wizard.step5.feishuDesc', 'Connect via Feishu Open Platform bot')}</div>
@@ -784,23 +829,24 @@ Body: {"message_id": "<id>", "result": "<response>"}
                                 )}
                             </div>
 
-                            {/* Other channels — coming soon */}
+                            {/* Other channels — configurable in Settings after creation */}
                             {[
-                                { icon: '💬', name: t('wizard.step5.dingtalk', 'DingTalk'), desc: t('wizard.step5.dingtalkDesc', 'DingTalk custom robot integration') },
-                                { icon: '🏢', name: t('wizard.step5.wecom', 'WeCom'), desc: t('wizard.step5.wecomDesc', 'WeCom (企业微信) application bot') },
-                                { icon: '📱', name: 'WhatsApp', desc: t('wizard.step5.whatsappDesc', 'WhatsApp Business API integration') },
+                                { icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="4" fill="#7B83EB"/><path d="M14.5 7a2 2 0 100-4 2 2 0 000 4zm-5 2a2.5 2.5 0 100-5 2.5 2.5 0 000 5zm5.5 1.5c0-.3.2-.5.5-.5h3a2 2 0 012 2v3.5a1 1 0 01-2 0V12h-3a.5.5 0 01-.5-.5zM4 11.5A1.5 1.5 0 015.5 10h5A1.5 1.5 0 0112 11.5V17a3 3 0 01-6 0v-1H5.5A1.5 1.5 0 014 14.5v-3z" fill="white"/></svg>, name: t('common.channels.teams', 'Microsoft Teams'), desc: 'Teams Bot' },
+                                { icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#07C160"/><path d="M7.5 9.5a1 1 0 110-2 1 1 0 010 2zm4 0a1 1 0 110-2 1 1 0 010 2zm4 0a1 1 0 110-2 1 1 0 010 2zM6 13h5l2 3h-3l-1 2-1-2H6v-3z" fill="white"/></svg>, name: t('common.channels.wecom', 'WeCom'), desc: 'WebSocket / Webhook' },
+                                { icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="4" fill="#007FFF"/><path d="M8.5 6.5l7.5 1.3-3.5 3.7 3.5 3.7L8.5 16.5v-10z" fill="white"/></svg>, name: t('common.channels.dingtalk', 'DingTalk'), desc: 'Stream Mode' },
+                                { icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#0052CC"/><path d="M7 13l3-6 2 4 2-4 3 6H7z" fill="white"/></svg>, name: 'Atlassian', desc: 'Jira / Confluence / Compass (Rovo MCP)' },
                             ].map((ch) => (
-                                <div key={ch.name} style={{
+                                <div key={typeof ch.name === 'string' ? ch.name : ch.desc} style={{
                                     display: 'flex', alignItems: 'center', gap: '12px', padding: '14px',
                                     background: 'var(--bg-elevated)', border: '1px solid var(--border-default)',
-                                    borderRadius: '8px', opacity: 0.6,
+                                    borderRadius: '8px', opacity: 0.7,
                                 }}>
-                                    <span style={{ fontSize: '20px' }}>{ch.icon}</span>
+                                    {ch.icon}
                                     <div style={{ flex: 1 }}>
                                         <div style={{ fontWeight: 500, fontSize: '13px' }}>{ch.name}</div>
                                         <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{ch.desc}</div>
                                     </div>
-                                    <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '10px', background: 'var(--bg-secondary)', color: 'var(--text-tertiary)', fontWeight: 500 }}>Coming Soon</span>
+                                    <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '10px', background: 'var(--bg-secondary)', color: 'var(--text-tertiary)', fontWeight: 500 }}>Configure in Settings</span>
                                 </div>
                             ))}
                         </div>
@@ -813,24 +859,7 @@ Body: {"message_id": "<id>", "result": "<response>"}
                     </div>
                 )}
 
-                {/* Navigation */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '24px' }}>
-                    <button className="btn btn-secondary" onClick={() => step > 0 ? setStep(step - 1) : navigate('/')}
-                        disabled={createMutation.isPending}>
-                        {step === 0 ? t('common.cancel') : t('wizard.prev')}
-                    </button>
-                    {step < STEPS.length - 1 ? (
-                        <button className="btn btn-primary" onClick={() => setStep(step + 1)}
-                            disabled={step === 0 && !form.name}>
-                            {t('wizard.next')} →
-                        </button>
-                    ) : (
-                        <button className="btn btn-primary" onClick={handleFinish}
-                            disabled={createMutation.isPending || !form.name}>
-                            {createMutation.isPending ? t('common.loading') : t('wizard.finish')}
-                        </button>
-                    )}
-                </div>
+
             </div>
 
             {/* Summary sidebar */}

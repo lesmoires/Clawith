@@ -169,7 +169,7 @@ async def call_llm(
     if supports_vision:
         import re as _re_v
         for i, msg in enumerate(api_messages):
-            if msg.role != "user" or not msg.content:
+            if msg.role != "user" or not msg.content or not isinstance(msg.content, str):
                 continue
             content_str = msg.content
             # Find [image_data:data:image/...;base64,...] markers
@@ -198,7 +198,7 @@ async def call_llm(
                 continue
             if "[image_data:" in msg.content:
                 _n_imgs = len(_re_strip.findall(_img_pattern, msg.content))
-                cleaned = _re_strip.sub('', msg.content).strip()
+                cleaned = _re_strip.sub(_img_pattern, '', msg.content).strip()
                 if _n_imgs > 0:
                     cleaned += f"\n[用户发送了 {_n_imgs} 张图片，但当前模型不支持视觉，无法查看图片内容]"
                 api_messages[i] = LLMMessage(
@@ -218,7 +218,7 @@ async def call_llm(
     except Exception as e:
         return f"[Error] Failed to create LLM client: {e}"
 
-    max_tokens = get_max_tokens(model.provider, model.model)
+    max_tokens = get_max_tokens(model.provider, model.model, getattr(model, 'max_output_tokens', None))
 
     # ── Per-round token accumulator ──
     from app.services.token_tracker import record_token_usage, extract_usage_tokens, estimate_tokens_from_chars

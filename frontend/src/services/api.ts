@@ -252,7 +252,10 @@ export const channelApi = {
 
 // ─── Enterprise ───────────────────────────────────────
 export const enterpriseApi = {
-    llmModels: () => request<any[]>('/enterprise/llm-models'),
+    llmModels: () => {
+        const tid = localStorage.getItem('current_tenant_id');
+        return request<any[]>(`/enterprise/llm-models${tid ? `?tenant_id=${tid}` : ''}`);
+    },
     templates: () => request<any[]>('/agents/templates'),
 
     // Enterprise Knowledge Base
@@ -321,7 +324,10 @@ export const scheduleApi = {
 
 // ─── Skills ───────────────────────────────────────────
 export const skillApi = {
-    list: () => request<any[]>('/skills/'),
+    list: () => {
+        const tid = localStorage.getItem('current_tenant_id');
+        return request<any[]>(`/skills/${tid ? `?tenant_id=${tid}` : ''}`);
+    },
     get: (id: string) => request<any>(`/skills/${id}`),
     create: (data: any) =>
         request<any>('/skills/', { method: 'POST', body: JSON.stringify(data) }),

@@ -1344,7 +1344,7 @@ select:focus {
 }
 
 .wizard-step.completed {
-  color: var(--success);
+  color: var(--accent-text);
 }
 
 .wizard-step-number {
