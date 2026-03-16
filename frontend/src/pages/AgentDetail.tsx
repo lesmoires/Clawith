@@ -4413,11 +4413,9 @@ function AgentDetailInner() {
                                                 </div>
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                {channelConfig && (
-                                                    <span className={`badge ${channelConfig.is_configured ? 'badge-success' : 'badge-warning'}`}>
-                                                        {channelConfig.is_configured ? t('agent.settings.channel.configured') : t('agent.settings.channel.notConfigured')}
-                                                    </span>
-                                                )}
+                                                <span className={`badge ${channelConfig?.is_configured ? 'badge-success' : 'badge-warning'}`}>
+                                                    {channelConfig?.is_configured ? t('agent.settings.channel.configured') : t('agent.settings.channel.notConfigured')}
+                                                </span>
                                                 <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', transition: 'transform 0.2s', transform: feishuOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
                                             </div>
                                         </div>
