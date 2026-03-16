@@ -150,6 +150,10 @@ start_postgres() {
 start_backend() {
     echo -e "${YELLOW}🚀 Starting backend...${NC}"
     cd "$BACKEND_DIR"
+
+    # Auto-run data migrations (idempotent)
+    echo -e "${YELLOW}🔄 Running data migrations...${NC}"
+    .venv/bin/python -m app.scripts.migrate_schedules_to_triggers || true
     nohup env PYTHONUNBUFFERED=1 \
         PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-}" \
         DATABASE_URL="$DATABASE_URL" \
