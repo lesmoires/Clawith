@@ -369,7 +369,7 @@ export const skillApi = {
     },
 };
 
-// ─── Triggers (Pulse Engine) ──────────────────────────
+// ─── Triggers (Aware Engine) ──────────────────────────
 export const triggerApi = {
     list: (agentId: string) =>
         request<any[]>(`/agents/${agentId}/triggers`),

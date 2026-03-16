@@ -26,7 +26,7 @@ const getCategoryLabels = (t: any): Record<string, string> => ({
     task: t('agent.toolCategories.task'),
     communication: t('agent.toolCategories.communication'),
     search: t('agent.toolCategories.search'),
-    pulse: t('agent.toolCategories.pulse', 'Pulse & Triggers'),
+    aware: t('agent.toolCategories.aware', 'Aware & Triggers'),
     social: t('agent.toolCategories.social', 'Social'),
     code: t('agent.toolCategories.code', 'Code & Execution'),
     discovery: t('agent.toolCategories.discovery', 'Discovery'),
@@ -714,9 +714,9 @@ function AgentDetailInner() {
         enabled: !!id && activeTab === 'aware',
     });
 
-    // ── Aware tab data: pulse sessions (trigger monologues) ──
-    const { data: pulseSessions = [] } = useQuery({
-        queryKey: ['pulse-sessions', id],
+    // ── Aware tab data: reflection sessions (trigger monologues) ──
+    const { data: reflectionSessions = [] } = useQuery({
+        queryKey: ['reflection-sessions', id],
         queryFn: async () => {
             const tkn = localStorage.getItem('token');
             const res = await fetch(`/api/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
@@ -2371,9 +2371,9 @@ function AgentDetailInner() {
                             )}
 
                             {/* ── Reflections Card ── */}
-                            {pulseSessions.length > 0 && (() => {
-                                const visibleSessions = showAllReflections ? pulseSessions : pulseSessions.slice(0, SECTION_PAGE_SIZE);
-                                const hiddenCount = pulseSessions.length - visibleSessions.length;
+                            {reflectionSessions.length > 0 && (() => {
+                                const visibleSessions = showAllReflections ? reflectionSessions : reflectionSessions.slice(0, SECTION_PAGE_SIZE);
+                                const hiddenCount = reflectionSessions.length - visibleSessions.length;
                                 return (
                                     <div className="card" style={{ padding: '16px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -2382,7 +2382,7 @@ function AgentDetailInner() {
                                                 <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('agent.aware.reflectionsDesc')}</span>
                                             </div>
                                             <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                                {pulseSessions.length} session{pulseSessions.length > 1 ? 's' : ''}
+                                                {reflectionSessions.length} session{reflectionSessions.length > 1 ? 's' : ''}
                                             </span>
                                         </div>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -2577,7 +2577,7 @@ function AgentDetailInner() {
                                                 );
                                             })}
                                         </div>
-                                        {pulseSessions.length > SECTION_PAGE_SIZE && (
+                                        {reflectionSessions.length > SECTION_PAGE_SIZE && (
                                             <button
                                                 onClick={(e) => { const collapse = showAllReflections; setShowAllReflections(!showAllReflections); if (collapse) e.currentTarget.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
                                                 className="btn btn-ghost"

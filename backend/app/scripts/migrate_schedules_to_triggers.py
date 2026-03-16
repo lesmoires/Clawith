@@ -1,6 +1,6 @@
 """Migrate existing AgentSchedule records to AgentTrigger (cron type).
 
-Run this script once after deploying Phase 2 of the Pulse engine.
+Run this script once after deploying Phase 2 of the Aware engine.
 It converts all existing agent_schedules into agent_triggers with type='cron'.
 
 Usage:

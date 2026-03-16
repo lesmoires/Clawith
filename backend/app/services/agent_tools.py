@@ -111,7 +111,7 @@ AGENT_TOOLS = [
             },
         },
     },
-    # --- Trigger management tools (Pulse engine) ---
+    # --- Trigger management tools (Aware engine) ---
     {
         "type": "function",
         "function": {
@@ -2992,7 +2992,7 @@ async def _import_mcp_server(agent_id: uuid.UUID, arguments: dict) -> str:
     return await import_mcp_from_smithery(server_id, agent_id, config or None, reauthorize=reauthorize)
 
 
-# ─── Trigger Management Handlers (Pulse Engine) ────────────────────
+# ─── Trigger Management Handlers (Aware Engine) ────────────────────
 
 MAX_TRIGGERS_PER_AGENT = 20
 VALID_TRIGGER_TYPES = {"cron", "once", "interval", "poll", "on_message", "webhook"}

@@ -226,7 +226,7 @@ async def call_llm(
 
     # Tool-calling loop (configurable per agent, default 50)
     for round_i in range(_max_tool_rounds):
-        # ── Dynamic tool-call limit warning (Pulse engine) ──
+        # ── Dynamic tool-call limit warning (Aware engine) ──
         # Don't tell the agent about limits at the start — only warn when approaching.
         # This prevents models from rushing to complete tasks prematurely.
         _warn_threshold_80 = int(_max_tool_rounds * 0.8)
