@@ -647,17 +647,31 @@ export default function EnterpriseSettings() {
     const [companyIntroSaving, setCompanyIntroSaving] = useState(false);
     const [companyIntroSaved, setCompanyIntroSaved] = useState(false);
 
-    // Load Company Intro
+    // Company intro key: per-tenant (company_intro_{tenantId}), fallback to global for default company
+    const companyIntroKey = selectedTenantId ? `company_intro_${selectedTenantId}` : 'company_intro';
+
+    // Load Company Intro (try tenant-scoped key first, fallback to global)
     useEffect(() => {
-        fetchJson<any>('/enterprise/system-settings/company_intro')
-            .then(d => { if (d?.value?.content) setCompanyIntro(d.value.content); })
+        setCompanyIntro('');
+        if (!selectedTenantId) return;
+        const tenantKey = `company_intro_${selectedTenantId}`;
+        fetchJson<any>(`/enterprise/system-settings/${tenantKey}`)
+            .then(d => {
+                if (d?.value?.content) {
+                    setCompanyIntro(d.value.content);
+                } else {
+                    // Fallback: check global key for backward compat (default company)
+                    return fetchJson<any>('/enterprise/system-settings/company_intro')
+                        .then(g => { if (g?.value?.content) setCompanyIntro(g.value.content); });
+                }
+            })
             .catch(() => { });
-    }, []);
+    }, [selectedTenantId]);
 
     const saveCompanyIntro = async () => {
         setCompanyIntroSaving(true);
         try {
-            await fetchJson('/enterprise/system-settings/company_intro', {
+            await fetchJson(`/enterprise/system-settings/${companyIntroKey}`, {
                 method: 'PUT', body: JSON.stringify({ value: { content: companyIntro } }),
             });
             setCompanyIntroSaved(true);
