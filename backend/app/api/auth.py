@@ -45,26 +45,8 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
     user_count = await db.execute(select(func.count()).select_from(User))
     is_first_user = user_count.scalar() == 0
 
-    # ── Invitation code check (platform-level gating — legacy support) ──
-    from app.models.system_settings import SystemSetting
-    inv_setting = await db.execute(select(SystemSetting).where(SystemSetting.key == "invitation_code_enabled"))
-    inv_s = inv_setting.scalar_one_or_none()
-    invitation_required = inv_s.value.get("enabled", False) if inv_s else False
-
-    if invitation_required and not is_first_user:
-        if not data.invitation_code:
-            raise HTTPException(status_code=400, detail="Invitation code is required")
-        from app.models.invitation_code import InvitationCode
-        ic_result = await db.execute(
-            select(InvitationCode).where(InvitationCode.code == data.invitation_code, InvitationCode.is_active == True)
-        )
-        invitation_code_obj = ic_result.scalar_one_or_none()
-        if not invitation_code_obj:
-            raise HTTPException(status_code=400, detail="Invalid invitation code")
-        if invitation_code_obj.used_count >= invitation_code_obj.max_uses:
-            raise HTTPException(status_code=400, detail="Invitation code has reached its usage limit")
-        # Increment usage
-        invitation_code_obj.used_count += 1
+    # Note: invitation code validation has been moved to the company-join flow
+    # (POST /tenants/join). Registration itself is now open.
 
     # Resolve tenant and role for first user only
     tenant_uuid = None

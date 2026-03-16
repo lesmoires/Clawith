@@ -10,6 +10,7 @@
     "companyShared": "公司共用",
     "newAgent": "新建数字员工",
     "enterprise": "企业设置",
+    "adminCompanies": "公司管理",
     "language": "语言",
     "plaza": "广场"
   },
@@ -463,7 +464,8 @@
       "approvals": "审批",
       "skills": "技能管理",
       "quotas": "配额",
-      "users": "用户"
+      "users": "用户",
+      "invites": "邀请码"
     },
     "stats": {
       "users": "{{count}} 用户",
@@ -573,7 +575,9 @@
     }
   },
   "common": {
+    "create": "创建",
     "save": "保存",
+    "noPermission": "你没有权限访问此页面。",
     "cancel": "取消",
     "confirm": "确认",
     "delete": "删除",
@@ -597,6 +601,43 @@
       "dingtalk": "钉钉",
       "wecom": "企业微信"
     }
+  },
+  "admin": {
+    "title": "公司管理",
+    "desc": "管理所有公司，创建新公司，配置平台级设置。",
+    "createCompany": "创建公司",
+    "platformSettings": "平台设置",
+    "allowSelfCreate": "允许用户自行创建公司",
+    "allowSelfCreateDesc": "关闭后，仅平台管理员可以创建公司。",
+    "inviteCodeRequired": "注册需要邀请码",
+    "inviteCodeRequiredDesc": "开启后，新用户必须提供有效的邀请码才能注册。",
+    "companyNamePlaceholder": "公司名称",
+    "companyCreated": "公司创建成功",
+    "adminInviteCode": "管理员邀请码（仅限一次使用，首位使用者成为公司管理员）：",
+    "company": "公司",
+    "users": "用户数",
+    "agents": "数字员工",
+    "tokens": "Token 用量",
+    "status": "状态",
+    "active": "正常",
+    "disabled": "已停用",
+    "disable": "停用",
+    "enable": "启用",
+    "confirmDisable": "停用此公司？所有用户和数字员工将被暂停。"
+  },
+  "companySetup": {
+    "title": "设置你的公司",
+    "subtitle": "加入已有公司或创建一个新公司",
+    "joinTitle": "加入公司",
+    "joinDesc": "输入邀请码加入已有公司",
+    "codePlaceholder": "输入邀请码",
+    "join": "加入",
+    "or": "或",
+    "createTitle": "创建公司",
+    "createDesc": "创建你自己的公司并开始使用",
+    "namePlaceholder": "公司名称",
+    "create": "创建",
+    "hint": "你可以随时从企业设置中邀请成员加入。"
   },
   "openclaw": {
     "created": "OpenClaw Agent 已创建",
