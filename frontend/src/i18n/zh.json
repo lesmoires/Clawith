@@ -37,7 +37,12 @@
     "invitationHint": "由于 Token 消耗较大，本平台需要邀请码注册。推荐大家自行部署并配置最前沿的模型，体验最佳效果。",
     "usernamePlaceholder": "请输入用户名",
     "passwordPlaceholder": "请输入密码",
-    "emailPlaceholder": "your@email.com"
+    "emailPlaceholder": "your@email.com",
+    "companyDisabled": "你的公司已被停用，请联系平台管理员。",
+    "invalidCredentials": "用户名或密码错误。",
+    "accountDisabled": "你的账号已被停用。",
+    "serverStarting": "服务正在启动或遇到问题，请稍后重试。",
+    "serverUnreachable": "无法连接服务器，请检查服务是否正在运行。"
   },
   "roles": {
     "platformAdmin": "超级管理员",
