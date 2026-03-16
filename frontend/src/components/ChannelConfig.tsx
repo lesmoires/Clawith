@@ -770,7 +770,7 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
                                     </div>
                                 )}
 
-                                {renderGuide(ch.guide, ch.connectionMode ? isWs : false, ch)}
+                                {renderGuide(ch.guide, !!isWs, ch)}
 
                                 {/* Form fields */}
                                 {formFields.map(field =>
