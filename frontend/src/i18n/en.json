@@ -438,7 +438,9 @@
   },
   "chat": {
     "placeholder": "Type a message...",
-    "send": "Send"
+    "send": "Send",
+    "deleteSession": "Delete session",
+    "deleteConfirm": "Delete this session and all its messages? This cannot be undone."
   },
   "messages": {
     "title": "Messages",

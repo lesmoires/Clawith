@@ -446,7 +446,9 @@
   },
   "chat": {
     "placeholder": "输入消息...",
-    "send": "发送"
+    "send": "发送",
+    "deleteSession": "删除会话",
+    "deleteConfirm": "确定删除这个会话及其所有消息？此操作无法撤销。"
   },
   "messages": {
     "title": "消息中心",
