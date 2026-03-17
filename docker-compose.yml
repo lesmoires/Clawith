@@ -3,7 +3,7 @@ services:
     image: postgres:15-alpine
     environment:
       POSTGRES_USER: clawith
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: 
       POSTGRES_DB: clawith
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -35,13 +35,13 @@ services:
     restart: unless-stopped
     command: ["/bin/bash", "/app/entrypoint.sh"]
     environment:
-      DATABASE_URL: postgresql+asyncpg://clawith:${POSTGRES_PASSWORD}@postgres:5432/clawith
+      DATABASE_URL: postgresql+asyncpg://clawith:@postgres:5432/clawith
       REDIS_URL: redis://redis:6379/0
       AGENT_DATA_DIR: /data/agents
       AGENT_TEMPLATE_DIR: /app/agent_template
-      SECRET_KEY: ${SECRET_KEY}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-      CORS_ORIGINS: "[\"*\"]"
+      SECRET_KEY: 
+      JWT_SECRET_KEY: 
+      CORS_ORIGINS: "["*"]"
     volumes:
       - agent_data:/data/agents
       - /var/run/docker.sock:/var/run/docker.sock
@@ -56,7 +56,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "${FRONTEND_PORT:-3008}:3000"
+      - "3008:3000"
     environment:
       VITE_API_URL: http://backend:8000
     depends_on:
@@ -64,11 +64,19 @@ services:
     restart: unless-stopped
     labels:
       - traefik.enable=true
-      - traefik.http.routers.clawith.rule=Host(`agents.moiria.com`)
-      - traefik.http.routers.clawith.entrypoints=websecure
-      - traefik.http.routers.clawith.tls=true
-      - traefik.http.routers.clawith.tls.certresolver=letsencrypt
+      - traefik.http.routers.clawith-http.rule=Host()
+      - traefik.http.routers.clawith-http.entrypoints=http
+      - traefik.http.routers.clawith-http.middlewares=clawith-redirect
+      - traefik.http.middlewares.clawith-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.clawith-redirect.redirectscheme.permanent=true
+      - traefik.http.routers.clawith-https.rule=Host()
+      - traefik.http.routers.clawith-https.entrypoints=https
+      - traefik.http.routers.clawith-https.tls=true
+      - traefik.http.routers.clawith-https.tls.certresolver=letsencrypt
+      - traefik.http.routers.clawith-https.service=clawith
       - traefik.http.services.clawith.loadbalancer.server.port=3000
+      - traefik.http.middlewares.clawith-gzip.compress=true
+      - traefik.http.routers.clawith-https.middlewares=clawith-gzip
     networks:
       - clawith_network
 
