@@ -395,8 +395,15 @@ export default function AdminCompanies() {
                             </span>
                             <button
                                 className="btn btn-ghost"
-                                style={{ padding: '2px 6px', fontSize: '10px', color: c.is_active ? 'var(--error)' : 'var(--success)' }}
+                                style={{
+                                    padding: '2px 6px', fontSize: '10px',
+                                    color: c.slug === 'default' ? 'var(--text-tertiary)' : c.is_active ? 'var(--error)' : 'var(--success)',
+                                    cursor: c.slug === 'default' ? 'not-allowed' : 'pointer',
+                                    opacity: c.slug === 'default' ? 0.5 : 1,
+                                }}
                                 onClick={() => handleToggle(c.id, c.is_active)}
+                                disabled={c.slug === 'default'}
+                                title={c.slug === 'default' ? t('admin.cannotDisableDefault', 'Cannot disable the default company — platform admin would be locked out') : undefined}
                             >
                                 {c.is_active ? t('admin.disable', 'Disable') : t('admin.enable', 'Enable')}
                             </button>

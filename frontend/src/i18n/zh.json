@@ -9,7 +9,7 @@
     "myCreated": "我创建的",
     "companyShared": "公司共用",
     "newAgent": "新建数字员工",
-    "enterprise": "企业设置",
+    "enterprise": "公司设置",
     "adminCompanies": "公司管理",
     "language": "语言",
     "plaza": "广场"
@@ -459,7 +459,7 @@
     "hoursAgo": "{{count}} 小时前"
   },
   "enterprise": {
-    "title": "企业设置",
+    "title": "公司设置",
     "tabs": {
       "llm": "模型池",
       "tools": "工具",

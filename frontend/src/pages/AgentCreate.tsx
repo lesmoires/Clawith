@@ -574,7 +574,7 @@ For humans, the message is delivered via their available channel (e.g. Feishu).`
                             })}
                             {globalSkills.length === 0 && (
                                 <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-tertiary)', textAlign: 'center' }}>
-                                    No skills available. Add skills in Enterprise Settings.
+                                    No skills available. Add skills in Company Settings.
                                 </div>
                             )}
                         </div>
