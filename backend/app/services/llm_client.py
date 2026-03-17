@@ -1676,7 +1676,7 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         display_name="Zhipu",
         protocol="openai_compatible",
         default_base_url="https://open.bigmodel.cn/api/paas/v4",
-        default_max_tokens=4096,
+        default_max_tokens=8192,
     ),
     "gemini": ProviderSpec(
         provider="gemini",
@@ -1690,7 +1690,7 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         display_name="Kimi (Moonshot)",
         protocol="openai_compatible",
         default_base_url="https://api.moonshot.cn/v1",
-        default_max_tokens=4096,
+        default_max_tokens=8192,
     ),
     "custom": ProviderSpec(
         provider="custom",
