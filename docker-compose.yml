@@ -64,12 +64,12 @@ services:
     restart: unless-stopped
     labels:
       - traefik.enable=true
-      - traefik.http.routers.clawith-http.rule=Host()
+      - traefik.http.routers.clawith-http.rule=Host(`agents.moiria.com`)
       - traefik.http.routers.clawith-http.entrypoints=http
       - traefik.http.routers.clawith-http.middlewares=clawith-redirect
       - traefik.http.middlewares.clawith-redirect.redirectscheme.scheme=https
       - traefik.http.middlewares.clawith-redirect.redirectscheme.permanent=true
-      - traefik.http.routers.clawith-https.rule=Host()
+      - traefik.http.routers.clawith-https.rule=Host(`agents.moiria.com`)
       - traefik.http.routers.clawith-https.entrypoints=https
       - traefik.http.routers.clawith-https.tls=true
       - traefik.http.routers.clawith-https.tls.certresolver=letsencrypt
