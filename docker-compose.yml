@@ -3,25 +3,31 @@ services:
     image: postgres:15-alpine
     environment:
       POSTGRES_USER: clawith
-      POSTGRES_PASSWORD: clawith
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: clawith
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U clawith" ]
+      test: ["CMD-SHELL", "pg_isready -U clawith"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - clawith_network
 
   redis:
     image: redis:7-alpine
     volumes:
       - redisdata:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - clawith_network
 
   backend:
     build:
@@ -32,20 +38,19 @@ services:
     restart: unless-stopped
     command: ["/bin/bash", "/app/entrypoint.sh"]
     environment:
-      DATABASE_URL: postgresql+asyncpg://clawith:clawith@postgres:5432/clawith
+      DATABASE_URL: postgresql+asyncpg://clawith:${POSTGRES_PASSWORD}@postgres:5432/clawith
       REDIS_URL: redis://redis:6379/0
       AGENT_DATA_DIR: /data/agents
       AGENT_TEMPLATE_DIR: /app/agent_template
-      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-jwt-secret}
-      CORS_ORIGINS: '["*"]'
+      SECRET_KEY: ${SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      CORS_ORIGINS: "[\"*\"]"
       FEISHU_APP_ID: ${FEISHU_APP_ID:-}
       FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
       DOCKER_NETWORK: clawith_network
       SS_CONFIG_FILE: /data/ss-nodes.json
     volumes:
-      - ./backend:/app
-      - ./backend/agent_data:/data/agents
+      - agent_data:/data/agents
       - /var/run/docker.sock:/var/run/docker.sock
       - ./ss-nodes.json:/data/ss-nodes.json:ro
     depends_on:
@@ -53,28 +58,42 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+    networks:
+      - clawith_network
+
   frontend:
     build: ./frontend
     ports:
       - "${FRONTEND_PORT:-3008}:3000"
     environment:
-      VITE_API_URL: http://localhost:8000
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
+      VITE_API_URL: http://backend:8000
     depends_on:
       - backend
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - clawith_network
 
 volumes:
   pgdata:
   redisdata:
-
+  agent_data:
 
 networks:
-  default:
-    name: clawith_network
+  clawith_network:
+    driver: bridge
