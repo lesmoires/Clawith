@@ -269,17 +269,19 @@ class OrgSyncService:
                         if not open_id and not user_id:
                             logger.warning(f"[OrgSync] Skipping user with no open_id and no user_id: {u.get('name','?')}")
                             continue
+                        if not user_id:
+                            logger.warning(f"[OrgSync] User {u.get('name','?')} has no user_id — App may lack contact:user.employee_id:readonly permission")
 
-                        # Try to find existing member by open_id or user_id
+                        # Find existing member: prefer user_id (tenant-stable), fallback open_id
                         member = None
-                        if open_id:
-                            result = await db.execute(
-                                select(OrgMember).where(OrgMember.feishu_open_id == open_id)
-                            )
-                            member = result.scalar_one_or_none()
-                        if not member and user_id:
+                        if user_id:
                             result = await db.execute(
                                 select(OrgMember).where(OrgMember.feishu_user_id == user_id)
+                            )
+                            member = result.scalar_one_or_none()
+                        if not member and open_id:
+                            result = await db.execute(
+                                select(OrgMember).where(OrgMember.feishu_open_id == open_id)
                             )
                             member = result.scalar_one_or_none()
 
@@ -291,8 +293,8 @@ class OrgSyncService:
                             member.department_id = dept.id
                             member.department_path = dept.path or dept.name
                             member.phone = u.get("mobile", member.phone)
-                            # Only set open_id if not already present (avoid overwriting OAuth-set IDs)
-                            if open_id and not member.feishu_open_id:
+                            # Always update IDs to latest values
+                            if open_id:
                                 member.feishu_open_id = open_id
                             if user_id:
                                 member.feishu_user_id = user_id
@@ -318,15 +320,16 @@ class OrgSyncService:
                         member_count += 1
 
                         # --- Auto-create/update platform User ---
+                        # Prefer user_id (tenant-stable), then open_id, then email
                         platform_user = None
-                        if open_id:
-                            pu_result = await db.execute(
-                                select(User).where(User.feishu_open_id == open_id)
-                            )
-                            platform_user = pu_result.scalar_one_or_none()
-                        if not platform_user and user_id:
+                        if user_id:
                             pu_result = await db.execute(
                                 select(User).where(User.feishu_user_id == user_id)
+                            )
+                            platform_user = pu_result.scalar_one_or_none()
+                        if not platform_user and open_id:
+                            pu_result = await db.execute(
+                                select(User).where(User.feishu_open_id == open_id)
                             )
                             platform_user = pu_result.scalar_one_or_none()
                         # Fallback: match by real email (most reliable cross-app identifier)
@@ -349,7 +352,7 @@ class OrgSyncService:
                             if tenant_id and not platform_user.tenant_id:
                                 platform_user.tenant_id = tenant_id
                         else:
-                            # Create new user
+                            # Create new user — prefer user_id in username
                             username_base = f"feishu_{user_id or (open_id[:16] if open_id else uuid.uuid4().hex[:8])}"
                             email = member_email or f"{username_base}@feishu.local"
                             platform_user = User(

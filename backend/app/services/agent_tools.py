@@ -2207,8 +2207,8 @@ async def _send_feishu_message(agent_id: uuid.UUID, args: dict) -> str:
                     f"通讯录搜索结果：{_search_result[:200]}"
                 )
 
-            if not target_member.feishu_open_id and not target_member.email and not target_member.phone:
-                return f"❌ {member_name} has no linked Feishu account (no open_id, email, or phone)"
+            if not target_member.feishu_user_id and not target_member.feishu_open_id and not target_member.email and not target_member.phone:
+                return f"❌ {member_name} has no linked Feishu account (no user_id, open_id, email, or phone)"
 
             # Get the agent's Feishu bot credentials
             config_result = await db.execute(
@@ -2242,12 +2242,15 @@ async def _send_feishu_message(agent_id: uuid.UUID, args: dict) -> str:
                     agent_obj = agent_r.scalar_one_or_none()
                     creator_id = agent_obj.creator_id if agent_obj else agent_id
 
-                    # Look up the platform user for this Feishu open_id
+                    # Look up the platform user: prefer feishu_user_id, then feishu_open_id
                     from app.models.user import User as UserModel
-                    u_r = await db.execute(
-                        select(UserModel).where(UserModel.feishu_open_id == open_id)
-                    )
-                    feishu_user = u_r.scalar_one_or_none()
+                    feishu_user = None
+                    if open_id:  # open_id param is contextual, try as user_id first isn't reliable here
+                        # Try user lookup by open_id since that's what we have from session context
+                        u_r = await db.execute(
+                            select(UserModel).where(UserModel.feishu_open_id == open_id)
+                        )
+                        feishu_user = u_r.scalar_one_or_none()
                     user_id = feishu_user.id if feishu_user else creator_id
 
                     ext_conv_id = f"feishu_p2p_{open_id}"
