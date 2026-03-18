@@ -486,10 +486,11 @@ async def preview_url_import(body: UrlImportIn, current_user: User = Depends(get
 
 
 @router.get("/")
-async def list_skills(tenant_id: str | None = None):
+async def list_skills(current_user: User = Depends(get_current_user)):
     """List global skills scoped by tenant (builtin + tenant-specific)."""
     import uuid as _uuid
     from sqlalchemy import or_ as _or
+    tenant_id = str(current_user.tenant_id) if current_user.tenant_id else None
     async with async_session() as db:
         query = select(Skill).order_by(Skill.name)
         # Scope by tenant: show builtin (tenant_id is NULL) + tenant-specific skills
@@ -696,10 +697,11 @@ async def set_skill_token(
 
 
 @router.get("/browse/list")
-async def browse_list(path: str = "", tenant_id: str | None = None):
+async def browse_list(path: str = "", current_user: User = Depends(get_current_user)):
     """List skill folders (root) or files/subdirs within a skill folder."""
     import uuid as _uuid
     from sqlalchemy import or_ as _or
+    tenant_id = str(current_user.tenant_id) if current_user.tenant_id else None
     async with async_session() as db:
         if not path or path == "/":
             # Root: list all skill folders (scoped by tenant)
@@ -755,16 +757,20 @@ async def browse_list(path: str = "", tenant_id: str | None = None):
 
 
 @router.get("/browse/read")
-async def browse_read(path: str):
+async def browse_read(path: str, current_user: User = Depends(get_current_user)):
     """Read a file from a skill folder."""
+    import uuid as _uuid
+    from sqlalchemy import or_ as _or
+    tenant_id = str(current_user.tenant_id) if current_user.tenant_id else None
     parts = path.strip("/").split("/", 1)
     if len(parts) < 2:
         raise HTTPException(400, "Path must include folder and file")
     folder, file_path = parts
     async with async_session() as db:
-        result = await db.execute(
-            select(Skill).where(Skill.folder_name == folder).options(selectinload(Skill.files))
-        )
+        skill_q = select(Skill).where(Skill.folder_name == folder).options(selectinload(Skill.files))
+        if tenant_id:
+            skill_q = skill_q.where(_or(Skill.tenant_id == None, Skill.tenant_id == _uuid.UUID(tenant_id)))
+        result = await db.execute(skill_q)
         skill = result.scalar_one_or_none()
         if not skill:
             raise HTTPException(404, "Skill not found")
@@ -780,26 +786,31 @@ class BrowseWriteIn(BaseModel):
 
 
 @router.put("/browse/write")
-async def browse_write(body: BrowseWriteIn, _=Depends(require_role("platform_admin"))):
+async def browse_write(body: BrowseWriteIn, current_user: User = Depends(require_role("platform_admin"))):
     """Write a file in a skill folder. Creates the skill if the folder doesn't exist."""
+    import uuid as _uuid
+    from sqlalchemy import or_ as _or
+    tenant_id = str(current_user.tenant_id) if current_user.tenant_id else None
     parts = body.path.strip("/").split("/", 1)
     if len(parts) < 2:
         raise HTTPException(400, "Path must include folder and file")
     folder, file_path = parts
     async with async_session() as db:
-        result = await db.execute(
-            select(Skill).where(Skill.folder_name == folder).options(selectinload(Skill.files))
-        )
+        skill_q = select(Skill).where(Skill.folder_name == folder).options(selectinload(Skill.files))
+        if tenant_id:
+            skill_q = skill_q.where(_or(Skill.tenant_id == None, Skill.tenant_id == _uuid.UUID(tenant_id)))
+        result = await db.execute(skill_q)
         skill = result.scalar_one_or_none()
         if not skill:
-            # Auto-create skill from folder name
+            # Auto-create skill from folder name, scoped to tenant
             skill = Skill(
                 name=folder.replace("-", " ").title(),
                 description="",
                 category="custom",
-                icon="📋",
+                icon="--",
                 folder_name=folder,
                 is_builtin=False,
+                tenant_id=current_user.tenant_id,
             )
             db.add(skill)
             await db.flush()
@@ -819,14 +830,18 @@ async def browse_write(body: BrowseWriteIn, _=Depends(require_role("platform_adm
 
 
 @router.delete("/browse/delete")
-async def browse_delete(path: str, _=Depends(require_role("platform_admin"))):
+async def browse_delete(path: str, current_user: User = Depends(require_role("platform_admin"))):
     """Delete a file or an entire skill folder."""
+    import uuid as _uuid
+    from sqlalchemy import or_ as _or
+    tenant_id = str(current_user.tenant_id) if current_user.tenant_id else None
     parts = path.strip("/").split("/", 1)
     folder = parts[0]
     async with async_session() as db:
-        result = await db.execute(
-            select(Skill).where(Skill.folder_name == folder).options(selectinload(Skill.files))
-        )
+        skill_q = select(Skill).where(Skill.folder_name == folder).options(selectinload(Skill.files))
+        if tenant_id:
+            skill_q = skill_q.where(_or(Skill.tenant_id == None, Skill.tenant_id == _uuid.UUID(tenant_id)))
+        result = await db.execute(skill_q)
         skill = result.scalar_one_or_none()
         if not skill:
             raise HTTPException(404, "Skill not found")

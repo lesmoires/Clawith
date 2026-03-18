@@ -356,10 +356,7 @@ export const scheduleApi = {
 
 // ─── Skills ───────────────────────────────────────────
 export const skillApi = {
-    list: () => {
-        const tid = localStorage.getItem('current_tenant_id');
-        return request<any[]>(`/skills/${tid ? `?tenant_id=${tid}` : ''}`);
-    },
+    list: () => request<any[]>('/skills/'),
     get: (id: string) => request<any>(`/skills/${id}`),
     create: (data: any) =>
         request<any>('/skills/', { method: 'POST', body: JSON.stringify(data) }),
@@ -369,7 +366,7 @@ export const skillApi = {
         request<void>(`/skills/${id}`, { method: 'DELETE' }),
     // Path-based browse for FileBrowser
     browse: {
-        list: (path: string, tenantId?: string) => request<any[]>(`/skills/browse/list?path=${encodeURIComponent(path)}${tenantId ? `&tenant_id=${tenantId}` : ''}`),
+        list: (path: string) => request<any[]>(`/skills/browse/list?path=${encodeURIComponent(path)}`),
         read: (path: string) => request<{ content: string }>(`/skills/browse/read?path=${encodeURIComponent(path)}`),
         write: (path: string, content: string) =>
             request<any>('/skills/browse/write', { method: 'PUT', body: JSON.stringify({ path, content }) }),
