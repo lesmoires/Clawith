@@ -2,6 +2,7 @@
 
 import base64
 import logging
+import os
 import re
 
 import httpx
@@ -20,6 +21,7 @@ router = APIRouter(prefix="/skills", tags=["skills"])
 
 CLAWHUB_BASE = "https://clawhub.ai/api"
 GITHUB_API = "https://api.github.com"
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 MAX_SKILL_SIZE = 512_000  # 500 KB total limit per skill
 
 
@@ -106,13 +108,14 @@ async def _fetch_github_directory(
     files: list[dict] = []
     total_size = 0
     max_depth = 3  # Prevent runaway recursion
+    headers = {"Authorization": f"Bearer {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}
 
     async def _recurse(dir_path: str, rel_prefix: str, depth: int = 0):
         nonlocal total_size
         if depth > max_depth:
             return
         api_url = f"{GITHUB_API}/repos/{owner}/{repo}/contents/{dir_path}?ref={branch}"
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, headers=headers) as client:
             resp = await client.get(api_url)
             if resp.status_code == 404:
                 raise HTTPException(404, f"GitHub path not found: {dir_path}")
@@ -153,7 +156,7 @@ async def _fetch_github_directory(
                 if total_size > MAX_SKILL_SIZE:
                     raise HTTPException(413, f"Skill exceeds size limit ({MAX_SKILL_SIZE // 1024}KB)")
                 # Download file content
-                async with httpx.AsyncClient(timeout=30) as client:
+                async with httpx.AsyncClient(timeout=30, headers=headers) as client:
                     dl_resp = await client.get(item["url"])
                     if dl_resp.status_code == 200:
                         data = dl_resp.json()
