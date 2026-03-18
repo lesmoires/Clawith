@@ -1550,7 +1550,7 @@ function AgentDetailInner() {
                 {/* Header */}
                 <div className="page-header">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--accent-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>{agent.name?.charAt(0).toUpperCase() || 'A'}</div>
+                        <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--accent-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>{(Array.from(agent.name || 'A')[0] as string || 'A').toUpperCase()}</div>
                         <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                             {canManage && editingName ? (
                                 <input

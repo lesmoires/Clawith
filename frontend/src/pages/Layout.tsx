@@ -345,7 +345,7 @@ export default function Layout() {
                         });
                         const renderAgent = (agent: any) => {
                             const badge = getAgentBadgeStatus(agent);
-                            const avatarChar = (agent.name || '?')[0].toUpperCase();
+                            const avatarChar = ((Array.from(agent.name || '?')[0] as string) || '?').toUpperCase();
                             return (
                             <div key={agent.id} style={{ position: 'relative' }} className={`sidebar-agent-item${agent.creator_id === user?.id ? ' owned' : ''}`}>
                                 <NavLink
