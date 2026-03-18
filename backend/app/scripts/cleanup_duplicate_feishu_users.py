@@ -19,15 +19,19 @@ logger = logging.getLogger(__name__)
 
 
 async def main():
+    # Import ALL models so SQLAlchemy can resolve all FK relationships
+    from app.models import (  # noqa: F401
+        activity_log, agent, audit, channel_config, chat_session,
+        gateway_message, invitation_code, llm, notification, org,
+        participant, plaza, schedule, skill, system_settings, task,
+        tenant, tenant_setting, tool, trigger, user,
+    )
     from app.database import async_session
     from app.models.user import User
     from app.models.org import OrgMember
     from app.models.system_settings import SystemSetting
     from app.models.chat_session import ChatSession
     from app.models.audit import ChatMessage
-    # Import all FK-referenced models so SQLAlchemy can resolve relationships
-    from app.models.participant import Participant  # noqa: F401
-    from app.models.agent import Agent  # noqa: F401
     from sqlalchemy import select, update, func
     import httpx
 
