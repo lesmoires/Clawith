@@ -462,9 +462,8 @@ export default function Layout() {
                             <button className="btn btn-ghost" onClick={toggleLang} style={{
                                 fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px',
                                 padding: '4px 8px',
-                            }}>
+                            }} title={i18n.language === 'zh' ? 'English' : '中文'}>
                                 {SidebarIcons.globe}
-                                <span>{i18n.language === 'zh' ? '中文' : 'EN'}</span>
                             </button>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
