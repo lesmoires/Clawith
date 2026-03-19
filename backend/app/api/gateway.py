@@ -179,7 +179,7 @@ async def poll_messages(
     for r in h_result.scalars().all():
         if r.member:
             channels = []
-            if getattr(r.member, 'feishu_open_id', None):
+            if getattr(r.member, 'feishu_user_id', None) or getattr(r.member, 'feishu_open_id', None):
                 channels.append("feishu")
             if getattr(r.member, 'email', None):
                 channels.append("email")
@@ -563,7 +563,7 @@ async def send_message(
         )
 
     # Send via feishu if available
-    if target_member.feishu_open_id and (not channel_hint or channel_hint == "feishu"):
+    if (target_member.feishu_user_id or target_member.feishu_open_id) and (not channel_hint or channel_hint == "feishu"):
         from app.models.channel_config import ChannelConfig
         from app.services.feishu_service import feishu_service
         import json as _json
@@ -583,16 +583,27 @@ async def send_message(
             await db.commit()
             raise HTTPException(status_code=400, detail="No Feishu channel configured")
 
-        resp = await feishu_service.send_message(
-            config.app_id, config.app_secret,
-            receive_id=target_member.feishu_open_id,
-            msg_type="text",
-            content=_json.dumps({"text": content}, ensure_ascii=False),
-            receive_id_type="open_id",
-        )
+        # Prefer user_id (tenant-stable, works across apps), fallback to open_id
+        resp = None
+        if target_member.feishu_user_id:
+            resp = await feishu_service.send_message(
+                config.app_id, config.app_secret,
+                receive_id=target_member.feishu_user_id,
+                msg_type="text",
+                content=_json.dumps({"text": content}, ensure_ascii=False),
+                receive_id_type="user_id",
+            )
+        if (resp is None or resp.get("code") != 0) and target_member.feishu_open_id:
+            resp = await feishu_service.send_message(
+                config.app_id, config.app_secret,
+                receive_id=target_member.feishu_open_id,
+                msg_type="text",
+                content=_json.dumps({"text": content}, ensure_ascii=False),
+                receive_id_type="open_id",
+            )
         await db.commit()
 
-        if resp.get("code") == 0:
+        if resp and resp.get("code") == 0:
             return {
                 "status": "sent",
                 "target": target_member.name,
@@ -602,13 +613,13 @@ async def send_message(
         else:
             raise HTTPException(
                 status_code=502,
-                detail=f"Feishu send failed: {resp.get('msg')} (code {resp.get('code')})"
+                detail=f"Feishu send failed: {resp.get('msg') if resp else 'no ID available'} (code {resp.get('code') if resp else 'N/A'})"
             )
 
     await db.commit()
     raise HTTPException(
         status_code=400,
-        detail=f"No available channel to reach {target_member.name}. Available: feishu_open_id={'yes' if target_member.feishu_open_id else 'no'}"
+        detail=f"No available channel to reach {target_member.name}. feishu_user_id={'yes' if target_member.feishu_user_id else 'no'}, feishu_open_id={'yes' if target_member.feishu_open_id else 'no'}"
     )
 
 

@@ -313,8 +313,6 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
             if not user_text:
                 return {"code": 0, "msg": "empty message after stripping mentions"}
 
-                logger.info(f"[Feishu] User text: {user_text[:100]}")
-
             # Detect task creation intent
             task_match = re.search(
                 r'(?:创建|新建|添加|建一个|帮我建)(?:一个)?(?:任务|待办|todo)[，,：:\s]*(.+)',
@@ -322,11 +320,11 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
             )
 
             # Determine conversation_id for history isolation
-            # Group chats: use chat_id; P2P chats: use sender_open_id
+            # Group chats: use chat_id; P2P chats: prefer user_id (tenant-stable)
             if chat_type == "group" and chat_id:
                 conv_id = f"feishu_group_{chat_id}"
             else:
-                conv_id = f"feishu_p2p_{sender_open_id}"
+                conv_id = f"feishu_p2p_{sender_user_id_from_event or sender_open_id}"
 
             # Load recent conversation history via session (session UUID may already exist)
             from app.models.audit import ChatMessage
@@ -806,26 +804,60 @@ async def _handle_feishu_file(db, agent_id, config, message, sender_open_id, cha
         agent_r = await db.execute(_select(AgentModel).where(AgentModel.id == agent_id))
         agent_obj = agent_r.scalar_one_or_none()
 
-        _un = f"feishu_{sender_open_id[:16]}"
-        _ur = await db.execute(_select(UserModel).where(UserModel.username == _un))
-        _pu = _ur.scalar_one_or_none()
+        # Resolve sender identity: prefer user_id from message event
+        sender_user_id_feishu = ""
+        try:
+            # Try to extract user_id from the original message event
+            import httpx as _hx
+            async with _hx.AsyncClient() as _fc:
+                _tr = await _fc.post(
+                    "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal",
+                    json={"app_id": config.app_id, "app_secret": config.app_secret},
+                )
+                _at = _tr.json().get("app_access_token", "")
+                if _at:
+                    _ur = await _fc.get(
+                        f"https://open.feishu.cn/open-apis/contact/v3/users/{sender_open_id}",
+                        params={"user_id_type": "open_id"},
+                        headers={"Authorization": f"Bearer {_at}"},
+                    )
+                    _ud = _ur.json()
+                    if _ud.get("code") == 0:
+                        sender_user_id_feishu = _ud.get("data", {}).get("user", {}).get("user_id", "")
+        except Exception:
+            pass
+
+        # Find platform user: prefer user_id, then open_id, then username
+        _pu = None
+        if sender_user_id_feishu:
+            _ur = await db.execute(_select(UserModel).where(UserModel.feishu_user_id == sender_user_id_feishu))
+            _pu = _ur.scalar_one_or_none()
+        if not _pu and sender_open_id:
+            _ur = await db.execute(_select(UserModel).where(UserModel.feishu_open_id == sender_open_id))
+            _pu = _ur.scalar_one_or_none()
         if not _pu:
+            _un = f"feishu_{sender_user_id_feishu or sender_open_id[:16]}"
+            _ur = await db.execute(_select(UserModel).where(UserModel.username == _un))
+            _pu = _ur.scalar_one_or_none()
+        if not _pu:
+            _un = f"feishu_{sender_user_id_feishu or sender_open_id[:16]}"
             _pu = UserModel(
                 username=_un, email=f"{_un}@feishu.local",
                 password_hash=hash_password(_uuid.uuid4().hex),
                 display_name=f"Feishu {sender_open_id[:8]}",
                 role="member", feishu_open_id=sender_open_id,
+                feishu_user_id=sender_user_id_feishu or None,
                 tenant_id=agent_obj.tenant_id if agent_obj else None,
             )
             db.add(_pu)
             await db.flush()
         platform_user_id = _pu.id
 
-        # Conv ID
+        # Conv ID — prefer user_id for session continuity
         if chat_type == "group" and chat_id:
             conv_id = f"feishu_group_{chat_id}"
         else:
-            conv_id = f"feishu_p2p_{sender_open_id}"
+            conv_id = f"feishu_p2p_{sender_user_id_feishu or sender_open_id}"
 
         # Find-or-create session
         _sess = await find_or_create_channel_session(

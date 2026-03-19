@@ -658,6 +658,9 @@ async def websocket_chat(
                 content, re.IGNORECASE
             )
 
+            # Track thinking content for storage (initialize before condition)
+            thinking_content = []
+
             # Call LLM with streaming
             if llm_model:
                 try:
