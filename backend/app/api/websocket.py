@@ -309,6 +309,9 @@ async def call_llm(
 
         full_reasoning_content = response.reasoning_content or ""
 
+        # Tools that require arguments — if LLM sends empty args, skip and ask to retry
+        _TOOLS_REQUIRING_ARGS = {"write_file", "read_file", "delete_file", "read_document", "send_message_to_agent", "send_feishu_message", "send_email"}
+
         for tc in response.tool_calls:
             fn = tc["function"]
             tool_name = fn["name"]
@@ -318,6 +321,18 @@ async def call_llm(
                 args = json.loads(raw_args) if raw_args else {}
             except json.JSONDecodeError:
                 args = {}
+
+            # Guard: if a tool that requires arguments received empty args,
+            # return an error to LLM instead of executing (Claude sometimes
+            # emits tool_use blocks with no input_json_delta events)
+            if not args and tool_name in _TOOLS_REQUIRING_ARGS:
+                logger.warning(f"[LLM] Empty arguments for {tool_name}, asking LLM to retry")
+                api_messages.append(LLMMessage(
+                    role="tool",
+                    content=f"Error: {tool_name} was called with empty arguments. You must provide the required parameters. Please retry with the correct arguments.",
+                    tool_call_id=tc.get("id", ""),
+                ))
+                continue
 
             logger.info(f"[LLM] Calling tool: {tool_name}({args})")
             # Notify client about tool call (in-progress)
