@@ -61,11 +61,7 @@ services:
 
   supergateway:
     image: supermachine/supergateway:latest
-    command:
-      - --stdio
-      - npx
-      - -y
-      - @infisical/mcp
+    command: ["--stdio", "npx", "-y", "@infisical/mcp"]
     environment:
       - INFISICAL_HOST_URL=${INFISICAL_HOST_URL}
       - INFISICAL_UNIVERSAL_AUTH_CLIENT_ID=${INFISICAL_UNIVERSAL_AUTH_CLIENT_ID}
