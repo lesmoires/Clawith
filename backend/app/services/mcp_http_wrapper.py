@@ -1,78 +1,132 @@
 """
 MCP HTTP Wrapper - Exposes stdio MCP servers as HTTP/SSE endpoints.
-
-Usage:
-    python mcp_http_wrapper.py --command npx --args "-y,@infisical/mcp" --port 8888
-
-Environment variables for @infisical/mcp:
-    INFISICAL_HOST_URL
-    INFISICAL_UNIVERSAL_AUTH_CLIENT_ID
-    INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET
 """
 
 import asyncio
 import json
 import os
 import sys
-import argparse
 from typing import Dict, Any, Optional
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
-from mcp.client.stdio import stdio_client, StdioServerParameters
-from mcp.shared.message import SessionMessage
+import subprocess
+import threading
+import queue
 import uuid
 
 app = FastAPI(title="MCP HTTP Wrapper")
 
 # Global state
-_mcp_streams: Optional[tuple] = None
-_mcp_process: Optional[Any] = None
+_mcp_process: Optional[subprocess.Popen] = None
+_mcp_queue: queue.Queue = queue.Queue()
 _request_counter = 0
+_response_cache: Dict[str, Any] = {}
 
 
-def get_env_with_prefix(prefix: str = "") -> Dict[str, str]:
-    """Get environment variables, optionally filtered by prefix."""
-    env = dict(os.environ)
-    if prefix:
-        env = {k: v for k, v in env.items() if k.startswith(prefix)}
-    return env
+def get_infisical_env() -> Dict[str, str]:
+    """Get Infisical environment variables."""
+    return {
+        "PATH": os.environ.get("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),
+        "INFISICAL_HOST_URL": os.environ.get("INFISICAL_HOST_URL", "https://app.infisical.com"),
+        "INFISICAL_UNIVERSAL_AUTH_CLIENT_ID": os.environ.get("INFISICAL_UNIVERSAL_AUTH_CLIENT_ID", ""),
+        "INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET": os.environ.get("INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET", ""),
+    }
 
 
-async def get_mcp_streams(command: str, args: list[str], env: Dict[str, str]):
-    """Initialize or return existing MCP stdio streams."""
-    global _mcp_streams, _mcp_process
+def start_mcp_process():
+    """Start MCP stdio process in a thread."""
+    global _mcp_process
     
-    if _mcp_streams is None:
-        server_params = StdioServerParameters(
-            command=command,
-            args=args,
-            env={**os.environ, **env}
+    if _mcp_process is not None:
+        return
+    
+    env = get_infisical_env()
+    print(f"🚀 Starting MCP HTTP Wrapper", file=sys.stderr)
+    print(f"   INFISICAL_HOST_URL: {env['INFISICAL_HOST_URL']}", file=sys.stderr)
+    print(f"   Client ID: {env['INFISICAL_UNIVERSAL_AUTH_CLIENT_ID'][:20]}...", file=sys.stderr)
+    
+    try:
+        _mcp_process = subprocess.Popen(
+            ["npx", "-y", "@infisical/mcp"],
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1
         )
-        _mcp_streams = await stdio_client(server_params).__aenter__()
-        print(f"✓ MCP server started: {command} {' '.join(args)}", file=sys.stderr)
+        print(f"✓ MCP process started (PID: {_mcp_process.pid})", file=sys.stderr)
+        
+        # Start stdout reader thread
+        def read_stdout():
+            for line in _mcp_process.stdout:
+                _mcp_queue.put(line)
+        
+        reader_thread = threading.Thread(target=read_stdout, daemon=True)
+        reader_thread.start()
+        
+    except Exception as e:
+        print(f"✗ Failed to start MCP process: {e}", file=sys.stderr)
+
+
+def send_mcp_request(method: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Send JSON-RPC request to MCP process."""
+    global _request_counter
     
-    return _mcp_streams
+    if _mcp_process is None:
+        start_mcp_process()
+        asyncio.sleep(2)  # Wait for process to start
+    
+    if _mcp_process is None or _mcp_process.poll() is not None:
+        return {"error": "MCP process not running"}
+    
+    # Build request
+    _request_counter += 1
+    request = {
+        "jsonrpc": "2.0",
+        "id": _request_counter,
+        "method": method,
+        "params": params or {}
+    }
+    
+    # Send request
+    request_json = json.dumps(request) + "\n"
+    print(f"→ Sending: {request_json.strip()}", file=sys.stderr)
+    _mcp_process.stdin.write(request_json)
+    _mcp_process.stdin.flush()
+    
+    # Wait for response (timeout 30s)
+    try:
+        response_line = _mcp_queue.get(timeout=30)
+        response = json.loads(response_line)
+        print(f"← Received: {json.dumps(response, indent=2)[:500]}", file=sys.stderr)
+        return response
+    except queue.Empty:
+        return {"error": "Timeout waiting for MCP response"}
+    except json.JSONDecodeError as e:
+        return {"error": f"Invalid JSON response: {e}"}
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "mcp_connected": _mcp_streams is not None}
+    is_running = _mcp_process is not None and _mcp_process.poll() is None
+    return {"status": "healthy", "mcp_connected": is_running}
 
 
 @app.get("/mcp/sse")
 async def sse_endpoint(request: Request):
     """SSE endpoint for MCP messages."""
     async def event_generator():
-        read_stream, _ = _mcp_streams
-        
-        try:
-            async for message in read_stream:
-                if isinstance(message, SessionMessage):
-                    data = message.message.model_dump_json(by_alias=True)
-                    yield f"data: {data}\n\n"
-        except Exception as e:
-            print(f"SSE error: {e}", file=sys.stderr)
+        while True:
+            try:
+                line = _mcp_queue.get(timeout=60)
+                yield f"data: {line}\n\n"
+            except queue.Empty:
+                yield ": heartbeat\n\n"
+            except Exception as e:
+                print(f"SSE error: {e}", file=sys.stderr)
+                break
     
     return StreamingResponse(
         event_generator(),
@@ -80,7 +134,6 @@ async def sse_endpoint(request: Request):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
         }
     )
 
@@ -88,19 +141,16 @@ async def sse_endpoint(request: Request):
 @app.post("/mcp/messages")
 async def messages_endpoint(request: Request):
     """POST endpoint for sending MCP JSON-RPC requests."""
-    global _request_counter
-    
     try:
         body = await request.json()
-        _, write_stream = _mcp_streams
         
-        # Add request ID if not present
-        if "id" not in body:
-            _request_counter += 1
-            body["id"] = _request_counter
+        # Send via MCP process
+        if _mcp_process is None:
+            start_mcp_process()
         
-        # Send via stdio
-        await write_stream.send(SessionMessage(message=body))
+        request_json = json.dumps(body) + "\n"
+        _mcp_process.stdin.write(request_json)
+        _mcp_process.stdin.flush()
         
         return JSONResponse({"status": "sent", "id": body.get("id")})
     except Exception as e:
@@ -110,32 +160,14 @@ async def messages_endpoint(request: Request):
 
 @app.post("/mcp/call")
 async def call_tool(request: Request):
-    """Direct tool call endpoint (simpler for testing)."""
+    """Direct tool call endpoint."""
     try:
         body = await request.json()
-        read_stream, write_stream = _mcp_streams
-        
-        # Build JSON-RPC request
-        request_id = str(uuid.uuid4())
-        rpc_request = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": body.get("method", "tools/call"),
-            "params": body.get("params", {})
-        }
-        
-        # Send request
-        await write_stream.send(SessionMessage(message=rpc_request))
-        
-        # Wait for response (timeout 30s)
-        async with asyncio.timeout(30):
-            async for message in read_stream:
-                if isinstance(message, SessionMessage):
-                    response = message.message.model_dump()
-                    if response.get("id") == request_id:
-                        return JSONResponse(response)
-        
-        return JSONResponse({"error": "Timeout waiting for response"}, status_code=504)
+        result = send_mcp_request(
+            body.get("method", "tools/call"),
+            body.get("params", {})
+        )
+        return JSONResponse(result)
     except Exception as e:
         print(f"Call tool error: {e}", file=sys.stderr)
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -145,55 +177,14 @@ async def call_tool(request: Request):
 async def list_tools():
     """List available MCP tools."""
     try:
-        read_stream, write_stream = _mcp_streams
-        
-        # Send tools/list request
-        request_id = str(uuid.uuid4())
-        rpc_request = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": "tools/list",
-            "params": {}
-        }
-        
-        await write_stream.send(SessionMessage(message=rpc_request))
-        
-        # Wait for response
-        async with asyncio.timeout(10):
-            async for message in read_stream:
-                if isinstance(message, SessionMessage):
-                    response = message.message.model_dump()
-                    if response.get("id") == request_id:
-                        return JSONResponse(response.get("result", {}))
-        
-        return JSONResponse({"error": "Timeout"}, status_code=504)
+        result = send_mcp_request("tools/list", {})
+        if "error" in result:
+            return JSONResponse(result, status_code=500)
+        return JSONResponse(result.get("result", {}))
     except Exception as e:
         print(f"List tools error: {e}", file=sys.stderr)
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="MCP HTTP Wrapper")
-    parser.add_argument("--command", default="npx", help="Command to run (default: npx)")
-    parser.add_argument("--args", default="-y,@infisical/mcp", help="Arguments (comma-separated)")
-    parser.add_argument("--port", type=int, default=8888, help="HTTP port (default: 8888)")
-    parser.add_argument("--host", default="0.0.0.0", help="HTTP host (default: 0.0.0.0)")
-    
-    args = parser.parse_args()
-    
-    # Parse args
-    cmd_args = args.args.split(",") if args.args else []
-    
-    print(f"🚀 Starting MCP HTTP Wrapper", file=sys.stderr)
-    print(f"   Command: {args.command}", file=sys.stderr)
-    print(f"   Args: {cmd_args}", file=sys.stderr)
-    print(f"   Port: {args.port}", file=sys.stderr)
-    print(f"   Infisical URL: {os.environ.get('INFISICAL_HOST_URL', 'not set')}", file=sys.stderr)
-    
-    # Start wrapper
-    import uvicorn
-    uvicorn.run(app, host=args.host, port=args.port)
-
-
-if __name__ == "__main__":
-    main()
+# Start MCP process on module load
+start_mcp_process()
