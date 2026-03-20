@@ -253,6 +253,112 @@ async def test_mcp_connection(
         return {"ok": False, "error": str(e)[:300]}
 
 
+@router.post("/agents/{agent_id}/infisical-mcp")
+async def configure_infisical_mcp(
+    agent_id: uuid.UUID,
+    data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Configure Infisical MCP for an agent and sync all tools.
+    
+    Required field: api_key (Infisical Service Token or Universal Auth credentials)
+    """
+    from app.core.permissions import check_agent_access, is_agent_creator
+    from app.models.channel_config import ChannelConfig
+    from sqlalchemy import select as sa_select
+    
+    agent, _ = await check_agent_access(db, current_user, agent_id)
+    if not is_agent_creator(current_user, agent):
+        raise HTTPException(status_code=403, detail="Only creator can configure")
+    
+    api_key = (data.get("api_key") or "").strip()
+    if not api_key:
+        raise HTTPException(status_code=422, detail="api_key is required")
+    
+    # Store credentials in ChannelConfig
+    result = await db.execute(
+        sa_select(ChannelConfig).where(
+            ChannelConfig.agent_id == agent_id,
+            ChannelConfig.channel_type == "infisical",
+        )
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        existing.app_secret = api_key
+        existing.is_configured = True
+        await db.commit()
+    else:
+        config = ChannelConfig(
+            agent_id=agent_id,
+            channel_type="infisical",
+            app_id="infisical",
+            app_secret=api_key,
+            is_configured=True,
+        )
+        db.add(config)
+        await db.commit()
+    
+    # Sync tools in background
+    import asyncio
+    asyncio.create_task(_sync_infisical_tools_for_agent(agent_id, api_key))
+    
+    return {"ok": True, "message": "Infisical MCP configured, syncing tools..."}
+
+
+async def _sync_infisical_tools_for_agent(agent_id: uuid.UUID, api_key: str) -> None:
+    """Connect to Infisical MCP (via supergateway) and sync all tools to agent."""
+    from app.models.tool import Tool, AgentTool
+    from app.database import async_session
+    from sqlalchemy import select as sa_select
+    
+    INFISICAL_MCP_URL = "http://supergateway:8000/sse"
+    
+    print(f"[InfisicalMCP] Syncing tools for agent {agent_id} ...", flush=True)
+    
+    # Tools discovered from MCP server (already configured in Company Settings)
+    # Just need to assign them to this agent
+    async with async_session() as db:
+        # Get all Infisical tools from company
+        infisical_tools = await db.execute(
+            sa_select(Tool).where(
+                Tool.type == "mcp",
+                Tool.mcp_server_name == "Infisical",
+            )
+        )
+        tools = infisical_tools.scalars().all()
+        
+        if not tools:
+            print("[InfisicalMCP] ⚠️ No Infisical tools found in company", flush=True)
+            return
+        
+        print(f"[InfisicalMCP] Found {len(tools)} tools, assigning to agent {agent_id}", flush=True)
+        
+        assigned = 0
+        for tool in tools:
+            # Check if already assigned
+            at_r = await db.execute(
+                sa_select(AgentTool).where(
+                    AgentTool.agent_id == agent_id,
+                    AgentTool.tool_id == tool.id,
+                )
+            )
+            at = at_r.scalar_one_or_none()
+            
+            if not at:
+                db.add(AgentTool(
+                    agent_id=agent_id,
+                    tool_id=tool.id,
+                    enabled=True,
+                    config={"api_key": api_key},  # Store per-agent
+                    source="system",
+                ))
+                assigned += 1
+        
+        await db.commit()
+        print(f"[InfisicalMCP] ✅ Assigned {assigned} tools to agent {agent_id}", flush=True)
+
+
 # ─── Agent-installed Tools Management (admin) ───────────────
 
 @router.get("/agent-installed")
