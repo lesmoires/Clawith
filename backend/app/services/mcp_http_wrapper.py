@@ -1,5 +1,6 @@
 """
 MCP HTTP Wrapper - Exposes stdio MCP servers as HTTP/SSE endpoints.
+Implements MCP SSE transport protocol: https://modelcontextprotocol.io/docs/concepts/transports#http-with-sse
 """
 
 import asyncio
@@ -31,6 +32,7 @@ _mcp_process: Optional[subprocess.Popen] = None
 _mcp_queue: queue.Queue = queue.Queue()
 _request_counter = 0
 _response_cache: Dict[str, Any] = {}
+_pending_responses: Dict[str, queue.Queue] = {}
 
 
 def get_infisical_env() -> Dict[str, str]:
@@ -93,12 +95,17 @@ def send_mcp_request(method: str, params: Dict[str, Any] = None) -> Dict[str, An
     
     # Build request
     _request_counter += 1
+    request_id = str(_request_counter)
     request = {
         "jsonrpc": "2.0",
-        "id": _request_counter,
+        "id": request_id,
         "method": method,
         "params": params or {}
     }
+    
+    # Create response queue for this request
+    response_queue = queue.Queue()
+    _pending_responses[request_id] = response_queue
     
     # Send request
     request_json = json.dumps(request) + "\n"
@@ -108,7 +115,7 @@ def send_mcp_request(method: str, params: Dict[str, Any] = None) -> Dict[str, An
     
     # Wait for response (timeout 30s)
     try:
-        response_line = _mcp_queue.get(timeout=30)
+        response_line = response_queue.get(timeout=30)
         response = json.loads(response_line)
         print(f"← Received: {json.dumps(response, indent=2)[:500]}", file=sys.stderr)
         return response
@@ -116,6 +123,8 @@ def send_mcp_request(method: str, params: Dict[str, Any] = None) -> Dict[str, An
         return {"error": "Timeout waiting for MCP response"}
     except json.JSONDecodeError as e:
         return {"error": f"Invalid JSON response: {e}"}
+    finally:
+        _pending_responses.pop(request_id, None)
 
 
 @app.get("/health")
@@ -127,16 +136,41 @@ async def health_check():
 
 
 @app.get("/mcp/sse")
-@app.post("/mcp/sse")
 async def sse_endpoint(request: Request):
-    """SSE endpoint for MCP messages."""
+    """
+    MCP SSE endpoint - implements proper MCP protocol handshake.
+    
+    Protocol:
+    1. Client connects via GET /mcp/sse
+    2. Server sends endpoint event with messages URL
+    3. Client POSTs JSON-RPC to /mcp/messages
+    4. Server sends responses via SSE stream
+    """
     async def event_generator():
+        # Step 1: Send endpoint event (MCP protocol handshake)
+        yield 'event: endpoint\n'
+        yield f'data: {{"url": "/mcp/messages"}}\n\n'
+        print("SSE: Sent endpoint event", file=sys.stderr)
+        
+        # Step 2: Stream MCP messages
         while True:
             try:
                 line = _mcp_queue.get(timeout=60)
-                yield f"data: {line}\n\n"
+                # Parse and route to pending response if it's a response
+                try:
+                    msg = json.loads(line)
+                    if "id" in msg and str(msg["id"]) in _pending_responses:
+                        # This is a response to a pending request
+                        _pending_responses[str(msg["id"])].put(line)
+                        print(f"SSE: Routed response to pending request {msg['id']}", file=sys.stderr)
+                        continue
+                except:
+                    pass
+                
+                # Otherwise broadcast as SSE event
+                yield f'data: {line}\n\n'
             except queue.Empty:
-                yield ": heartbeat\n\n"
+                yield ': heartbeat\n\n'
             except Exception as e:
                 print(f"SSE error: {e}", file=sys.stderr)
                 break
@@ -147,13 +181,14 @@ async def sse_endpoint(request: Request):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         }
     )
 
 
 @app.post("/mcp/messages")
 async def messages_endpoint(request: Request):
-    """POST endpoint for sending MCP JSON-RPC requests."""
+    """POST endpoint for sending MCP JSON-RPC requests (MCP protocol)."""
     try:
         body = await request.json()
         
@@ -162,10 +197,12 @@ async def messages_endpoint(request: Request):
             start_mcp_process()
         
         request_json = json.dumps(body) + "\n"
+        print(f"Messages endpoint received: {body.get('method')}", file=sys.stderr)
         _mcp_process.stdin.write(request_json)
         _mcp_process.stdin.flush()
         
-        return JSONResponse({"status": "sent", "id": body.get("id")})
+        # Return 202 Accepted (response will come via SSE stream)
+        return JSONResponse({"status": "accepted", "id": body.get("id")}, status_code=202)
     except Exception as e:
         print(f"Message error: {e}", file=sys.stderr)
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -173,7 +210,7 @@ async def messages_endpoint(request: Request):
 
 @app.post("/mcp/call")
 async def call_tool(request: Request):
-    """Direct tool call endpoint."""
+    """Direct tool call endpoint (synchronous)."""
     try:
         body = await request.json()
         result = send_mcp_request(
