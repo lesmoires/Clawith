@@ -60,8 +60,10 @@ services:
       - coolify  # For Traefik proxy access (prevents gateway timeout)
 
   supergateway:
-    image: supermachine/supergateway:latest
-    command: ["--stdio", "npx", "-y", "@infisical/mcp"]
+    image: node:20-alpine
+    command: >
+      sh -c "npm install -g supergateway &&
+             supergateway --stdio 'npx -y @infisical/mcp' --port 8000 --healthEndpoint /health"
     environment:
       - INFISICAL_HOST_URL=${INFISICAL_HOST_URL}
       - INFISICAL_UNIVERSAL_AUTH_CLIENT_ID=${INFISICAL_UNIVERSAL_AUTH_CLIENT_ID}
