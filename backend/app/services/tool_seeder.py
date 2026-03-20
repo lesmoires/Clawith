@@ -120,6 +120,43 @@ BUILTIN_TOOLS = [
         },
         "config": {},
         "config_schema": {},
+        "code": """
+import httpx
+import os
+
+async def get_infisical_secret(secret_name: str, environment: str = "prod") -> str:
+    host_url = os.environ.get("INFISICAL_HOST_URL")
+    project_id = os.environ.get("INFISICAL_PROJECT_ID")
+    client_id = os.environ.get("INFISICAL_UNIVERSAL_AUTH_CLIENT_ID")
+    client_secret = os.environ.get("INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET")
+    
+    if not all([host_url, project_id, client_id, client_secret]):
+        raise ValueError("Infisical not configured")
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        auth_response = await client.post(
+            f"{host_url}/api/v1/auth/universal-auth/login",
+            json={"clientId": client_id, "clientSecret": client_secret}
+        )
+        auth_response.raise_for_status()
+        access_token = auth_response.json().get("accessToken")
+        
+        response = await client.get(
+            f"{host_url}/api/v3/secrets/raw",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={"workspaceId": project_id, "environment": environment}
+        )
+        response.raise_for_status()
+        data = response.json()
+    
+    secrets = data.get("secrets", [])
+    for secret in secrets:
+        if secret.get("secretKey") == secret_name:
+            return secret.get("secretValue", "")
+    
+    available = [s["secretKey"] for s in secrets]
+    raise ValueError(f"Secret '{secret_name}' not found. Available: {', '.join(available) if available else 'none'}")
+""",
     },
     # --- Aware trigger management tools ---
     {
