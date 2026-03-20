@@ -59,6 +59,27 @@ services:
       - clawith_network
       - coolify  # For Traefik proxy access (prevents gateway timeout)
 
+  supergateway:
+    image: supermachine/supergateway:latest
+    command:
+      - --stdio
+      - npx
+      - -y
+      - @infisical/mcp
+    environment:
+      - INFISICAL_HOST_URL=${INFISICAL_HOST_URL}
+      - INFISICAL_UNIVERSAL_AUTH_CLIENT_ID=${INFISICAL_UNIVERSAL_AUTH_CLIENT_ID}
+      - INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET=${INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET}
+      - INFISICAL_PROJECT_ID=${INFISICAL_PROJECT_ID}
+    restart: unless-stopped
+    networks:
+      - clawith_network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   frontend:
     build: ./frontend
     ports:
@@ -67,6 +88,7 @@ services:
       VITE_API_URL: http://backend:8000
     depends_on:
       - backend
+      - supergateway
     restart: unless-stopped
     labels:
       - traefik.enable=true
