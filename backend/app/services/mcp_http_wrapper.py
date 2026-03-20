@@ -8,6 +8,7 @@ import os
 import sys
 from typing import Dict, Any, Optional
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 import subprocess
 import threading
@@ -15,6 +16,15 @@ import queue
 import uuid
 
 app = FastAPI(title="MCP HTTP Wrapper")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Global state
 _mcp_process: Optional[subprocess.Popen] = None
@@ -75,7 +85,8 @@ def send_mcp_request(method: str, params: Dict[str, Any] = None) -> Dict[str, An
     
     if _mcp_process is None:
         start_mcp_process()
-        asyncio.sleep(2)  # Wait for process to start
+        import time
+        time.sleep(2)  # Wait for process to start
     
     if _mcp_process is None or _mcp_process.poll() is not None:
         return {"error": "MCP process not running"}
@@ -108,6 +119,7 @@ def send_mcp_request(method: str, params: Dict[str, Any] = None) -> Dict[str, An
 
 
 @app.get("/health")
+@app.post("/health")
 async def health_check():
     """Health check endpoint."""
     is_running = _mcp_process is not None and _mcp_process.poll() is None
@@ -115,6 +127,7 @@ async def health_check():
 
 
 @app.get("/mcp/sse")
+@app.post("/mcp/sse")
 async def sse_endpoint(request: Request):
     """SSE endpoint for MCP messages."""
     async def event_generator():
@@ -174,6 +187,7 @@ async def call_tool(request: Request):
 
 
 @app.get("/mcp/tools")
+@app.post("/mcp/tools")
 async def list_tools():
     """List available MCP tools."""
     try:
