@@ -136,6 +136,7 @@ async def health_check():
 
 
 @app.get("/mcp/sse")
+@app.post("/mcp/sse")  # Some clients (like Clawith) POST to /sse
 async def sse_endpoint(request: Request):
     """
     MCP SSE endpoint - implements proper MCP protocol handshake.
@@ -186,25 +187,41 @@ async def sse_endpoint(request: Request):
     )
 
 
+@app.options("/mcp/messages")
+@app.options("/mcp/sse")
+async def options_endpoint():
+    """CORS preflight handler."""
+    return JSONResponse(
+        content={"status": "ok"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+        }
+    )
+
 @app.post("/mcp/messages")
 async def messages_endpoint(request: Request):
     """POST endpoint for sending MCP JSON-RPC requests (MCP protocol)."""
     try:
         body = await request.json()
+        print(f"📨 Messages endpoint received: method={body.get('method')}, id={body.get('id')}", file=sys.stderr)
         
         # Send via MCP process
         if _mcp_process is None:
             start_mcp_process()
         
         request_json = json.dumps(body) + "\n"
-        print(f"Messages endpoint received: {body.get('method')}", file=sys.stderr)
         _mcp_process.stdin.write(request_json)
         _mcp_process.stdin.flush()
+        print(f"✉️  Request sent to MCP process", file=sys.stderr)
         
         # Return 202 Accepted (response will come via SSE stream)
         return JSONResponse({"status": "accepted", "id": body.get("id")}, status_code=202)
     except Exception as e:
-        print(f"Message error: {e}", file=sys.stderr)
+        print(f"❌ Message error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
