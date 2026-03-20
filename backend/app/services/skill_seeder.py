@@ -7,6 +7,55 @@ from app.models.skill import Skill, SkillFile
 
 BUILTIN_SKILLS = [
     {
+        "name": "Infisical Secrets",
+        "description": "Secure access to Infisical secret manager. Retrieve API keys, database credentials, and other secrets without storing them in agent files.",
+        "category": "security",
+        "icon": "🔐",
+        "folder_name": "infisical-secrets",
+        "files": [
+            {
+                "path": "SKILL.md",
+                "content": """---
+name: Infisical Secrets
+description: Secure access to Infisical secret manager
+---
+
+# Infisical Secrets
+
+## Overview
+This skill provides secure access to secrets stored in Infisical secret manager.
+
+**Use this when:**
+- You need API keys, database credentials, or other secrets
+- You want to avoid storing secrets in agent files
+- You need audited access to sensitive information
+
+**Keywords**: secrets, credentials, API keys, Infisical, security
+
+## Available Tools
+
+### get_infisical_secret
+Retrieve a secret from Infisical by name.
+
+**Parameters:**
+- `secret_name` (required): Name of the secret (e.g., "STRIPE_API_KEY")
+- `environment` (optional): Environment, default "prod"
+
+**Example:**
+```
+Get me the STRIPE_API_KEY secret from Infisical
+```
+
+## Security
+- Secrets are NEVER stored in agent files
+- Access is audited (who accessed what, when)
+- Credentials stored in environment variables only
+- Token-based authentication (30-day expiry)
+""",
+            },
+        ],
+    },
+    {
         "name": "Web Research",
         "description": "Systematic web searching, source evaluation, and information synthesis",
         "category": "research",
