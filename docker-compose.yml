@@ -41,6 +41,11 @@ services:
       AGENT_TEMPLATE_DIR: /app/agent_template
       SECRET_KEY: ${SECRET_KEY}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      # MCP stdio support (Infisical, etc.)
+      ENABLE_MCP_STDIO: ${ENABLE_MCP_STDIO:-false}
+      INFISICAL_HOST_URL: ${INFISICAL_HOST_URL:-}
+      INFISICAL_UNIVERSAL_AUTH_CLIENT_ID: ${INFISICAL_UNIVERSAL_AUTH_CLIENT_ID:-}
+      INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET: ${INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET:-}
     volumes:
       - agent_data:/data/agents
       - /var/run/docker.sock:/var/run/docker.sock
@@ -51,6 +56,7 @@ services:
         condition: service_healthy
     networks:
       - clawith_network
+      - coolify  # For Traefik proxy access (prevents gateway timeout)
 
   frontend:
     build: ./frontend
@@ -78,6 +84,7 @@ services:
       - traefik.http.routers.clawith-https.middlewares=clawith-gzip
     networks:
       - clawith_network
+      - coolify  # For Traefik proxy access (prevents gateway timeout)
 
 volumes:
   pgdata:
@@ -87,3 +94,5 @@ volumes:
 networks:
   clawith_network:
     driver: bridge
+  coolify:
+    external: true  # Coolify's global network for Traefik proxy
