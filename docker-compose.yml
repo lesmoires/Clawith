@@ -46,6 +46,7 @@ services:
       INFISICAL_HOST_URL: ${INFISICAL_HOST_URL:-}
       INFISICAL_UNIVERSAL_AUTH_CLIENT_ID: ${INFISICAL_UNIVERSAL_AUTH_CLIENT_ID:-}
       INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET: ${INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET:-}
+      INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:-}
     volumes:
       - agent_data:/data/agents
       - /var/run/docker.sock:/var/run/docker.sock
