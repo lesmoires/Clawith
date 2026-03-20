@@ -189,17 +189,8 @@ async def lifespan(app: FastAPI):
     # ── OPTIONAL: Start MCP HTTP Wrapper (for stdio MCP servers) ─────────────
     if os.environ.get("ENABLE_MCP_STDIO", "").lower() == "true":
         try:
-            from app.services.mcp_http_wrapper import main as mcp_wrapper_main
-            import threading
-            
-            def run_mcp_wrapper():
-                """Run MCP HTTP wrapper in a separate thread."""
-                import sys
-                sys.argv = ["mcp_http_wrapper", "--port", "8888"]
-                mcp_wrapper_main()
-            
-            wrapper_thread = threading.Thread(target=run_mcp_wrapper, daemon=True, name="mcp-wrapper")
-            wrapper_thread.start()
+            # Import the module - it auto-starts the MCP process on load
+            from app.services import mcp_http_wrapper  # noqa: F401
             print("[startup] 🚀 MCP HTTP Wrapper started on http://localhost:8888", flush=True)
         except Exception as e:
             print(f"[startup] ⚠️ MCP HTTP Wrapper failed to start: {e}", flush=True)
