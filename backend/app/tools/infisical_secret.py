@@ -15,7 +15,7 @@ import os
 
 async def get_infisical_secret(secret_name: str, environment: str = "prod") -> str:
     """
-    Get a secret from Infisical.
+    Get a secret from Infisical using Universal Auth.
     
     Args:
         secret_name: Name of the secret (e.g., "STRIPE_API_KEY")
@@ -25,26 +25,43 @@ async def get_infisical_secret(secret_name: str, environment: str = "prod") -> s
         Secret value (string)
     
     Raises:
-        ValueError: If secret not found
+        ValueError: If secret not found or not configured
         httpx.HTTPError: If Infisical API fails
     """
-    # Required env vars
+    # Required env vars (Universal Auth)
     host_url = os.environ.get("INFISICAL_HOST_URL")
     project_id = os.environ.get("INFISICAL_PROJECT_ID")
-    service_token = os.environ.get("INFISICAL_SERVICE_TOKEN")
+    client_id = os.environ.get("INFISICAL_UNIVERSAL_AUTH_CLIENT_ID")
+    client_secret = os.environ.get("INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET")
     
-    if not all([host_url, project_id, service_token]):
+    if not all([host_url, project_id, client_id, client_secret]):
         raise ValueError(
             "Infisical not configured. Set INFISICAL_HOST_URL, "
-            "INFISICAL_PROJECT_ID, and INFISICAL_SERVICE_TOKEN in environment."
+            "INFISICAL_PROJECT_ID, INFISICAL_UNIVERSAL_AUTH_CLIENT_ID, "
+            "and INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET in environment."
         )
     
-    # Fetch secrets from Infisical
+    # Step 1: Get access token
     async with httpx.AsyncClient(timeout=10.0) as client:
+        auth_response = await client.post(
+            f"{host_url}/api/v1/auth/universal-auth/login",
+            headers={"Content-Type": "application/json"},
+            json={
+                "clientId": client_id,
+                "clientSecret": client_secret
+            }
+        )
+        auth_response.raise_for_status()
+        access_token = auth_response.json().get("accessToken")
+        
+        if not access_token:
+            raise ValueError("Failed to get access token from Infisical")
+        
+        # Step 2: Fetch secrets
         response = await client.post(
             f"{host_url}/api/v1/secrets/overrides/list",
             headers={
-                "Authorization": f"Bearer {service_token}",
+                "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json"
             },
             json={
