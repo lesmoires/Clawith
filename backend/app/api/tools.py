@@ -205,6 +205,58 @@ async def get_agent_tools(
             "enabled": enabled,
             "is_default": t.is_default,
             "mcp_server_name": t.mcp_server_name,
+            "source": at.source if at else "system",
+            "agent_tool_id": str(at.id) if at else None,
+            "agent_config": at.config if at else {},
+            "global_config": t.config or {},
+            "config_schema": t.config_schema or {},
+        })
+    return result
+
+
+@router.get("/agents/{agent_id}/with-config")
+async def get_agent_tools_with_config(
+    agent_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get tools for agent with full config details (for UI Tools Manager)."""
+    from app.services.agent_tools import _agent_has_feishu
+    has_feishu = await _agent_has_feishu(agent_id)
+
+    all_tools_r = await db.execute(select(Tool).where(Tool.enabled == True).order_by(Tool.category, Tool.name))
+    all_tools = all_tools_r.scalars().all()
+
+    agent_tools_r = await db.execute(select(AgentTool).where(AgentTool.agent_id == agent_id))
+    assignments = {str(at.tool_id): at for at in agent_tools_r.scalars().all()}
+
+    result = []
+    for t in all_tools:
+        if t.category == "feishu" and not has_feishu:
+            continue
+        tid = str(t.id)
+        at = assignments.get(tid)
+        if t.type == "mcp" and not at:
+            continue
+        enabled = at.enabled if at else t.is_default
+        result.append({
+            "id": tid,
+            "name": t.name,
+            "display_name": t.display_name,
+            "description": t.description,
+            "type": t.type,
+            "category": t.category,
+            "icon": t.icon,
+            "enabled": enabled,
+            "is_default": t.is_default,
+            "mcp_server_name": t.mcp_server_name,
+            "mcp_server_url": t.mcp_server_url,
+            "source": at.source if at else "system",
+            "agent_tool_id": str(at.id) if at else None,
+            "agent_config": at.config if at else {},
+            "global_config": t.config or {},
+            "config_schema": t.config_schema or {},
+            "parameters_schema": t.parameters_schema or {},
         })
     return result
 
