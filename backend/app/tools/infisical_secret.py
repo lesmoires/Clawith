@@ -11,9 +11,6 @@ Usage in agent:
 
 import httpx
 import os
-from app.core.database import async_session
-from app.models.tool import Tool
-from sqlalchemy import select
 
 
 async def get_infisical_secret(secret_name: str, environment: str = "prod") -> str:
@@ -93,29 +90,5 @@ INFISICAL_SECRET_TOOL = {
 }
 
 
-async def register_tool():
-    """Register the Infisical secret tool in Clawith."""
-    async with async_session() as session:
-        # Check if tool already exists
-        result = await session.execute(
-            select(Tool).where(Tool.name == "get_infisical_secret")
-        )
-        existing = result.scalar_one_or_none()
-        
-        if existing:
-            print("✅ Infisical secret tool already registered")
-            return existing
-        
-        # Create new tool
-        tool = Tool(
-            name="get_infisical_secret",
-            description=INFISICAL_SECRET_TOOL["description"],
-            parameters=INFISICAL_SECRET_TOOL["parameters"],
-            code="from app.tools.infisical_secret import get_infisical_secret; result = await get_infisical_secret(**params)",
-            is_builtin=True
-        )
-        
-        session.add(tool)
-        await session.commit()
-        print("✅ Infisical secret tool registered successfully")
-        return tool
+# Tool registration is handled by Clawith's tool seeding system
+# This tool will be auto-registered when agents use it
