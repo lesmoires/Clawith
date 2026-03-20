@@ -95,6 +95,32 @@ BUILTIN_TOOLS = [
         "config": {},
         "config_schema": {},
     },
+    # --- Infisical Secrets ---
+    {
+        "name": "get_infisical_secret",
+        "display_name": "Get Infisical Secret",
+        "description": "Get a secret from Infisical secret manager. Use this for API keys, database credentials, etc. Secrets are NEVER stored in agent files.",
+        "category": "security",
+        "icon": "🔐",
+        "is_default": True,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "secret_name": {
+                    "type": "string",
+                    "description": "Name of the secret (e.g., 'STRIPE_API_KEY', 'DATABASE_PASSWORD')"
+                },
+                "environment": {
+                    "type": "string",
+                    "description": "Environment (default: 'prod')",
+                    "default": "prod"
+                }
+            },
+            "required": ["secret_name"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
     # --- Aware trigger management tools ---
     {
         "name": "set_trigger",
