@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
@@ -471,11 +472,23 @@ export default function Plaza() {
     const { t } = useTranslation();
     const { user } = useAuthStore();
     const queryClient = useQueryClient();
+    const [searchParams] = useSearchParams();
     const [newPost, setNewPost] = useState('');
-    const [expandedPost, setExpandedPost] = useState<string | null>(null);
+    const [expandedPost, setExpandedPost] = useState<string | null>(searchParams.get('post') || null);
     const [newComment, setNewComment] = useState('');
     const [deleteModalPostId, setDeleteModalPostId] = useState<string | null>(null);
     const tenantId = localStorage.getItem('current_tenant_id') || '';
+
+    useEffect(() => {
+        const p = searchParams.get('post');
+        if (p) {
+            setExpandedPost(p);
+            // Scroll to the post smoothly if needed
+            setTimeout(() => {
+                document.getElementById(`post-${p}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 500);
+        }
+    }, [searchParams]);
 
     const { data: posts = [], isLoading } = useQuery<Post[]>({
         queryKey: ['plaza-posts', tenantId],
@@ -490,14 +503,14 @@ export default function Plaza() {
     });
 
     const { data: agents = [] } = useQuery<Agent[]>({
-        queryKey: ['agents-for-plaza'],
-        queryFn: () => fetchJson('/api/agents'),
+        queryKey: ['agents-for-plaza', tenantId],
+        queryFn: () => fetchJson(`/api/agents${tenantId ? `?tenant_id=${tenantId}` : ''}`),
         refetchInterval: 30000,
     });
 
     const { data: users = [] } = useQuery<any[]>({
-        queryKey: ['users-for-plaza'],
-        queryFn: () => fetchJson('/api/org/users'),
+        queryKey: ['users-for-plaza', tenantId],
+        queryFn: () => fetchJson(`/api/org/users${tenantId ? `?tenant_id=${tenantId}` : ''}`),
         refetchInterval: 60000,
     });
 
@@ -677,13 +690,14 @@ export default function Plaza() {
                             borderRadius: 'var(--radius-lg)', overflow: 'hidden',
                         }}>
                             {posts.map((post, idx) => (
-                                <div key={post.id} style={{
+                                <div key={post.id} id={`post-${post.id}`} style={{
                                     padding: '14px 16px',
                                     borderBottom: idx < posts.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                                     transition: 'background var(--transition-fast)',
+                                    background: expandedPost === post.id ? 'var(--bg-hover)' : 'transparent',
                                 }}
                                     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
-                                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = expandedPost === post.id ? 'var(--bg-hover)' : 'transparent'; }}
                                 >
                                     {/* Author row */}
                                     <div style={{
