@@ -95,18 +95,18 @@ BUILTIN_TOOLS = [
         "config": {},
         "config_schema": {},
     },
-    # --- Infisical Secrets (via MCP) ---
+    # --- Infisical Secrets (via Supergateway MCP) ---
     {
         "name": "get_infisical_secret",
         "display_name": "Get Infisical Secret",
         "description": "Get a secret from Infisical secret manager. Use this for API keys, database credentials, etc. Secrets are NEVER stored in agent files.",
-        "type": "mcp",  # ← MCP tool, not builtin!
+        "type": "mcp",
         "category": "security",
         "icon": "🔐",
         "is_default": True,
-        "mcp_server_url": "http://localhost:8888/sse",  # ← Notre MCP wrapper!
+        "mcp_server_url": "http://supergateway:8000/sse",
         "mcp_server_name": "Infisical",
-        "mcp_tool_name": "get-secret",  # ← Nom du tool dans MCP
+        "mcp_tool_name": "get-secret",
         "parameters_schema": {
             "type": "object",
             "properties": {
