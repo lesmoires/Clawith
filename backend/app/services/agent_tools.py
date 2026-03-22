@@ -818,6 +818,102 @@ AGENT_TOOLS = [
             },
         },
     },
+    # ─── AgentMail Email Tools (API-based) ────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_list_inboxes",
+            "description": "List all email inboxes in your AgentMail account. Returns inbox IDs, email addresses, and display names.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_send_email",
+            "description": "Send an email from an AgentMail inbox. Supports plain text and HTML for best deliverability. Use conver.thesis@agentmail.to or elias.bridge@agentmail.to as from_inbox.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "from_inbox": {
+                        "type": "string",
+                        "description": "Inbox email address to send from (e.g., 'conver.thesis@agentmail.to')",
+                    },
+                    "to": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of recipient email addresses",
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "Email subject line",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Plain text email body",
+                    },
+                    "html": {
+                        "type": "string",
+                        "description": "HTML email body (optional, recommended for better deliverability)",
+                    },
+                },
+                "required": ["from_inbox", "to", "subject", "text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_list_messages",
+            "description": "List recent messages in an AgentMail inbox. Returns message metadata including sender, subject, and timestamp.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "inbox_id": {
+                        "type": "string",
+                        "description": "Inbox email address or ID (e.g., 'conver.thesis@agentmail.to')",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of messages to return (default: 10)",
+                    },
+                },
+                "required": ["inbox_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_reply_to_message",
+            "description": "Reply to a specific email message. Automatically maintains thread with In-Reply-To headers.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "inbox_id": {
+                        "type": "string",
+                        "description": "Inbox email address or ID",
+                    },
+                    "message_id": {
+                        "type": "string",
+                        "description": "Message ID to reply to (from list_messages or get_thread)",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Reply text body",
+                    },
+                    "html": {
+                        "type": "string",
+                        "description": "Reply HTML body (optional)",
+                    },
+                },
+                "required": ["inbox_id", "message_id", "text"],
+            },
+        },
+    },
 ]
 
 
@@ -1176,9 +1272,18 @@ async def execute_tool(
             result = await _feishu_calendar_update(agent_id, arguments)
         elif tool_name == "feishu_calendar_delete":
             result = await _feishu_calendar_delete(agent_id, arguments)
-        # ── Email Tools ──
+        # ── Email Tools (IMAP/SMTP) ──
         elif tool_name in ("send_email", "read_emails", "reply_email"):
             result = await _handle_email_tool(tool_name, agent_id, ws, arguments)
+        # ── AgentMail Tools (API-based) ──
+        elif tool_name == "agentmail_list_inboxes":
+            result = await _agentmail_list_inboxes(agent_id, arguments)
+        elif tool_name == "agentmail_send_email":
+            result = await _agentmail_send_email(agent_id, ws, arguments)
+        elif tool_name == "agentmail_list_messages":
+            result = await _agentmail_list_messages(agent_id, arguments)
+        elif tool_name == "agentmail_reply_to_message":
+            result = await _agentmail_reply_to_message(agent_id, arguments)
         else:
             # Try MCP tool execution
             result = await _execute_mcp_tool(tool_name, arguments, agent_id=agent_id)
@@ -4657,3 +4762,123 @@ async def _handle_email_tool(tool_name: str, agent_id: uuid.UUID, ws: Path, argu
             return f"❌ Unknown email tool: {tool_name}"
     except Exception as e:
         return f"❌ Email tool error: {str(e)[:200]}"
+
+
+# ─── AgentMail Tool Handlers (API-based) ────────────────────────
+
+async def _agentmail_list_inboxes(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all AgentMail inboxes."""
+    try:
+        from app.tools.agentmail_tools import agentmail_list_inboxes as _list_inboxes
+        result = await _list_inboxes()
+        inboxes = result.get("inboxes", [])
+        if not inboxes:
+            return "📭 No inboxes found in your AgentMail account."
+        
+        lines = ["📬 **Your AgentMail Inboxes:**\n"]
+        for inbox in inboxes:
+            email = inbox.get("email", inbox.get("inbox_id", "unknown"))
+            display = inbox.get("display_name", "")
+            lines.append(f"- **{email}** ({display})")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"❌ AgentMail list inboxes error: {str(e)[:200]}"
+
+
+async def _agentmail_send_email(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
+    """Send an email via AgentMail API."""
+    try:
+        from app.tools.agentmail_tools import agentmail_send_email as _send_email
+        
+        from_inbox = arguments.get("from_inbox", "")
+        to = arguments.get("to", [])
+        subject = arguments.get("subject", "")
+        text = arguments.get("text", "")
+        html = arguments.get("html")
+        
+        if not from_inbox:
+            return "❌ Missing required argument 'from_inbox'. Use 'conver.thesis@agentmail.to' or 'elias.bridge@agentmail.to'."
+        if not to:
+            return "❌ Missing required argument 'to'. Provide a list of recipient email addresses."
+        if not subject:
+            return "❌ Missing required argument 'subject'."
+        if not text:
+            return "❌ Missing required argument 'text'."
+        
+        result = await _send_email(
+            from_inbox=from_inbox,
+            to=to,
+            subject=subject,
+            text=text,
+            html=html,
+        )
+        
+        message_id = result.get("message_id", "unknown")
+        thread_id = result.get("thread_id", "unknown")
+        
+        return f"✅ **Email sent!**\n\n- From: {from_inbox}\n- To: {', '.join(to)}\n- Subject: {subject}\n- Message ID: `{message_id}`\n- Thread ID: `{thread_id}`"
+    except Exception as e:
+        return f"❌ AgentMail send error: {str(e)[:200]}"
+
+
+async def _agentmail_list_messages(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List messages in an AgentMail inbox."""
+    try:
+        from app.tools.agentmail_tools import agentmail_list_messages as _list_messages
+        
+        inbox_id = arguments.get("inbox_id", "")
+        limit = min(int(arguments.get("limit", 10)), 50)
+        
+        if not inbox_id:
+            return "❌ Missing required argument 'inbox_id'. Provide the inbox email address (e.g., 'conver.thesis@agentmail.to')."
+        
+        result = await _list_messages(inbox_id=inbox_id, limit=limit)
+        messages = result.get("messages", [])
+        
+        if not messages:
+            return f"📭 No messages found in inbox `{inbox_id}`."
+        
+        lines = [f"📥 **Recent Messages in `{inbox_id}`:**\n"]
+        for msg in messages[:limit]:
+            sender = msg.get("from", "unknown")
+            subject = msg.get("subject", "(no subject)")
+            date = msg.get("received_at", msg.get("created_at", "unknown"))
+            msg_id = msg.get("message_id", "unknown")
+            lines.append(f"- **From:** {sender}\n  **Subject:** {subject}\n  **Date:** {date}\n  **ID:** `{msg_id}`\n")
+        
+        return "\n".join(lines)
+    except Exception as e:
+        return f"❌ AgentMail list messages error: {str(e)[:200]}"
+
+
+async def _agentmail_reply_to_message(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Reply to a message via AgentMail API."""
+    try:
+        from app.tools.agentmail_tools import agentmail_reply_to_message as _reply
+        
+        inbox_id = arguments.get("inbox_id", "")
+        message_id = arguments.get("message_id", "")
+        text = arguments.get("text", "")
+        html = arguments.get("html")
+        
+        if not inbox_id:
+            return "❌ Missing required argument 'inbox_id'."
+        if not message_id:
+            return "❌ Missing required argument 'message_id'."
+        if not text:
+            return "❌ Missing required argument 'text'."
+        
+        result = await _reply(
+            inbox_id=inbox_id,
+            message_id=message_id,
+            text=text,
+            html=html,
+        )
+        
+        reply_id = result.get("message_id", "unknown")
+        thread_id = result.get("thread_id", "unknown")
+        
+        return f"✅ **Reply sent!**\n\n- Reply ID: `{reply_id}`\n- Thread ID: `{thread_id}`"
+    except Exception as e:
+        return f"❌ AgentMail reply error: {str(e)[:200]}"
+
