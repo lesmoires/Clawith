@@ -13,6 +13,8 @@
 
 ## Bug Fixes
 
+- Fix missing database migration for `max_output_tokens` in `llm_models` table
+- Fix default company heartbeat floor not being applied to newly created agents
 - Fix heartbeat/scheduler tool calls failing with empty arguments (empty-args guard ported from chat flow)
 - Fix agent-to-agent session duplication and LLM tool confusion
 - Harden A2A communication security with tenant isolation and relationship checks
@@ -28,11 +30,12 @@
 
 ## Database Migrations
 
-Three new Alembic migrations run automatically on startup:
+Four new Alembic migrations run automatically on startup:
 
 1. `add_published_pages` — Creates `published_pages` table
 2. `add_notification_agent_id` — Adds `agent_id`, `sender_name` columns to `notifications`; makes `user_id` nullable
 3. `add_llm_temperature` — Adds `temperature` column to `llm_models`
+4. `add_llm_max_output_tokens` — Adds `max_output_tokens` column to `llm_models`
 
 All migrations are idempotent (safe to re-run).
 
