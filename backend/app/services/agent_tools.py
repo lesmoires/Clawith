@@ -888,6 +888,27 @@ AGENT_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "agentmail_get_thread",
+            "description": "Get a complete email thread with all messages in chronological order. Returns full email content (text and HTML).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "inbox_id": {
+                        "type": "string",
+                        "description": "Inbox email address or ID (e.g., 'conver.thesis@agentmail.to')",
+                    },
+                    "thread_id": {
+                        "type": "string",
+                        "description": "Thread ID (from list_messages response)",
+                    },
+                },
+                "required": ["inbox_id", "thread_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "agentmail_reply_to_message",
             "description": "Reply to a specific email message. Automatically maintains thread with In-Reply-To headers.",
             "parameters": {
@@ -1282,6 +1303,8 @@ async def execute_tool(
             result = await _agentmail_send_email(agent_id, ws, arguments)
         elif tool_name == "agentmail_list_messages":
             result = await _agentmail_list_messages(agent_id, arguments)
+        elif tool_name == "agentmail_get_thread":
+            result = await _agentmail_get_thread(agent_id, arguments)
         elif tool_name == "agentmail_reply_to_message":
             result = await _agentmail_reply_to_message(agent_id, arguments)
         else:
@@ -4849,6 +4872,43 @@ async def _agentmail_list_messages(agent_id: uuid.UUID, arguments: dict) -> str:
         return "\n".join(lines)
     except Exception as e:
         return f"❌ AgentMail list messages error: {str(e)[:200]}"
+
+
+async def _agentmail_get_thread(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get a complete email thread with full content."""
+    try:
+        from app.tools.agentmail_tools import agentmail_get_thread as _get_thread
+        
+        inbox_id = arguments.get("inbox_id", "")
+        thread_id = arguments.get("thread_id", "")
+        
+        if not inbox_id:
+            return "❌ Missing required argument 'inbox_id'."
+        if not thread_id:
+            return "❌ Missing required argument 'thread_id'."
+        
+        result = await _get_thread(inbox_id=inbox_id, thread_id=thread_id)
+        messages = result.get("messages", [])
+        subject = result.get("subject", "(no subject)")
+        
+        if not messages:
+            return f"📭 No messages found in thread `{thread_id}`."
+        
+        lines = [f"📧 **Thread:** {subject}\n"]
+        lines.append(f"**Messages:** {len(messages)}\n")
+        
+        for i, msg in enumerate(messages, 1):
+            sender = msg.get("from", "unknown")
+            date = msg.get("timestamp", "unknown")
+            text = msg.get("text", msg.get("preview", "(no content)"))
+            lines.append(f"\n--- Message {i} ---")
+            lines.append(f"**From:** {sender}")
+            lines.append(f"**Date:** {date}")
+            lines.append(f"\n{text[:2000]}")  # Limit to 2000 chars
+        
+        return "\n".join(lines)
+    except Exception as e:
+        return f"❌ AgentMail get thread error: {str(e)[:200]}"
 
 
 async def _agentmail_reply_to_message(agent_id: uuid.UUID, arguments: dict) -> str:
