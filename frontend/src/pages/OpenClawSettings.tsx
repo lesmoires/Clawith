@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { agentApi } from '../services/api';
 
 function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
@@ -19,6 +20,7 @@ interface OpenClawSettingsProps {
 export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsProps) {
     const { t, i18n } = useTranslation();
     const queryClient = useQueryClient();
+    const navigate = useNavigate();
     const isChinese = i18n.language?.startsWith('zh');
 
     // ─── API Key state ──────────────────────────────────
@@ -27,12 +29,20 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
     const [showConfirm, setShowConfirm] = useState(false);
     const [copied, setCopied] = useState(false);
 
+    // ─── Delete state ───────────────────────────────────
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+
+    const hasKey = agent?.has_api_key || false;
+
     const handleRegenerate = async () => {
         setRegenerating(true);
         try {
             const result = await fetchAuth<{ api_key: string }>(`/agents/${agentId}/api-key`, { method: 'POST' });
             setApiKey(result.api_key);
             setShowConfirm(false);
+            // Refresh agent data so has_api_key updates
+            queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
         } catch (e) {
             console.error('Failed to regenerate API key', e);
         } finally {
@@ -46,6 +56,18 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch { }
+    };
+
+    const handleDelete = async () => {
+        setDeleting(true);
+        try {
+            await agentApi.delete(agentId);
+            queryClient.invalidateQueries({ queryKey: ['agents'] });
+            navigate('/');
+        } catch (e) {
+            console.error('Failed to delete agent', e);
+            setDeleting(false);
+        }
     };
 
     // ─── Permissions state ──────────────────────────────
@@ -94,7 +116,7 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
             {/* ── API Key Management ── */}
             <div className="card" style={{ marginBottom: '12px' }}>
                 <h4 style={{ marginBottom: '4px' }}>
-                    {isChinese ? 'API Key' : 'API Key'}
+                    API Key
                 </h4>
                 <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
                     {isChinese
@@ -122,9 +144,7 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
                                 onClick={() => handleCopy(apiKey)}
                                 style={{ padding: '4px 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
                             >
-                                {copied
-                                    ? (isChinese ? 'Copied' : 'Copied')
-                                    : (isChinese ? 'Copy' : 'Copy')}
+                                {copied ? 'Copied' : 'Copy'}
                             </button>
                         </div>
                         <div style={{
@@ -140,7 +160,7 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
                         </div>
                     </div>
                 ) : (
-                    /* Default state — show masked key + actions */
+                    /* Default state — show masked key or "not generated" */
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <div style={{
                             flex: 1, padding: '8px 14px', borderRadius: '8px',
@@ -148,18 +168,18 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
                             fontFamily: 'monospace', fontSize: '13px', color: 'var(--text-secondary)',
                             letterSpacing: '0.5px',
                         }}>
-                            {agent?.api_key_hash
+                            {hasKey
                                 ? 'oc-••••••••••••••••••••••••••••••••'
-                                : (isChinese ? 'Key not generated' : 'Key not generated')}
+                                : (isChinese ? '未生成' : 'Not generated')}
                         </div>
                         <button
                             className="btn btn-secondary"
                             onClick={() => setShowConfirm(true)}
                             style={{ padding: '6px 16px', fontSize: '12px', whiteSpace: 'nowrap' }}
                         >
-                            {agent?.api_key_hash
-                                ? (isChinese ? 'Regenerate' : 'Regenerate')
-                                : (isChinese ? 'Generate' : 'Generate')}
+                            {hasKey
+                                ? (isChinese ? '重新生成' : 'Regenerate')
+                                : (isChinese ? '生成' : 'Generate')}
                         </button>
                     </div>
                 )}
@@ -168,20 +188,21 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
                 {showConfirm && (
                     <div style={{
                         marginTop: '12px', padding: '14px', borderRadius: '8px',
-                        background: 'rgba(255,80,80,0.06)', border: '1px solid rgba(255,80,80,0.2)',
+                        background: hasKey ? 'rgba(255,80,80,0.06)' : 'rgba(99,102,241,0.04)',
+                        border: hasKey ? '1px solid rgba(255,80,80,0.2)' : '1px solid var(--border-subtle)',
                     }}>
                         <div style={{ fontSize: '13px', fontWeight: 500, marginBottom: '8px', color: 'var(--text-primary)' }}>
-                            {isChinese
-                                ? (agent?.api_key_hash ? 'Regenerate API Key?' : 'Generate API Key?')
-                                : (agent?.api_key_hash ? 'Regenerate API Key?' : 'Generate API Key?')}
+                            {hasKey
+                                ? (isChinese ? '确认重新生成 API Key？' : 'Regenerate API Key?')
+                                : (isChinese ? '生成 API Key？' : 'Generate API Key?')}
                         </div>
                         <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                            {agent?.api_key_hash
+                            {hasKey
                                 ? (isChinese
-                                    ? 'The current key will be revoked immediately. All devices using the old key will be disconnected.'
+                                    ? '当前 Key 将立即失效，所有使用旧 Key 的设备将断开连接。'
                                     : 'The current key will be revoked immediately. All devices using the old key will be disconnected.')
                                 : (isChinese
-                                    ? 'A new API Key will be generated for this agent.'
+                                    ? '将为此 Agent 生成一个新的 API Key。'
                                     : 'A new API Key will be generated for this agent.')}
                         </div>
                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
@@ -190,7 +211,7 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
                                 onClick={() => setShowConfirm(false)}
                                 style={{ padding: '5px 14px', fontSize: '12px' }}
                             >
-                                {isChinese ? 'Cancel' : 'Cancel'}
+                                {isChinese ? '取消' : 'Cancel'}
                             </button>
                             <button
                                 className="btn btn-primary"
@@ -199,8 +220,8 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
                                 style={{ padding: '5px 14px', fontSize: '12px' }}
                             >
                                 {regenerating
-                                    ? (isChinese ? 'Generating...' : 'Generating...')
-                                    : (isChinese ? 'Confirm' : 'Confirm')}
+                                    ? (isChinese ? '生成中...' : 'Generating...')
+                                    : (isChinese ? '确认' : 'Confirm')}
                             </button>
                         </div>
                     </div>
@@ -308,6 +329,68 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
                     </div>
                 )}
             </div>
+
+            {/* ── Danger Zone: Delete Agent ── */}
+            {isOwner && (
+                <div className="card" style={{
+                    marginBottom: '12px',
+                    border: '1px solid rgba(255,80,80,0.2)',
+                }}>
+                    <h4 style={{ marginBottom: '4px', color: 'var(--error)' }}>
+                        {isChinese ? '危险操作' : 'Danger Zone'}
+                    </h4>
+                    <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                        {isChinese
+                            ? '删除后无法恢复，所有聊天记录、活动日志和关联数据都将被永久清除。'
+                            : 'This action cannot be undone. All chat history, activity logs, and associated data will be permanently deleted.'}
+                    </p>
+
+                    {showDeleteConfirm ? (
+                        <div style={{
+                            padding: '14px', borderRadius: '8px',
+                            background: 'rgba(255,80,80,0.06)', border: '1px solid rgba(255,80,80,0.2)',
+                        }}>
+                            <div style={{ fontSize: '13px', fontWeight: 500, marginBottom: '8px', color: 'var(--text-primary)' }}>
+                                {isChinese
+                                    ? `确认删除 Agent "${agent?.name}"？`
+                                    : `Delete agent "${agent?.name}"?`}
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                                {isChinese
+                                    ? '此操作不可撤销。'
+                                    : 'This action is irreversible.'}
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                <button
+                                    className="btn btn-secondary"
+                                    onClick={() => setShowDeleteConfirm(false)}
+                                    style={{ padding: '5px 14px', fontSize: '12px' }}
+                                >
+                                    {isChinese ? '取消' : 'Cancel'}
+                                </button>
+                                <button
+                                    className="btn btn-danger"
+                                    onClick={handleDelete}
+                                    disabled={deleting}
+                                    style={{ padding: '5px 14px', fontSize: '12px' }}
+                                >
+                                    {deleting
+                                        ? (isChinese ? '删除中...' : 'Deleting...')
+                                        : (isChinese ? '确认删除' : 'Delete')}
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <button
+                            className="btn btn-danger"
+                            onClick={() => setShowDeleteConfirm(true)}
+                            style={{ padding: '6px 20px', fontSize: '12px' }}
+                        >
+                            {isChinese ? '删除此 Agent' : 'Delete this Agent'}
+                        </button>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
