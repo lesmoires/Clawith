@@ -407,22 +407,16 @@ function schedToCron(sched: { freq: string; interval: number; time: string; week
 }
 
 const getRelationOptions = (t: any) => [
-    { value: 'direct_leader', label: t('agent.detail.supervisor') },
-    { value: 'collaborator', label: t('agent.detail.collaborator') },
-    { value: 'stakeholder', label: 'Stakeholder' },
-    { value: 'team_member', label: 'Team Member' },
+    { value: 'supervisor', label: t('agent.detail.supervisor') },
     { value: 'subordinate', label: t('agent.detail.subordinate') },
-    { value: 'mentor', label: 'Mentor' },
-    { value: 'other', label: 'Other' },
+    { value: 'collaborator', label: t('agent.detail.collaborator') },
+    { value: 'peer', label: t('agent.detail.peer') },
+    { value: 'mentor', label: t('agent.detail.mentor') },
+    { value: 'stakeholder', label: t('agent.detail.stakeholder') },
+    { value: 'other', label: t('agent.detail.other') },
 ];
 
-const getAgentRelationOptions = (t: any) => [
-    { value: 'peer', label: t('agent.detail.colleague') },
-    { value: 'supervisor', label: t('agent.detail.supervisor') },
-    { value: 'assistant', label: 'Assistant' },
-    { value: 'collaborator', label: t('agent.detail.collaborator') },
-    { value: 'other', label: 'Other' },
-];
+const getAgentRelationOptions = getRelationOptions;
 
 function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
     const token = localStorage.getItem('token');
@@ -652,11 +646,11 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
                 {!readOnly && addingAgent && (
                     <div style={{ border: '1px solid rgba(16,185,129,0.5)', borderRadius: '8px', padding: '12px', background: 'var(--bg-elevated)' }}>
                         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                            <select className="input" value={selectedAgentId} onChange={e => setSelectedAgentId(e.target.value)} style={{ flex: 1, fontSize: '12px' }}>
-                                <option value="">— Select —</option>
+                            <select className="input" value={selectedAgentId} onChange={e => setSelectedAgentId(e.target.value)} style={{ flex: 1, minWidth: 0, fontSize: '12px' }}>
+                                <option value="">— Select Agent —</option>
                                 {availableAgents.map((a: any) => <option key={a.id} value={a.id}>{a.name} — {a.role_description || 'Agent'}</option>)}
                             </select>
-                            <select className="input" value={agentRelation} onChange={e => setAgentRelation(e.target.value)} style={{ width: '140px', fontSize: '12px' }}>
+                            <select className="input" value={agentRelation} onChange={e => setAgentRelation(e.target.value)} style={{ width: '150px', flexShrink: 0, fontSize: '12px' }}>
                                 {getAgentRelationOptions(t).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
                             </select>
                         </div>
