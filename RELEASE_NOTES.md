@@ -13,6 +13,9 @@
 
 ## Bug Fixes
 
+- Fix Alembic migration cycle error during backend startup (resolved `multi_tenant_registration` loop)
+- Fix missing relationship type dropdown when adding an Agent Relationship
+- Align Agent-to-Agent relationship types with Human-to-Agent ones and complete missing i18n translations
 - Fix missing database migration for `max_output_tokens` in `llm_models` table
 - Fix default company heartbeat floor not being applied to newly created agents
 - Fix heartbeat/scheduler tool calls failing with empty arguments (empty-args guard ported from chat flow)
