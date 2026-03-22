@@ -9,6 +9,7 @@ import FileBrowser from '../components/FileBrowser';
 import ChannelConfig from '../components/ChannelConfig';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import PromptModal from '../components/PromptModal';
+import OpenClawSettings from './OpenClawSettings';
 import { activityApi, agentApi, channelApi, enterpriseApi, fileApi, scheduleApi, skillApi, taskApi, triggerApi, uploadFileWithProgress } from '../services/api';
 import { useAuthStore } from '../stores';
 
@@ -3600,7 +3601,12 @@ function AgentDetailInner() {
 
                 {/* ── Settings Tab ── */}
                 {
-                    activeTab === 'settings' && (() => {
+                    activeTab === 'settings' && (agent as any)?.agent_type === 'openclaw' && (
+                        <OpenClawSettings agent={agent} agentId={id!} />
+                    )
+                }
+                {
+                    activeTab === 'settings' && (agent as any)?.agent_type !== 'openclaw' && (() => {
                         // Check if form has unsaved changes
                         const hasChanges = (
                             settingsForm.primary_model_id !== (agent?.primary_model_id || '') ||
