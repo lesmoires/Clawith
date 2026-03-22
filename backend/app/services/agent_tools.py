@@ -2952,21 +2952,6 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
             if not rel_check.scalar_one_or_none():
                 return f"❌ You do not have a relationship with {target.name}. Only agents in your relationship list can be contacted. Ask your administrator to add a relationship if needed."
 
-            # ── OpenClaw target: queue message for gateway poll ──
-            if getattr(target, "agent_type", "native") == "openclaw":
-                from app.models.gateway_message import GatewayMessage as GMsg
-                gw_msg = GMsg(
-                    agent_id=target.id,
-                    sender_agent_id=from_agent_id,
-                    sender_user_id=source_agent.creator_id if source_agent else None,
-                    content=f"[From {source_name}] {message_text}",
-                    status="pending",
-                )
-                db.add(gw_msg)
-                await db.commit()
-                online = target.openclaw_last_seen and (datetime.now(timezone.utc) - target.openclaw_last_seen).total_seconds() < 300
-                status_hint = "online" if online else "offline (message will be delivered on next heartbeat)"
-                return f"✅ Message sent to {target.name} (OpenClaw agent, currently {status_hint}). The message has been queued and will be delivered when the agent polls for updates."
             src_part_r = await db.execute(select(Participant).where(Participant.type == "agent", Participant.ref_id == from_agent_id))
             src_participant = src_part_r.scalar_one_or_none()
             tgt_part_r = await db.execute(select(Participant).where(Participant.type == "agent", Participant.ref_id == target.id))
@@ -2983,8 +2968,8 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
                 )
             )
             chat_session = sess_r.scalar_one_or_none()
+            owner_id = source_agent.creator_id if source_agent else from_agent_id
             if not chat_session:
-                owner_id = source_agent.creator_id if source_agent else from_agent_id
                 src_part_id = src_participant.id if src_participant else None
                 chat_session = ChatSession(
                     agent_id=session_agent_id,
@@ -2998,6 +2983,44 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
                 await db.flush()
 
             session_id = str(chat_session.id)
+
+            # ── OpenClaw target: queue message for gateway poll ──
+            if getattr(target, "agent_type", "native") == "openclaw":
+                # 1. Save the source message to the chat session
+                db.add(ChatMessage(
+                    agent_id=session_agent_id,
+                    user_id=owner_id,
+                    role="user",
+                    content=message_text,
+                    conversation_id=session_id,
+                    participant_id=src_participant.id if src_participant else None,
+                ))
+                chat_session.last_message_at = datetime.now(timezone.utc)
+                
+                # 2. Queue for Gateway
+                from app.models.gateway_message import GatewayMessage as GMsg
+                gw_msg = GMsg(
+                    agent_id=target.id,
+                    sender_agent_id=from_agent_id,
+                    sender_user_id=owner_id,
+                    content=f"[From {source_name}] {message_text}",
+                    status="pending",
+                    conversation_id=session_id,
+                )
+                db.add(gw_msg)
+                await db.commit()
+                
+                # 3. Log activity
+                from app.services.activity_logger import log_activity
+                await log_activity(
+                    from_agent_id, "agent_msg_sent",
+                    f"Sent message to {target.name} (queued)",
+                    detail={"partner": target.name, "message": message_text[:200]},
+                )
+
+                online = target.openclaw_last_seen and (datetime.now(timezone.utc) - target.openclaw_last_seen).total_seconds() < 300
+                status_hint = "online" if online else "offline (message will be delivered on next heartbeat)"
+                return f"✅ Message sent to {target.name} (OpenClaw agent, currently {status_hint}). The message has been queued and will be delivered when the agent polls for updates."
 
             # Prepare target LLM
             from app.services.agent_context import build_agent_context
