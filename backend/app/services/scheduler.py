@@ -95,7 +95,7 @@ async def _execute_schedule(schedule_id: uuid.UUID, agent_id: uuid.UUID, instruc
                     response = await client.complete(
                         messages=messages,
                         tools=tools_for_llm if tools_for_llm else None,
-                        temperature=0.7,
+                        temperature=model.temperature,
                         max_tokens=get_max_tokens(model.provider, model.model, getattr(model, 'max_output_tokens', None)),
                     )
                 except LLMError as e:

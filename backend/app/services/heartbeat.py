@@ -262,7 +262,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                     response = await client.complete(
                         messages=llm_messages,
                         tools=tools_for_llm,
-                        temperature=0.7,
+                        temperature=model.temperature,
                         max_tokens=get_max_tokens(model.provider, model.model, getattr(model, 'max_output_tokens', None)),
                     )
                 except LLMError as e:
