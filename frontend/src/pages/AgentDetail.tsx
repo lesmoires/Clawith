@@ -418,6 +418,39 @@ const getRelationOptions = (t: any) => [
 
 const getAgentRelationOptions = getRelationOptions;
 
+/** Tiny copy button shown on hover at the bottom of message bubbles */
+function CopyMessageButton({ text }: { text: string }) {
+    const [copied, setCopied] = React.useState(false);
+    const handleCopy = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(text).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        });
+    };
+    return (
+        <button
+            onClick={handleCopy}
+            title="Copy"
+            style={{
+                background: 'none', border: 'none', cursor: 'pointer', padding: '2px',
+                color: copied ? 'var(--accent-text)' : 'var(--text-tertiary)',
+                opacity: copied ? 1 : 0.5, transition: 'opacity .15s, color .15s',
+                display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle',
+                marginLeft: '6px', flexShrink: 0,
+            }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+            onMouseLeave={e => (e.currentTarget.style.opacity = copied ? '1' : '0.5')}
+        >
+            {copied ? (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            ) : (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+            )}
+        </button>
+    );
+}
+
 function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
     const token = localStorage.getItem('token');
     return fetch(`/api${url}`, {
@@ -3301,7 +3334,7 @@ function AgentDetailInner() {
                                                                     </>
                                                                 );
                                                             })()}
-                                                            {m.created_at && <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px', opacity: 0.6 }}>{(() => { const d = new Date(m.created_at); const now = new Date(); const diffMs = now.getTime() - d.getTime(); const isToday = d.toDateString() === now.toDateString(); if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); if (diffMs < 7 * 86400000) return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); })()}</div>}
+                                                            {m.created_at && <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px', opacity: 0.6, display: 'flex', alignItems: 'center' }}>{(() => { const d = new Date(m.created_at); const now = new Date(); const diffMs = now.getTime() - d.getTime(); const isToday = d.toDateString() === now.toDateString(); if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); if (diffMs < 7 * 86400000) return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); })()}{m.content && <CopyMessageButton text={m.content} />}</div>}
                                                         </div>
                                                     </div>
                                                 );
@@ -3416,7 +3449,7 @@ function AgentDetailInner() {
                                                                     </div>
                                                                 ) : <MarkdownRenderer content={msg.content} />
                                                             ) : msg.content ? <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div> : null}
-                                                            {msg.timestamp && <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px', opacity: 0.6, textAlign: msg.role === 'user' ? 'right' : 'left' }}>{(() => { const d = new Date(msg.timestamp); const now = new Date(); const diffMs = now.getTime() - d.getTime(); const isToday = d.toDateString() === now.toDateString(); if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); if (diffMs < 7 * 86400000) return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); })()}</div>}
+                                                            {msg.timestamp && <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px', opacity: 0.6, display: 'flex', alignItems: 'center', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>{(() => { const d = new Date(msg.timestamp); const now = new Date(); const diffMs = now.getTime() - d.getTime(); const isToday = d.toDateString() === now.toDateString(); if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); if (diffMs < 7 * 86400000) return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); })()}{msg.content && <CopyMessageButton text={msg.content} />}</div>}
                                                         </div>
                                                     </div>
                                                 );
