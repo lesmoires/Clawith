@@ -66,7 +66,14 @@ docker compose down
 docker compose up -d --build
 ```
 
-Migrations run automatically via `entrypoint.sh`. The `--build` flag is required to install the new `discord.py` dependency.
+Migrations run automatically via `entrypoint.sh`.
+
+> [!IMPORTANT]
+> **`--build` is required for this release.** The following features depend on changes baked into the Docker image (Nginx config, Python dependencies) and will NOT work with hot-update (`docker cp`) alone:
+> - **Clawith Pages** — requires the new `/p/` Nginx proxy rule
+> - **Discord Gateway** — requires the new `discord.py` dependency
+>
+> If you previously upgraded via `docker cp` without `--build`, run `docker compose down && docker compose up -d --build` to apply these changes.
 
 ### Option B: Source Deployment
 
