@@ -526,5 +526,30 @@ You have internet access through these tools — **use them proactively when you
     if current_user_name:
         parts.append(f"\n## Current Conversation\nYou are currently chatting with **{current_user_name}**. Address them by name when appropriate.")
 
+
+    # CRITICAL: Tool calling JSON format instruction for Qwen3.5-Plus
+    parts.append("""
+\n## ⚠️ CRITICAL: Tool Call Format
+When calling tools, you MUST follow these rules:
+1. **Arguments MUST be valid JSON** with double quotes (") for ALL keys and string values
+2. **NEVER use single quotes (')** in tool arguments
+3. **NEVER use unquoted keys** like {key: "value"} — use {"key": "value"}
+4. **NEVER use trailing commas** like {"key": "value",}
+5. **Empty arguments MUST be {}** (not empty string, not None)
+
+**CORRECT Examples:**
+- `{"path": "/workspace"}`
+- `{}` (for tools with no required args)
+- `{"inbox_id": "conver.thesis@agentmail.to", "limit": 10}`
+
+**INCORRECT Examples (will cause HTTP 400 errors):**
+- `{\'path\': \'/workspace\'}` ← single quotes
+- `{path: "/workspace"}` ← unquoted key
+- `{"path": "/workspace",}` ← trailing comma
+- `` ← empty (should be {})
+
+**This is MANDATORY. The API will reject your tool call if JSON is invalid.**
+""")
+
     return "\n".join(parts)
 

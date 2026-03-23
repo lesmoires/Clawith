@@ -481,7 +481,20 @@ class OpenAICompatibleClient(LLMClient):
                                 if isinstance(arg_chunk, dict):
                                     tc["function"]["arguments"] = json.dumps(arg_chunk, ensure_ascii=False)
                                 else:
-                                    tc["function"]["arguments"] += str(arg_chunk)
+                                    arg_str = str(arg_chunk).strip()
+                                    if not arg_str:
+                                        tc["function"]["arguments"] = "{}"
+                                        continue
+                                    try:
+                                        json.loads(arg_str)
+                                        tc["function"]["arguments"] = arg_str
+                                    except json.JSONDecodeError:
+                                        try:
+                                            fixed = arg_str.replace("'", '"')
+                                            json.loads(fixed)
+                                            tc["function"]["arguments"] = fixed
+                                        except:
+                                            tc["function"]["arguments"] = arg_str
 
                         if chunk.usage:
                             final_usage = chunk.usage
@@ -602,7 +615,7 @@ class OpenAIResponsesClient(LLMClient):
                         "type": "function_call",
                         "call_id": tc.get("id", ""),
                         "name": fn.get("name", ""),
-                        "arguments": str(args or "{}"),
+                        "arguments": json.dumps(args, ensure_ascii=False) if isinstance(args, dict) else str(args or "{}"),
                     })
 
             if msg.role == "tool":
@@ -685,7 +698,7 @@ class OpenAIResponsesClient(LLMClient):
                     "type": "function",
                     "function": {
                         "name": item.get("name", ""),
-                        "arguments": str(args or "{}"),
+                        "arguments": json.dumps(args, ensure_ascii=False) if isinstance(args, dict) else str(args or "{}"),
                     },
                 })
 
@@ -1548,6 +1561,14 @@ class AnthropicClient(LLMClient):
                             if idx in tool_call_index_map:
                                 tc_idx = tool_call_index_map[idx]
                                 tool_calls_data[tc_idx]["function"]["arguments"] += delta.get("partial_json", "")
+                                # Validate accumulated arguments
+                                acc = tool_calls_data[tc_idx]["function"]["arguments"].strip()
+                                if acc and not (acc.startswith("{") or acc.startswith("[")):
+                                    try:
+                                        fixed = acc.replace("'", '"')
+                                        json.loads(fixed)
+                                        tool_calls_data[tc_idx]["function"]["arguments"] = fixed
+                                    except: pass
                                 
                     elif current_event == "message_delta":
                         delta = data.get("delta", {})
