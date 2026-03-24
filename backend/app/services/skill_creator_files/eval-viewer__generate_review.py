@@ -27,6 +27,11 @@ from functools import partial
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
+<<<<<<< HEAD
+=======
+from loguru import logger
+
+>>>>>>> upstream/main
 # Files to exclude from output listings
 METADATA_FILES = {"transcript.md", "user_notes.md", "metrics.json"}
 
@@ -303,7 +308,11 @@ def _kill_port(port: int) -> None:
     except subprocess.TimeoutExpired:
         pass
     except FileNotFoundError:
+<<<<<<< HEAD
         print("Note: lsof not found, cannot check if port is in use", file=sys.stderr)
+=======
+        logger.warning("Note: lsof not found, cannot check if port is in use")
+>>>>>>> upstream/main
 
 class ReviewHandler(BaseHTTPRequestHandler):
     """Serves the review HTML and handles feedback saves.
@@ -405,12 +414,20 @@ def main() -> None:
 
     workspace = args.workspace.resolve()
     if not workspace.is_dir():
+<<<<<<< HEAD
         print(f"Error: {workspace} is not a directory", file=sys.stderr)
+=======
+        logger.error(f"Error: {workspace} is not a directory")
+>>>>>>> upstream/main
         sys.exit(1)
 
     runs = find_runs(workspace)
     if not runs:
+<<<<<<< HEAD
         print(f"No runs found in {workspace}", file=sys.stderr)
+=======
+        logger.error(f"No runs found in {workspace}")
+>>>>>>> upstream/main
         sys.exit(1)
 
     skill_name = args.skill_name or workspace.name.replace("-workspace", "")
@@ -432,7 +449,11 @@ def main() -> None:
         html = generate_html(runs, skill_name, previous, benchmark)
         args.static.parent.mkdir(parents=True, exist_ok=True)
         args.static.write_text(html)
+<<<<<<< HEAD
         print(f"\n  Static viewer written to: {args.static}\n")
+=======
+        logger.info(f"\n  Static viewer written to: {args.static}\n")
+>>>>>>> upstream/main
         sys.exit(0)
 
     # Kill any existing process on the target port
@@ -447,6 +468,7 @@ def main() -> None:
         port = server.server_address[1]
 
     url = f"http://localhost:{port}"
+<<<<<<< HEAD
     print(f"\n  Eval Viewer")
     print(f"  ─────────────────────────────────")
     print(f"  URL:       {url}")
@@ -457,13 +479,29 @@ def main() -> None:
     if benchmark_path:
         print(f"  Benchmark: {benchmark_path}")
     print(f"\n  Press Ctrl+C to stop.\n")
+=======
+    logger.info(f"\n  Eval Viewer")
+    logger.info(f"  ─────────────────────────────────")
+    logger.info(f"  URL:       {url}")
+    logger.info(f"  Workspace: {workspace}")
+    logger.info(f"  Feedback:  {feedback_path}")
+    if previous:
+        logger.info(f"  Previous:  {args.previous_workspace} ({len(previous)} runs)")
+    if benchmark_path:
+        logger.info(f"  Benchmark: {benchmark_path}")
+    logger.info(f"\n  Press Ctrl+C to stop.\n")
+>>>>>>> upstream/main
 
     webbrowser.open(url)
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
+<<<<<<< HEAD
         print("\nStopped.")
+=======
+        logger.info("\nStopped.")
+>>>>>>> upstream/main
         server.server_close()
 
 

@@ -22,27 +22,9 @@ RUN if [ -n "$CLAWITH_PIP_INDEX_URL" ] && [ -n "$CLAWITH_PIP_TRUSTED_HOST" ]; th
 FROM python:3.12-slim AS production
 
 WORKDIR /app
-
-# ─── System dependencies (MUST come before Node.js install) ──
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libpq5 curl shadowsocks-libev gosu && \
     rm -rf /var/lib/apt/lists/*
-
-# ─── OPTIONAL: Node.js for MCP stdio support ────────────
-ARG ENABLE_MCP_STDIO=false
-RUN if [ "$ENABLE_MCP_STDIO" = "true" ]; then \
-    echo "Installing Node.js 20 LTS for MCP stdio support..." && \
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends nodejs && \
-    node --version && \
-    npm --version && \
-    rm -rf /var/lib/apt/lists/* && \
-    echo "✓ Node.js installed successfully"; \
-    else \
-    echo "ℹ Node.js not installed (MCP stdio disabled)"; \
-    fi
-# ────────────────────────────────────────────────────────
 
 # Copy installed packages from deps stage
 COPY --from=deps /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/

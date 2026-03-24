@@ -14,6 +14,11 @@ import fnmatch
 import sys
 import zipfile
 from pathlib import Path
+<<<<<<< HEAD
+=======
+
+from loguru import logger
+>>>>>>> upstream/main
 from scripts.quick_validate import validate_skill
 
 # Patterns to exclude when packaging skills.
@@ -54,16 +59,25 @@ def package_skill(skill_path, output_dir=None):
 
     # Validate skill folder exists
     if not skill_path.exists():
+<<<<<<< HEAD
         print(f"❌ Error: Skill folder not found: {skill_path}")
         return None
 
     if not skill_path.is_dir():
         print(f"❌ Error: Path is not a directory: {skill_path}")
+=======
+        logger.error(f"Skill folder not found: {skill_path}")
+        return None
+
+    if not skill_path.is_dir():
+        logger.error(f"Path is not a directory: {skill_path}")
+>>>>>>> upstream/main
         return None
 
     # Validate SKILL.md exists
     skill_md = skill_path / "SKILL.md"
     if not skill_md.exists():
+<<<<<<< HEAD
         print(f"❌ Error: SKILL.md not found in {skill_path}")
         return None
 
@@ -75,6 +89,19 @@ def package_skill(skill_path, output_dir=None):
         print("   Please fix the validation errors before packaging.")
         return None
     print(f"✅ {message}\n")
+=======
+        logger.error(f"SKILL.md not found in {skill_path}")
+        return None
+
+    # Run validation before packaging
+    logger.info("Validating skill...")
+    valid, message = validate_skill(skill_path)
+    if not valid:
+        logger.error(f"Validation failed: {message}")
+        logger.error("Please fix the validation errors before packaging.")
+        return None
+    logger.info(f"{message}\n")
+>>>>>>> upstream/main
 
     # Determine output location
     skill_name = skill_path.name
@@ -95,6 +122,7 @@ def package_skill(skill_path, output_dir=None):
                     continue
                 arcname = file_path.relative_to(skill_path.parent)
                 if should_exclude(arcname):
+<<<<<<< HEAD
                     print(f"  Skipped: {arcname}")
                     continue
                 zipf.write(file_path, arcname)
@@ -105,24 +133,50 @@ def package_skill(skill_path, output_dir=None):
 
     except Exception as e:
         print(f"❌ Error creating .skill file: {e}")
+=======
+                    logger.debug(f"Skipped: {arcname}")
+                    continue
+                zipf.write(file_path, arcname)
+                logger.debug(f"Added: {arcname}")
+
+        logger.info(f"Successfully packaged skill to: {skill_filename}")
+        return skill_filename
+
+    except Exception as e:
+        logger.error(f"Error creating .skill file: {e}")
+>>>>>>> upstream/main
         return None
 
 
 def main():
     if len(sys.argv) < 2:
+<<<<<<< HEAD
         print("Usage: python utils/package_skill.py <path/to/skill-folder> [output-directory]")
         print("\nExample:")
         print("  python utils/package_skill.py skills/public/my-skill")
         print("  python utils/package_skill.py skills/public/my-skill ./dist")
+=======
+        logger.info("Usage: python utils/package_skill.py <path/to/skill-folder> [output-directory]")
+        logger.info("\nExample:")
+        logger.info("  python utils/package_skill.py skills/public/my-skill")
+        logger.info("  python utils/package_skill.py skills/public/my-skill ./dist")
+>>>>>>> upstream/main
         sys.exit(1)
 
     skill_path = sys.argv[1]
     output_dir = sys.argv[2] if len(sys.argv) > 2 else None
 
+<<<<<<< HEAD
     print(f"📦 Packaging skill: {skill_path}")
     if output_dir:
         print(f"   Output directory: {output_dir}")
     print()
+=======
+    logger.info(f"Packaging skill: {skill_path}")
+    if output_dir:
+        logger.info(f"   Output directory: {output_dir}")
+    logger.info("")
+>>>>>>> upstream/main
 
     result = package_skill(skill_path, output_dir)
 

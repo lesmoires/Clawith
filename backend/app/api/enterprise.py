@@ -53,7 +53,7 @@ async def test_llm_model(
     from app.services.llm_client import create_llm_client
 
     # Resolve API key: use provided key, or look up from stored model
-    api_key = data.api_key
+    api_key = data.api_key if data.api_key and not data.api_key.startswith('****') else None
     if not api_key and data.model_id:
         result = await db.execute(select(LLMModel).where(LLMModel.id == data.model_id))
         existing = result.scalar_one_or_none()
@@ -498,6 +498,9 @@ async def update_system_setting(
     db: AsyncSession = Depends(get_db),
 ):
     """Create or update a system setting."""
+    # Platform-level settings (e.g. PUBLIC_BASE_URL) require platform_admin
+    if key == "platform" and current_user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Only platform admin can modify platform settings")
     result = await db.execute(select(SystemSetting).where(SystemSetting.key == key))
     setting = result.scalar_one_or_none()
     if setting:
