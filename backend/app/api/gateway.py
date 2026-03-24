@@ -272,9 +272,12 @@ async def report_result(
 
     # If the original message was from another agent (OpenClaw-to-OpenClaw),
     # write the reply back as a gateway_message for the sender agent to poll
+    # AND push WebSocket notification + save as ChatMessage for real-time UX
     if body.result and msg.sender_agent_id:
         async with async_session() as reply_db:
             conv_id = msg.conversation_id or f"gw_agent_{msg.sender_agent_id}_{agent.id}"
+            
+            # 1. Write reply to gateway_messages (for polling)
             gw_reply = GatewayMessage(
                 agent_id=msg.sender_agent_id,
                 sender_agent_id=agent.id,
@@ -283,7 +286,80 @@ async def report_result(
                 conversation_id=conv_id,
             )
             reply_db.add(gw_reply)
+            
+            # 2. Save as ChatMessage in target agent's conversation (for history + UI)
+            from app.models.audit import ChatMessage
+            from app.models.chat_session import ChatSession
+            from app.models.participant import Participant
+            import uuid as _uuid
+            
+            # Find or create ChatSession for this agent pair
+            _ns = _uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+            sorted_ids = sorted([str(msg.sender_agent_id), str(agent.id)])
+            session_uuid = _uuid.uuid5(_ns, f"{sorted_ids[0]}_{sorted_ids[1]}")
+            
+            existing_session = await reply_db.execute(
+                select(ChatSession).where(ChatSession.id == session_uuid)
+            )
+            session = existing_session.scalar_one_or_none()
+            if not session:
+                # Load sender agent to get creator_id
+                from app.models.agent import Agent as AgentModel
+                sender_result = await reply_db.execute(
+                    select(AgentModel).where(AgentModel.id == msg.sender_agent_id)
+                )
+                sender_agent = sender_result.scalar_one_or_none()
+                
+                session = ChatSession(
+                    id=session_uuid,
+                    agent_id=msg.sender_agent_id,
+                    user_id=sender_agent.creator_id if sender_agent else agent.creator_id,
+                    title=f"{agent.name} ↔ {sender_agent.name if sender_agent else 'Agent'}",
+                    source_channel="agent",
+                    peer_agent_id=agent.id,
+                    created_at=datetime.now(timezone.utc),
+                )
+                reply_db.add(session)
+            
+            await reply_db.flush()
+            
+            # Find participant for sender agent
+            participant_result = await reply_db.execute(
+                select(Participant).where(
+                    Participant.type == "agent",
+                    Participant.ref_id == msg.sender_agent_id,
+                )
+            )
+            sender_participant = participant_result.scalar_one_or_none()
+            
+            # Save assistant reply to conversation
+            chat_msg = ChatMessage(
+                agent_id=msg.sender_agent_id,
+                conversation_id=str(session_uuid),
+                role="assistant",
+                content=body.result,
+                user_id=agent.creator_id,
+                participant_id=sender_participant.id if sender_participant else None,
+            )
+            reply_db.add(chat_msg)
+            
             await reply_db.commit()
+            
+            # 3. Push WebSocket notification to sender agent's creator (if connected)
+            try:
+                from app.api.websocket import manager
+                sender_agent_id_str = str(msg.sender_agent_id)
+                await manager.send_message(sender_agent_id_str, {
+                    "type": "agent_reply",
+                    "role": "assistant",
+                    "content": body.result,
+                    "from_agent": agent.name,
+                    "conversation_id": str(session_uuid),
+                })
+                logger.info(f"[Gateway] WebSocket push to agent {sender_agent_id_str}")
+            except Exception as e:
+                logger.warning(f"[Gateway] WebSocket push failed: {e}")
+            
             logger.info(f"[Gateway] Reply routed back to sender agent {msg.sender_agent_id}")
 
     return {"status": "ok"}
