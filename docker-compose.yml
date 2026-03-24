@@ -1,9 +1,10 @@
 services:
   postgres:
     image: postgres:15-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: clawith
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clawith}
       POSTGRES_DB: clawith
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -12,12 +13,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
-    networks:
-      - clawith_network
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     volumes:
       - redisdata:/data
     healthcheck:
@@ -25,22 +24,27 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
-    networks:
-      - clawith_network
 
   backend:
     build:
       context: ./backend
+      args:
+        CLAWITH_PIP_INDEX_URL: ${CLAWITH_PIP_INDEX_URL:-}
+        CLAWITH_PIP_TRUSTED_HOST: ${CLAWITH_PIP_TRUSTED_HOST:-}
     restart: unless-stopped
     command: ["/bin/bash", "/app/entrypoint.sh"]
     environment:
-      DATABASE_URL: postgresql+asyncpg://clawith:${POSTGRES_PASSWORD}@postgres:5432/clawith
+      DATABASE_URL: postgresql+asyncpg://clawith:${POSTGRES_PASSWORD:-clawith}@postgres:5432/clawith
       REDIS_URL: redis://redis:6379/0
       AGENT_DATA_DIR: /data/agents
       AGENT_TEMPLATE_DIR: /app/agent_template
-      SECRET_KEY: ${SECRET_KEY}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-jwt-secret}
+      CORS_ORIGINS: '["*"]'
+      FEISHU_APP_ID: ${FEISHU_APP_ID:-}
+      FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
+      DOCKER_NETWORK: clawith_network
+      SS_CONFIG_FILE: /data/ss-nodes.json
       # Infisical MCP (via Supergateway)
       INFISICAL_HOST_URL: ${INFISICAL_HOST_URL:-}
       INFISICAL_UNIVERSAL_AUTH_CLIENT_ID: ${INFISICAL_UNIVERSAL_AUTH_CLIENT_ID:-}
@@ -49,13 +53,20 @@ services:
       # AgentMail API
       AGENTMAIL_API_KEY: ${AGENTMAIL_API_KEY:-}
     volumes:
-      - agent_data:/data/agents
+      - ./backend:/app
+      - ./backend/agent_data:/data/agents
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./ss-nodes.json:/data/ss-nodes.json:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - clawith_network
       - coolify  # For Traefik proxy access (prevents gateway timeout)
@@ -81,14 +92,17 @@ services:
 
   frontend:
     build: ./frontend
+    restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-3008}:3000"
     environment:
       VITE_API_URL: http://backend:8000
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
     depends_on:
       - backend
       - supergateway
-    restart: unless-stopped
     labels:
       - traefik.enable=true
       - traefik.http.routers.clawith-http.rule=Host(`agents.moiria.com`)
