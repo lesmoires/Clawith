@@ -3827,6 +3827,11 @@ async def _handle_set_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
                     return f"❌ Trigger '{name}' already exists and is active. Use update_trigger to modify it, or cancel_trigger first."
                 else:
                     # Re-enable disabled trigger with new config (preserve fire history)
+                    # For webhook triggers: reuse the old token so the URL stays stable
+                    if ttype == "webhook":
+                        old_token = (existing.config or {}).get("token")
+                        if old_token:
+                            config["token"] = old_token
                     existing.type = ttype
                     existing.config = config
                     existing.reason = reason
