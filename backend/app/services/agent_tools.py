@@ -878,6 +878,41 @@ AGENT_TOOLS = [
             },
         },
     },
+    # --- Skill Management ---
+    {
+        "type": "function",
+        "function": {
+            "name": "search_clawhub",
+            "description": "Search the ClawHub skill registry for skills matching a query. Returns a list of available skills with name, description, and last updated date. Use this to help users find skills to install.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query, e.g. 'research', 'code review', 'market analysis'",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "install_skill",
+            "description": "Install a skill into this agent's workspace. Accepts either a ClawHub skill slug (e.g. 'market-research') or a GitHub URL (e.g. 'https://github.com/user/repo'). The skill files will be downloaded and saved to skills/<name>/ in your workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "ClawHub skill slug (e.g. 'market-research') or GitHub URL (e.g. 'https://github.com/user/repo')",
+                    },
+                },
+                "required": ["source"],
+            },
+        },
+    },
 ]
 
 
@@ -1270,6 +1305,11 @@ async def execute_tool(
             result = await _publish_page(agent_id, user_id, ws, arguments)
         elif tool_name == "list_published_pages":
             result = await _list_published_pages(agent_id)
+        # ── Skill Management ──
+        elif tool_name == "search_clawhub":
+            result = await _search_clawhub(agent_id, arguments)
+        elif tool_name == "install_skill":
+            result = await _install_skill(agent_id, ws, arguments)
         else:
             # Try MCP tool execution
             result = await _execute_mcp_tool(tool_name, arguments, agent_id=agent_id)
@@ -5504,3 +5544,128 @@ async def _handle_email_tool(tool_name: str, agent_id: uuid.UUID, ws: Path, argu
             return f"❌ Unknown email tool: {tool_name}"
     except Exception as e:
         return f"❌ Email tool error: {str(e)[:200]}"
+
+
+# ─── Skill Management Tools ────────────────────────────────────
+
+
+async def _search_clawhub(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Search the ClawHub skill registry."""
+    import httpx
+    query = arguments.get("query", "").strip()
+    if not query:
+        return "❌ Missing required argument 'query'"
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                "https://clawhub.ai/api/search",
+                params={"q": query},
+            )
+            if resp.status_code != 200:
+                return f"❌ ClawHub search failed (HTTP {resp.status_code})"
+            data = resp.json()
+    except Exception as e:
+        return f"❌ ClawHub search error: {str(e)[:200]}"
+
+    results = data.get("results", [])
+    if not results:
+        return f"No skills found matching '{query}'."
+
+    lines = [f"Found {len(results)} skill(s) matching '{query}':\n"]
+    for r in results:
+        name = r.get("displayName") or r.get("slug", "?")
+        slug = r.get("slug", "")
+        summary = (r.get("summary") or "")[:120]
+        updated = ""
+        if r.get("updatedAt"):
+            from datetime import datetime
+            try:
+                dt = datetime.fromtimestamp(r["updatedAt"] / 1000)
+                updated = f" | Updated: {dt.strftime('%Y-%m-%d')}"
+            except Exception:
+                pass
+        lines.append(f"• **{name}** (`{slug}`){updated}")
+        if summary:
+            lines.append(f"  {summary}")
+    lines.append("\nTo install a skill, use: install_skill(source=\"<slug>\")")
+    return "\n".join(lines)
+
+
+async def _install_skill(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
+    """Install a skill from ClawHub slug or GitHub URL into the agent's workspace."""
+    import httpx
+    source = arguments.get("source", "").strip()
+    if not source:
+        return "❌ Missing required argument 'source'. Provide a ClawHub slug (e.g. 'market-research') or a GitHub URL."
+
+    is_url = source.startswith("http://") or source.startswith("https://")
+    base = ws.parent  # agent data dir
+
+    try:
+        if is_url:
+            # ── GitHub URL path ──
+            from app.api.skills import _parse_github_url, _fetch_github_directory, _get_github_token
+
+            parsed = _parse_github_url(source)
+            if not parsed:
+                return "❌ Invalid GitHub URL. Expected format: https://github.com/{owner}/{repo} or https://github.com/{owner}/{repo}/tree/{branch}/{path}"
+
+            owner, repo, branch, path = parsed["owner"], parsed["repo"], parsed["branch"], parsed["path"]
+            tenant_id = await _get_agent_tenant_id(agent_id)
+            token = await _get_github_token(tenant_id)
+            files = await _fetch_github_directory(owner, repo, path, branch, token)
+            if not files:
+                return "❌ No files found at the specified URL."
+
+            folder_name = path.rstrip("/").split("/")[-1] if path else repo
+        else:
+            # ── ClawHub slug path ──
+            slug = source
+            from app.api.skills import _fetch_github_directory, _get_github_token
+
+            # 1. Fetch metadata from ClawHub
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.get(f"https://clawhub.ai/api/v1/skills/{slug}")
+                    if resp.status_code == 404:
+                        return f"❌ Skill '{slug}' not found on ClawHub. Use search_clawhub to find available skills."
+                    if resp.status_code != 200:
+                        return f"❌ ClawHub API error (HTTP {resp.status_code})"
+                    meta = resp.json()
+            except Exception as e:
+                return f"❌ Failed to connect to ClawHub: {str(e)[:200]}"
+
+            owner_info = meta.get("owner", {})
+            handle = owner_info.get("handle", "").lower()
+            if not handle:
+                return "❌ Could not determine skill owner from ClawHub metadata."
+
+            # 2. Fetch files from GitHub
+            github_path = f"skills/{handle}/{slug}"
+            tenant_id = await _get_agent_tenant_id(agent_id)
+            token = await _get_github_token(tenant_id)
+            files = await _fetch_github_directory("openclaw", "skills", github_path, "main", token)
+            if not files:
+                return f"❌ No files found for skill '{slug}' in GitHub archive."
+
+            folder_name = slug
+
+        # 3. Write files to agent workspace
+        skill_dir = base / "skills" / folder_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+
+        written = []
+        for f in files:
+            file_path = (skill_dir / f["path"]).resolve()
+            if not str(file_path).startswith(str(base.resolve())):
+                continue  # safety: skip path traversal
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(f["content"], encoding="utf-8")
+            written.append(f["path"])
+
+        return f"✅ Skill '{folder_name}' installed successfully ({len(written)} files written to skills/{folder_name}/).\n\nFiles: {', '.join(written)}"
+
+    except Exception as e:
+        return f"❌ Install failed: {str(e)[:300]}"
+
