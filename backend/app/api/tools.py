@@ -569,27 +569,39 @@ async def get_category_config(
         )
     )
     config = result.scalar_one_or_none()
-    if not config:
-        return {
-            "id": None,
-            "agent_id": str(agent_id),
-            "category": category,
-            "is_configured": False,
-            "config": {}
+    
+    config_id = None
+    is_configured = False
+    decrypted_config = {}
+    
+    if config:
+        config_id = str(config.id)
+        is_configured = config.is_configured
+        
+        # If it's encrypted, decrypt it for the UI
+        full_config = {
+            "api_key": config.app_secret,
+            **(config.extra_config or {})
         }
-
-    # If it's encrypted, decrypt it for the UI
-    full_config = {
-        "api_key": config.app_secret,
-        **(config.extra_config or {})
-    }
-    decrypted_config = _decrypt_sensitive_fields(full_config)
+        decrypted_config = _decrypt_sensitive_fields(full_config)
+    else:
+        # Fallback to global Tool.config for this category (Company Settings)
+        from app.models.tool import Tool
+        tool_result = await db.execute(
+            select(Tool).where(
+                Tool.category == category,
+                Tool.enabled == True,
+            ).limit(1)
+        )
+        global_tool = tool_result.scalar_one_or_none()
+        if global_tool and global_tool.config:
+            decrypted_config = _decrypt_sensitive_fields(global_tool.config)
 
     return {
-        "id": str(config.id),
-        "agent_id": str(config.agent_id),
-        "category": config.channel_type,
-        "is_configured": config.is_configured,
+        "id": config_id,
+        "agent_id": str(agent_id),
+        "category": category,
+        "is_configured": is_configured,
         "config": decrypted_config
     }
 
