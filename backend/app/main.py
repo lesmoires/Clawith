@@ -100,12 +100,6 @@ async def lifespan(app: FastAPI):
         import app.models.gateway_message # noqa
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-            # Add 'atlassian' to channel_type_enum if it doesn't exist yet (idempotent)
-            await conn.execute(
-                __import__("sqlalchemy").text(
-                    "ALTER TYPE channel_type_enum ADD VALUE IF NOT EXISTS 'atlassian'"
-                )
-            )
         logger.info("[startup] Database tables ready")
     except Exception as e:
         logger.warning(f"[startup] create_all failed: {e}")
@@ -277,6 +271,7 @@ from app.api.teams import router as teams_router
 from app.api.triggers import router as triggers_router
 
 from app.api.atlassian import router as atlassian_router
+
 from app.api.webhooks import router as webhooks_router
 from app.api.notification import router as notification_router
 from app.api.gateway import router as gateway_router
@@ -309,6 +304,7 @@ app.include_router(wecom_router, prefix=settings.API_PREFIX)
 app.include_router(teams_router, prefix=settings.API_PREFIX)
 
 app.include_router(atlassian_router, prefix=settings.API_PREFIX)
+
 app.include_router(triggers_router)
 app.include_router(chat_sessions_router)
 app.include_router(plaza_router)

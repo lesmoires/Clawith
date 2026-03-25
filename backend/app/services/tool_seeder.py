@@ -449,11 +449,74 @@ BUILTIN_TOOLS = [
             },
             "required": ["language", "code"],
         },
-        "config": {"default_timeout": 30, "max_timeout": 60},
+        "config": {
+            "sandbox_type": "subprocess",
+            "api_key": "",
+            "api_url": "",
+            "cpu_limit": "0.5",
+            "memory_limit": "256m",
+            "allow_network": False,
+            "default_timeout": 30,
+            "max_timeout": 60,
+        },
         "config_schema": {
             "fields": [
-                {"key": "default_timeout", "label": "Default Timeout (seconds)", "type": "number", "default": 30, "min": 5, "max": 120},
-                {"key": "max_timeout", "label": "Max Timeout (seconds)", "type": "number", "default": 60, "min": 10, "max": 120},
+                {
+                    "key": "sandbox_type",
+                    "label": "Sandbox Type",
+                    "type": "select",
+                    "options": [
+                        {"value": "subprocess", "label": "Local (subprocess)"},
+                        {"value": "e2b", "label": "E2B (cloud)"},
+                    ],
+                    "default": "subprocess",
+                },
+                {
+                    "key": "api_key",
+                    "label": "API Key",
+                    "type": "password",
+                    "default": "",
+                    "placeholder": "Required for cloud/API sandboxes",
+                    "depends_on": {"sandbox_type": ["e2b"]},
+                },
+                {
+                    "key": "cpu_limit",
+                    "label": "CPU Limit",
+                    "type": "text",
+                    "default": "0.5",
+                    "placeholder": "e.g., 0.5, 1.0, 2.0",
+                },
+                {
+                    "key": "memory_limit",
+                    "label": "Memory Limit",
+                    "type": "text",
+                    "default": "256m",
+                    "placeholder": "e.g., 256m, 512m, 1g",
+                },
+                {
+                    "key": "allow_network",
+                    "label": "Allow Network Access",
+                    "type": "checkbox",
+                    "default": False,
+                    "depends_on": {"sandbox_type": ["subprocess"]},
+                    "read_only_for_roles": ["agent_admin", "member"],
+                },
+                {
+                    "key": "default_timeout",
+                    "label": "Default Timeout (seconds)",
+                    "type": "number",
+                    "default": 30,
+                    "min": 5,
+                    "max": 300,
+                },
+                {
+                    "key": "max_timeout",
+                    "label": "Max Timeout (seconds)",
+                    "type": "number",
+                    "default": 60,
+                    "min": 10,
+                    "max": 300,
+                },
             ]
         },
     },
@@ -923,6 +986,99 @@ BUILTIN_TOOLS = [
     },
 ]
 
+# ── AgentBay Tools ──────────────────────────────────────────────────────────
+
+AGENTBAY_TOOLS = [
+    {
+        "name": "agentbay_browser_navigate",
+        "display_name": "AgentBay: 浏览器访问",
+        "description": "使用 AgentBay 浏览器环境访问指定 URL，可获取页面内容或截图。需要先配置 AgentBay 通道。",
+        "category": "agentbay",
+        "icon": "🌐",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "要访问的网址"},
+                "wait_for": {"type": "string", "description": "等待元素选择器（可选）"},
+                "screenshot": {"type": "boolean", "description": "是否截图", "default": False},
+            },
+            "required": ["url"],
+        },
+        "config": {},
+        "config_schema": {
+            "fields": [
+                {
+                    "key": "api_key",
+                    "label": "API Key",
+                    "type": "password",
+                    "default": "",
+                    "placeholder": "从阿里云 AgentBay 控制台获取",
+                },
+            ],
+        },
+    },
+    {
+        "name": "agentbay_browser_click",
+        "display_name": "AgentBay: 浏览器点击",
+        "description": "在 AgentBay 浏览器环境中点击指定元素。需要先使用浏览器访问工具打开页面。",
+        "category": "agentbay",
+        "icon": "🖱️",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "selector": {"type": "string", "description": "CSS 选择器，如 #button 或 .class"},
+            },
+            "required": ["selector"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_browser_type",
+        "display_name": "AgentBay: 浏览器输入",
+        "description": "在 AgentBay 浏览器环境的指定元素中输入文本。需要先使用浏览器访问工具打开页面。",
+        "category": "agentbay",
+        "icon": "⌨️",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "selector": {"type": "string", "description": "输入框的 CSS 选择器"},
+                "text": {"type": "string", "description": "要输入的文本"},
+            },
+            "required": ["selector", "text"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_code_execute",
+        "display_name": "AgentBay: 代码执行",
+        "description": "在 AgentBay 代码空间中执行代码（Python、Bash、Node.js）。需要先配置 AgentBay 通道。",
+        "category": "agentbay",
+        "icon": "💻",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "language": {"type": "string", "enum": ["python", "bash", "node"], "description": "编程语言"},
+                "code": {"type": "string", "description": "要执行的代码"},
+                "timeout": {"type": "integer", "description": "超时时间（秒）", "default": 30},
+            },
+            "required": ["language", "code"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+]
+
+BUILTIN_TOOLS = [
+    *BUILTIN_TOOLS,
+    # ── AgentBay Tools ──  
+    *AGENTBAY_TOOLS,
+]
 
 async def seed_builtin_tools():
     """Insert or update builtin tools in the database."""
@@ -970,6 +1126,10 @@ async def seed_builtin_tools():
                 if t.get("config_schema") and existing.config_schema != t["config_schema"]:
                     existing.config_schema = t["config_schema"]
                     updated_fields.append("config_schema")
+                    # Merge new config defaults when config_schema changes
+                    if t.get("config"):
+                        existing.config = {**t["config"], **(existing.config or {})}
+                        updated_fields.append("config")
                 if not existing.config and t.get("config"):
                     existing.config = t["config"]
                     updated_fields.append("config")
@@ -1007,6 +1167,7 @@ async def seed_builtin_tools():
 
         await db.commit()
         logger.info("[ToolSeeder] Builtin tools seeded")
+
 
 
 # ── Atlassian Rovo MCP Server Integration ──────────────────────────────────
