@@ -5554,16 +5554,23 @@ async def _search_clawhub(agent_id: uuid.UUID, arguments: dict) -> str:
     import httpx
     query = arguments.get("query", "").strip()
     if not query:
-        return "❌ Missing required argument 'query'"
+        return "Missing required argument 'query'"
+
+    # Resolve tenant ClawHub API key
+    from app.api.skills import _get_clawhub_key
+    tenant_id = await _get_agent_tenant_id(agent_id)
+    api_key = await _get_clawhub_key(tenant_id)
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
                 "https://clawhub.ai/api/search",
                 params={"q": query},
+                headers=headers,
             )
             if resp.status_code != 200:
-                return f"❌ ClawHub search failed (HTTP {resp.status_code})"
+                return f"ClawHub search failed (HTTP {resp.status_code})"
             data = resp.json()
     except Exception as e:
         return f"❌ ClawHub search error: {str(e)[:200]}"
@@ -5622,19 +5629,22 @@ async def _install_skill(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
         else:
             # ── ClawHub slug path ──
             slug = source
-            from app.api.skills import _fetch_github_directory, _get_github_token
+            from app.api.skills import _fetch_github_directory, _get_github_token, _get_clawhub_key
 
-            # 1. Fetch metadata from ClawHub
+            # 1. Fetch metadata from ClawHub (with tenant API key)
+            tenant_id = await _get_agent_tenant_id(agent_id)
+            api_key = await _get_clawhub_key(tenant_id)
+            ch_headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
             try:
                 async with httpx.AsyncClient(timeout=15) as client:
-                    resp = await client.get(f"https://clawhub.ai/api/v1/skills/{slug}")
+                    resp = await client.get(f"https://clawhub.ai/api/v1/skills/{slug}", headers=ch_headers)
                     if resp.status_code == 404:
-                        return f"❌ Skill '{slug}' not found on ClawHub. Use search_clawhub to find available skills."
+                        return f"Skill '{slug}' not found on ClawHub. Use search_clawhub to find available skills."
                     if resp.status_code != 200:
-                        return f"❌ ClawHub API error (HTTP {resp.status_code})"
+                        return f"ClawHub API error (HTTP {resp.status_code})"
                     meta = resp.json()
             except Exception as e:
-                return f"❌ Failed to connect to ClawHub: {str(e)[:200]}"
+                return f"Failed to connect to ClawHub: {str(e)[:200]}"
 
             owner_info = meta.get("owner", {})
             handle = owner_info.get("handle", "").lower()
@@ -5643,7 +5653,6 @@ async def _install_skill(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
 
             # 2. Fetch files from GitHub
             github_path = f"skills/{handle}/{slug}"
-            tenant_id = await _get_agent_tenant_id(agent_id)
             token = await _get_github_token(tenant_id)
             files = await _fetch_github_directory("openclaw", "skills", github_path, "main", token)
             if not files:
