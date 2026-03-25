@@ -480,23 +480,7 @@ For humans, the message is delivered via their available channel (e.g. Feishu).`
                 ))}
             </div>
 
-            {/* Navigation — sticky between stepper and card */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', maxWidth: '640px', marginBottom: '16px', position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-primary)', paddingTop: '4px', paddingBottom: '4px' }}>
-                <button className="btn btn-secondary" onClick={() => step > 0 ? setStep(step - 1) : navigate('/')}
-                    disabled={createMutation.isPending}>
-                    {step === 0 ? t('common.cancel') : t('wizard.prev')}
-                </button>
-                {step < STEPS.length - 1 ? (
-                    <button className="btn btn-primary" onClick={handleNext}>
-                        {t('wizard.next')} →
-                    </button>
-                ) : (
-                    <button className="btn btn-primary" onClick={handleFinish}
-                        disabled={createMutation.isPending}>
-                        {createMutation.isPending ? t('common.loading') : t('wizard.finish')}
-                    </button>
-                )}
-            </div>
+            {/* Removed top navigation, moved to bottom */}
 
             {error && (
                 <div style={{ background: 'var(--error-subtle)', color: 'var(--error)', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px' }}>
@@ -537,7 +521,7 @@ For humans, the message is delivered via their available channel (e.g. Feishu).`
                                             }}
                                         >
                                             <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>{tmpl.icon || tmpl.name?.[0] || '·'}</div>
-                                            <div style={{ fontSize: '12px', marginTop: '4px' }}>{tmpl.name}</div>
+                                            <div style={{ fontSize: '12px', marginTop: '4px' }}>{String(t(`wizard.templates.${tmpl.name}`, tmpl.name))}</div>
                                         </div>
                                     ))}
                                 </div>
@@ -545,7 +529,7 @@ For humans, the message is delivered via their available channel (e.g. Feishu).`
                                 {/* JSON Import */}
                                 <div style={{ marginTop: '8px' }}>
                                     <label className="btn btn-ghost" style={{ fontSize: '12px', cursor: 'pointer', color: 'var(--text-tertiary)' }}>
-                                        ↑ Import from JSON
+                                        ↑ {t('wizard.step1.importFromJson')}
                                         <input type="file" accept=".json" style={{ display: 'none' }} onChange={e => {
                                             const file = e.target.files?.[0];
                                             if (!file) return;
@@ -572,7 +556,7 @@ For humans, the message is delivered via their available channel (e.g. Feishu).`
                         )}
 
                         <div className="form-group">
-                            <label className="form-label">{t('agent.fields.name')} *</label>
+                            <label className="form-label">{t('agent.fields.name')} <span style={{ color: 'var(--error)' }}>*</span></label>
                             <input className={`form-input${fieldErrors.name ? ' input-error' : ''}`} value={form.name}
                                 onChange={(e) => { setForm({ ...form, name: e.target.value }); clearFieldError('name'); }}
                                 placeholder={t("wizard.step1.namePlaceholder")} autoFocus />
@@ -588,7 +572,7 @@ For humans, the message is delivered via their available channel (e.g. Feishu).`
 
                         {/* Model Selection */}
                         <div className="form-group">
-                            <label className="form-label">{t('wizard.step1.primaryModel')} *</label>
+                            <label className="form-label">{t('wizard.step1.primaryModel')} <span style={{ color: 'var(--error)' }}>*</span></label>
                             {models.length > 0 ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                     {models.filter((m: any) => m.enabled).map((m: any) => (
@@ -784,11 +768,38 @@ For humans, the message is delivered via their available channel (e.g. Feishu).`
 
             {/* Summary sidebar */}
             {selectedModel && (
-                <div style={{ marginTop: '16px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '640px' }}>
+                <div style={{ marginTop: '16px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '640px', marginBottom: '80px' }}>
                     <strong>{form.name || t('wizard.summary.unnamed')}</strong> · {t('wizard.summary.model')}: {selectedModel.label}
                     {form.max_tokens_per_day && ` · ${t('wizard.summary.dailyLimit')}: ${Number(form.max_tokens_per_day).toLocaleString()}`}
                 </div>
             )}
+            {!selectedModel && <div style={{ marginBottom: '80px' }}></div>}
+
+            {/* Navigation — sticky footer at the bottom */}
+            <div style={{
+                position: 'fixed', bottom: 0, left: 'var(--sidebar-width)', right: 0,
+                background: 'var(--bg-primary)', borderTop: '1px solid var(--border-subtle)',
+                padding: '16px 32px', zIndex: 100,
+                display: 'flex', justifyContent: 'flex-start',
+                transition: 'left var(--transition-default)'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: '640px' }}>
+                    <button className="btn btn-secondary" onClick={() => step > 0 ? setStep(step - 1) : navigate('/')}
+                        disabled={createMutation.isPending}>
+                        {step === 0 ? t('common.cancel') : t('wizard.prev')}
+                    </button>
+                    {step < STEPS.length - 1 ? (
+                        <button className="btn btn-primary" onClick={handleNext}>
+                            {t('wizard.next')} →
+                        </button>
+                    ) : (
+                        <button className="btn btn-primary" onClick={handleFinish}
+                            disabled={createMutation.isPending}>
+                            {createMutation.isPending ? t('common.loading') : t('wizard.finish')}
+                        </button>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }

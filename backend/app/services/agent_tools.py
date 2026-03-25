@@ -16,8 +16,9 @@ import json
 import os
 import uuid
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional
 
 from loguru import logger
 
@@ -29,6 +30,107 @@ from app.config import get_settings
 
 _settings = get_settings()
 WORKSPACE_ROOT = Path(_settings.AGENT_DATA_DIR)
+
+# ─── Tool Config Cache ──────────────────────────────────────────
+# Cache tool configurations to avoid frequent DB queries
+# Key: (agent_id, tool_name), Value: (config, expiry_time)
+_tool_config_cache: dict[tuple, tuple[dict, datetime]] = {}
+_TOOL_CONFIG_CACHE_TTL_SECONDS = 60
+
+# Sensitive field keys that should be encrypted/decrypted
+SENSITIVE_FIELD_KEYS = {"api_key", "private_key", "auth_code", "password", "secret", "atlassian_api_key"}
+
+
+def _decrypt_sensitive_fields(config: dict) -> dict:
+    """Decrypt sensitive fields in config dict."""
+    if not config:
+        return config
+
+    from app.core.security import decrypt_data
+    from app.config import get_settings
+
+    settings = get_settings()
+    result = dict(config)
+
+    for key in SENSITIVE_FIELD_KEYS:
+        if key in result and result[key]:
+            value = result[key]
+            if isinstance(value, str) and value:
+                try:
+                    result[key] = decrypt_data(value, settings.SECRET_KEY)
+                except Exception:
+                    # If decryption fails, assume it's plaintext
+                    pass
+
+    return result
+
+
+def _get_cached_tool_config(agent_id: Optional[uuid.UUID], tool_name: str) -> Optional[dict]:
+    """获取缓存的工具配置，过期返回 None。"""
+    cache_key = (str(agent_id) if agent_id else None, tool_name)
+    if cache_key in _tool_config_cache:
+        config, expiry = _tool_config_cache[cache_key]
+        if datetime.now() < expiry:
+            return config
+        # 过期，删除
+        del _tool_config_cache[cache_key]
+    return None
+
+
+def _set_cached_tool_config(agent_id: Optional[uuid.UUID], tool_name: str, config: dict):
+    """设置工具配置缓存。"""
+    cache_key = (str(agent_id) if agent_id else None, tool_name)
+    expiry = datetime.now() + timedelta(seconds=_TOOL_CONFIG_CACHE_TTL_SECONDS)
+    _tool_config_cache[cache_key] = (config, expiry)
+
+
+async def _get_tool_config(agent_id: Optional[uuid.UUID], tool_name: str) -> Optional[dict]:
+    """获取工具配置（带缓存）。
+
+    优先级：
+    1. agent_tools.config (per-agent 配置)
+    2. tools.config (全局配置)
+    """
+    # 先检查缓存
+    cached = _get_cached_tool_config(agent_id, tool_name)
+    if cached is not None:
+        logger.debug(f"[ToolConfig] Cache hit for {tool_name}, agent_id={agent_id}: {cached}")
+        return cached
+
+    from app.models.tool import Tool, AgentTool
+
+    async with async_session() as db:
+        # 1. 先查 per-agent 配置
+        if agent_id:
+            result = await db.execute(
+                select(AgentTool.config, Tool.config)
+                .join(Tool, AgentTool.tool_id == Tool.id)
+                .where(AgentTool.agent_id == agent_id, Tool.name == tool_name)
+            )
+            row = result.first()
+            if row:
+                agent_config, global_config = row
+                # 合并配置：agent_config 覆盖 global_config
+                merged = {**(global_config or {}), **(agent_config or {})}
+                if merged:
+                    # Decrypt before returning
+                    merged = _decrypt_sensitive_fields(merged)
+                    logger.info(f"[ToolConfig] DB merged config for {tool_name}, agent_id={agent_id}: {merged}")
+                    _set_cached_tool_config(agent_id, tool_name, merged)
+                    return merged
+
+        # 2. 回退到全局配置
+        result = await db.execute(select(Tool).where(Tool.name == tool_name))
+        tool = result.scalar_one_or_none()
+        if tool and tool.config:
+            # Decrypt before returning
+            decrypted = _decrypt_sensitive_fields(tool.config)
+            logger.info(f"[ToolConfig] DB global config for {tool_name}: {decrypted}")
+            _set_cached_tool_config(agent_id, tool_name, decrypted)
+            return decrypted
+
+    logger.error(f"[ToolConfig] No DB config found for {tool_name}, agent_id={agent_id}")
+    return None
 
 # ContextVar set by each channel handler so send_channel_file knows where to send
 # Value: async callable(file_path: Path) -> None  |  None for web chat (returns URL)
@@ -304,6 +406,31 @@ AGENT_TOOLS = [
                     },
                 },
                 "required": ["agent_name", "message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_file_to_agent",
+            "description": "Send a workspace file to another digital employee. The file is copied into the target agent's workspace/inbox/files/ directory and a delivery note is created in their inbox.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "agent_name": {
+                        "type": "string",
+                        "description": "Target digital employee's name",
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Workspace-relative path of the source file, e.g. workspace/report.md",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Optional delivery note for the target digital employee",
+                    },
+                },
+                "required": ["agent_name", "file_path"],
             },
         },
     },
@@ -853,6 +980,103 @@ AGENT_TOOLS = [
             },
         },
     },
+    # --- Skill Management ---
+    {
+        "type": "function",
+        "function": {
+            "name": "search_clawhub",
+            "description": "Search the ClawHub skill registry for skills matching a query. Returns a list of available skills with name, description, and last updated date. Use this to help users find skills to install.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query, e.g. 'research', 'code review', 'market analysis'",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "install_skill",
+            "description": "Install a skill into this agent's workspace. Accepts either a ClawHub skill slug (e.g. 'market-research') or a GitHub URL (e.g. 'https://github.com/user/repo'). The skill files will be downloaded and saved to skills/<name>/ in your workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "ClawHub skill slug (e.g. 'market-research') or GitHub URL (e.g. 'https://github.com/user/repo')",
+                    },
+                },
+                "required": ["source"],
+            }
+        }
+    },
+    # ── AgentBay Tools ────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "agentbay_browser_navigate",
+            "description": "使用 AgentBay 浏览器环境访问指定 URL。可用于网页抓取、截图等。需要先配置 AgentBay 通道。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "要访问的网址，如 https://example.com"},
+                    "wait_for": {"type": "string", "description": "等待特定元素出现的选择器（可选）"},
+                    "screenshot": {"type": "boolean", "description": "是否截图并返回图片", "default": False},
+                },
+                "required": ["url"],
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentbay_browser_click",
+            "description": "在 AgentBay 浏览器中点击指定元素。需要先使用 browser_navigate 打开页面。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {"type": "string", "description": "CSS 选择器，如 #button 或 .class"},
+                },
+                "required": ["selector"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentbay_browser_type",
+            "description": "在 AgentBay 浏览器的输入框中输入文本。需要先使用 browser_navigate 打开页面。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {"type": "string", "description": "输入框的 CSS 选择器"},
+                    "text": {"type": "string", "description": "要输入的文本"},
+                },
+                "required": ["selector", "text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentbay_code_execute",
+            "description": "在 AgentBay 代码空间中执行代码。支持 Python、Bash、Node.js。需要先配置 AgentBay 通道。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "language": {"type": "string", "enum": ["python", "bash", "node"], "description": "编程语言"},
+                    "code": {"type": "string", "description": "要执行的代码"},
+                    "timeout": {"type": "integer", "description": "超时时间（秒，默认 30）", "default": 30},
+                },
+                "required": ["language", "code"],
+            },
+        },
+    },
 ]
 
 
@@ -860,6 +1084,7 @@ AGENT_TOOLS = [
 # DB configuration.
 _ALWAYS_INCLUDE_CORE = {
     "send_channel_file",
+    "send_file_to_agent",
     "write_file",
 }
 # Feishu tools are ONLY included when the agent has a configured Feishu channel,
@@ -1053,9 +1278,24 @@ _TOOL_AUTONOMY_MAP = {
     "delete_file": "delete_files",
     "send_feishu_message": "send_feishu_message",
     "send_message_to_agent": "send_feishu_message",
+    "send_file_to_agent": "send_feishu_message",
     "web_search": "web_search",
     "execute_code": "execute_code",
 }
+
+
+async def _get_agent_tenant_id(agent_id: uuid.UUID) -> str | None:
+    """Get the agent tenant ID for tenant-scoped shared paths."""
+    try:
+        from app.models.agent import Agent
+        async with async_session() as db:
+            r = await db.execute(select(Agent.tenant_id).where(Agent.id == agent_id))
+            tenant_id = r.scalar_one_or_none()
+            if tenant_id:
+                return str(tenant_id)
+    except Exception:
+        pass
+    return None
 
 
 async def _execute_tool_direct(
@@ -1068,7 +1308,8 @@ async def _execute_tool_direct(
     Used by the approval post-processing hook after an action
     has been approved and needs to actually run.
     """
-    ws = await ensure_workspace(agent_id)
+    _agent_tenant_id = await _get_agent_tenant_id(agent_id)
+    ws = await ensure_workspace(agent_id, tenant_id=_agent_tenant_id)
     try:
         if tool_name == "delete_file":
             return _delete_file(ws, arguments.get("path", ""))
@@ -1077,8 +1318,9 @@ async def _execute_tool_direct(
             content = arguments.get("content", "")
             if not path:
                 return "Missing path"
-            return _write_file(ws, path, content)
+            return _write_file(ws, path, content, tenant_id=_agent_tenant_id)
         elif tool_name == "execute_code":
+            logger.info(f"[DirectTool] Executing code with arguments: {arguments}")
             return await _execute_code(agent_id, ws, arguments)
         elif tool_name == "web_search":
             return await _web_search(arguments)
@@ -1088,9 +1330,12 @@ async def _execute_tool_direct(
             return await _send_feishu_message(agent_id, arguments)
         elif tool_name == "send_message_to_agent":
             return await _send_message_to_agent(agent_id, arguments)
+        elif tool_name == "send_file_to_agent":
+            return await _send_file_to_agent(agent_id, ws, arguments)
         else:
             return f"Tool {tool_name} does not support post-approval execution"
     except Exception as e:
+        logger.exception(f"[DirectTool] Error executing {tool_name}: {e}")
         return f"Error executing {tool_name}: {e}"
 
 
@@ -1101,19 +1346,7 @@ async def execute_tool(
     user_id: uuid.UUID,
 ) -> str:
     """Execute a tool call and return the result as a string."""
-    # Look up agent's tenant_id for tenant-scoped operations
-    _agent_tenant_id = None
-    try:
-        from app.models.agent import Agent as _Ag
-        from app.database import async_session as _ases
-        from sqlalchemy import select as _ssel
-        async with _ases() as _tdb:
-            _ag = await _tdb.execute(_ssel(_Ag.tenant_id).where(_Ag.id == agent_id))
-            _tid = _ag.scalar_one_or_none()
-            if _tid:
-                _agent_tenant_id = str(_tid)
-    except Exception:
-        pass
+    _agent_tenant_id = await _get_agent_tenant_id(agent_id)
 
     ws = await ensure_workspace(agent_id, tenant_id=_agent_tenant_id)
 
@@ -1133,11 +1366,12 @@ async def execute_tool(
                     await _adb.commit()
                     if not result_check.get("allowed"):
                         level = result_check.get("level", "L3")
+                        logger.info(f"[Autonomy] Tool {tool_name} denied, level: {level}")
                         if level == "L3":
                             return f"⏳ This action requires approval. An approval request has been sent. Please wait for approval before retrying. (Approval ID: {result_check.get('approval_id', 'N/A')})"
                         return f"❌ Action denied: {result_check.get('message', 'unknown reason')}"
         except Exception as e:
-            logger.error(f"[Autonomy] Check failed — blocking as safety measure: {e}")
+            logger.exception(f"[Autonomy] Check failed: {e}")
             return f"⚠️ Autonomy check failed ({e}). Operation blocked for safety. Please retry or contact admin."
 
     try:
@@ -1161,7 +1395,7 @@ async def execute_tool(
                 return "❌ Missing required argument 'path' for write_file. Please provide a file path like 'skills/my-skill/SKILL.md'"
             if content is None:
                 return "❌ Missing required argument 'content' for write_file"
-            result = _write_file(ws, path, content)
+            result = _write_file(ws, path, content, tenant_id=_agent_tenant_id)
         elif tool_name == "delete_file":
             result = _delete_file(ws, arguments.get("path", ""))
         elif tool_name == "manage_tasks":
@@ -1180,6 +1414,8 @@ async def execute_tool(
             result = await _send_web_message(agent_id, arguments)
         elif tool_name == "send_message_to_agent":
             result = await _send_message_to_agent(agent_id, arguments)
+        elif tool_name == "send_file_to_agent":
+            result = await _send_file_to_agent(agent_id, ws, arguments)
         elif tool_name == "send_channel_file":
             result = await _send_channel_file(agent_id, ws, arguments)
         elif tool_name == "web_search":
@@ -1199,7 +1435,8 @@ async def execute_tool(
         elif tool_name == "plaza_add_comment":
             result = await _plaza_add_comment(agent_id, arguments)
         elif tool_name == "execute_code":
-            result = await _execute_code(ws, arguments)
+            logger.info(f"[DirectTool] Executing code with arguments: {arguments}")
+            result = await _execute_code(agent_id, ws, arguments)
         elif tool_name == "upload_image":
             result = await _upload_image(agent_id, ws, arguments)
         elif tool_name == "discover_resources":
@@ -1236,6 +1473,52 @@ async def execute_tool(
             result = await _publish_page(agent_id, user_id, ws, arguments)
         elif tool_name == "list_published_pages":
             result = await _list_published_pages(agent_id)
+        # ── AgentBay Tools ──
+        elif tool_name == "agentbay_browser_navigate":
+            result = await _agentbay_browser_navigate(agent_id, ws, arguments)
+        elif tool_name == "agentbay_browser_click":
+            result = await _agentbay_browser_click(agent_id, ws, arguments)
+        elif tool_name == "agentbay_browser_type":
+            result = await _agentbay_browser_type(agent_id, ws, arguments)
+        elif tool_name == "agentbay_code_execute":
+            result = await _agentbay_code_execute(agent_id, ws, arguments)
+        elif tool_name == "agentbay_browser_extract":
+            result = await _agentbay_browser_extract(agent_id, ws, arguments)
+        elif tool_name == "agentbay_browser_observe":
+            result = await _agentbay_browser_observe(agent_id, ws, arguments)
+        elif tool_name == "agentbay_command_exec":
+            result = await _agentbay_command_exec(agent_id, ws, arguments)
+        elif tool_name == "agentbay_computer_screenshot":
+            result = await _agentbay_computer_screenshot(agent_id, ws, arguments)
+        elif tool_name == "agentbay_computer_click":
+            result = await _agentbay_computer_click(agent_id, ws, arguments)
+        elif tool_name == "agentbay_computer_input_text":
+            result = await _agentbay_computer_input_text(agent_id, ws, arguments)
+        elif tool_name == "agentbay_computer_press_keys":
+            result = await _agentbay_computer_press_keys(agent_id, ws, arguments)
+        elif tool_name == "agentbay_computer_scroll":
+            result = await _agentbay_computer_scroll(agent_id, ws, arguments)
+        elif tool_name == "agentbay_computer_move_mouse":
+            result = await _agentbay_computer_move_mouse(agent_id, ws, arguments)
+        elif tool_name == "agentbay_computer_drag_mouse":
+            result = await _agentbay_computer_drag_mouse(agent_id, ws, arguments)
+        elif tool_name == "agentbay_computer_get_screen_size":
+            result = await _agentbay_computer_get_screen_size(agent_id, ws, arguments)
+        elif tool_name == "agentbay_computer_start_app":
+            result = await _agentbay_computer_start_app(agent_id, ws, arguments)
+        elif tool_name == "agentbay_computer_get_cursor_position":
+            result = await _agentbay_computer_get_cursor_position(agent_id, ws, arguments)
+        elif tool_name == "agentbay_computer_get_active_window":
+            result = await _agentbay_computer_get_active_window(agent_id, ws, arguments)
+        elif tool_name == "agentbay_computer_activate_window":
+            result = await _agentbay_computer_activate_window(agent_id, ws, arguments)
+        elif tool_name == "agentbay_computer_list_visible_apps":
+            result = await _agentbay_computer_list_visible_apps(agent_id, ws, arguments)
+        # ── Skill Management ──
+        elif tool_name == "search_clawhub":
+            result = await _search_clawhub(agent_id, arguments)
+        elif tool_name == "install_skill":
+            result = await _install_skill(agent_id, ws, arguments)
         else:
             # Try MCP tool execution
             result = await _execute_mcp_tool(tool_name, arguments, agent_id=agent_id)
@@ -1250,8 +1533,7 @@ async def execute_tool(
             )
         return result
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"[Tool] Execution failed: {tool_name}")
         return f"Tool execution error ({tool_name}): {type(e).__name__}: {str(e)[:200]}"
 
 
@@ -1514,10 +1796,10 @@ async def _send_channel_file(agent_id: uuid.UUID, ws: Path, arguments: dict) -> 
     """Send a file to a person or back to the current channel.
     
     Priority:
-    1. If channel_file_sender ContextVar is set (channel-initiated), use it directly.
-    2. If member_name is provided, resolve the recipient across all configured channels
+    1. If member_name is provided, resolve the recipient across all configured channels
        and deliver via the appropriate one (Feishu, Slack, etc.).
-    3. Fall back to web chat download URL.
+    2. If channel_file_sender ContextVar is set (channel-initiated), use it directly.
+    3. Fall back to web chat download URL when no explicit recipient is requested.
     """
     rel_path = arguments.get("file_path", "").strip()
     accompany_msg = arguments.get("message", "")
@@ -1535,7 +1817,17 @@ async def _send_channel_file(agent_id: uuid.UUID, ws: Path, arguments: dict) -> 
     if not file_path.exists():
         return f"Error: File not found: {rel_path}"
 
-    # Priority 1: channel-initiated (ContextVar set by channel webhook handler)
+    # Priority 1: explicit recipient - resolve member across channels
+    if member_name:
+        result = await _send_file_to_recipient(agent_id, file_path, member_name, accompany_msg)
+        if result:
+            return result
+        return (
+            f"Failed to send file to '{member_name}': recipient not reachable via configured channels. "
+            "Use send_message_to_agent for digital employees, or omit member_name to return a download link."
+        )
+
+    # Priority 2: channel-initiated (ContextVar set by channel webhook handler)
     sender = channel_file_sender.get()
     if sender is not None:
         try:
@@ -1543,12 +1835,6 @@ async def _send_channel_file(agent_id: uuid.UUID, ws: Path, arguments: dict) -> 
             return f"File '{file_path.name}' sent to user via channel."
         except Exception as e:
             return f"Failed to send file: {e}"
-
-    # Priority 2: recipient-aware - resolve member across channels
-    if member_name:
-        result = await _send_file_to_recipient(agent_id, file_path, member_name, accompany_msg)
-        if result:
-            return result
 
     # Priority 3: Web chat fallback — return download URL
     aid = channel_web_agent_id.get() or str(agent_id)
@@ -1752,6 +2038,11 @@ async def _execute_mcp_tool(tool_name: str, arguments: dict, agent_id=None) -> s
         async with async_session() as db:
             result = await db.execute(select(Tool).where(Tool.name == tool_name, Tool.type == "mcp"))
             tool = result.scalar_one_or_none()
+
+            if not tool:
+                logger.warning(f"[MCP] Unknown tool: {tool_name}")
+                return f"Unknown tool: {tool_name}"
+
             # Load per-agent config override
             agent_config = {}
             if tool and agent_id:
@@ -1764,14 +2055,13 @@ async def _execute_mcp_tool(tool_name: str, arguments: dict, agent_id=None) -> s
                 at = at_r.scalar_one_or_none()
                 agent_config = (at.config or {}) if at else {}
 
-        if not tool:
-            return f"Unknown tool: {tool_name}"
-
         if not tool.mcp_server_url:
+            logger.error(f"[MCP] Tool {tool_name} has no server URL configured")
             return f"❌ MCP tool {tool_name} has no server URL configured"
 
         # Merge global config + agent override
         merged_config = {**(tool.config or {}), **agent_config}
+        merged_config = _decrypt_sensitive_fields(merged_config)
 
         mcp_url = tool.mcp_server_url
         mcp_name = tool.mcp_tool_name or tool_name
@@ -1796,6 +2086,7 @@ async def _execute_mcp_tool(tool_name: str, arguments: dict, agent_id=None) -> s
         return await client.call_tool(mcp_name, arguments)
 
     except Exception as e:
+        logger.exception(f"[MCP] Tool execution error: {tool_name}")
         return f"❌ MCP tool execution error: {str(e)[:200]}"
 
 
@@ -2203,14 +2494,27 @@ async def _read_document(ws: Path, rel_path: str, max_chars: int = 8000, tenant_
         return f"Document read failed: {str(e)[:200]}"
 
 
-def _write_file(ws: Path, rel_path: str, content: str) -> str:
+def _write_file(ws: Path, rel_path: str, content: str, tenant_id: str | None = None) -> str:
     # Protect tasks.json from direct writes
     if rel_path.strip("/") == "tasks.json":
         return "tasks.json is read-only. Use manage_tasks tool to manage tasks."
 
-    file_path = (ws / rel_path).resolve()
-    if not str(file_path).startswith(str(ws.resolve())):
-        return "Access denied for this path"
+    # Handle enterprise_info/ as shared directory (tenant-scoped)
+    if rel_path and rel_path.startswith("enterprise_info"):
+        if tenant_id:
+            enterprise_root = (WORKSPACE_ROOT / f"enterprise_info_{tenant_id}").resolve()
+        else:
+            enterprise_root = (WORKSPACE_ROOT / "enterprise_info").resolve()
+        sub = rel_path[len("enterprise_info"):].lstrip("/")
+        if not sub:
+            return "Write failed: please provide a file path under enterprise_info/, e.g. enterprise_info/knowledge_base/report.md"
+        file_path = (enterprise_root / sub).resolve()
+        if not str(file_path).startswith(str(enterprise_root)):
+            return "Access denied for this path"
+    else:
+        file_path = (ws / rel_path).resolve()
+        if not str(file_path).startswith(str(ws.resolve())):
+            return "Access denied for this path"
 
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2657,6 +2961,181 @@ async def _send_web_message(agent_id: uuid.UUID, args: dict) -> str:
         return f"❌ Web message send error: {str(e)[:200]}"
 
 
+async def _send_file_to_agent(from_agent_id: uuid.UUID, ws: Path, args: dict) -> str:
+    """Send a workspace file to another digital employee (agent)."""
+    agent_name = (args.get("agent_name") or "").strip()
+    rel_path = (args.get("file_path") or "").strip()
+    delivery_note = (args.get("message") or "").strip()
+
+    if not agent_name or not rel_path:
+        return "❌ Please provide both agent_name and file_path"
+
+    # Resolve source file path inside sender workspace
+    source_file_path = (ws / rel_path).resolve()
+    ws_resolved = ws.resolve()
+    sender_root = (WORKSPACE_ROOT / str(from_agent_id)).resolve()
+    if not str(source_file_path).startswith(str(ws_resolved)):
+        source_file_path = (sender_root / rel_path).resolve()
+    if not str(source_file_path).startswith(str(sender_root)):
+        return "❌ Access denied: source path is outside your workspace"
+
+    if not source_file_path.exists():
+        return f"❌ Source file not found: {rel_path}"
+    if not source_file_path.is_file():
+        return f"❌ Source path is not a file: {rel_path}"
+
+    # File size limit (50 MB)
+    MAX_FILE_SIZE = 50 * 1024 * 1024
+    file_size = source_file_path.stat().st_size
+    if file_size > MAX_FILE_SIZE:
+        size_mb = file_size / (1024 * 1024)
+        return f"❌ File too large ({size_mb:.1f} MB). Maximum allowed is 50 MB."
+
+    try:
+        from app.models.agent import Agent
+        from app.services.activity_logger import log_activity
+        import shutil
+
+        async with async_session() as db:
+            src_result = await db.execute(select(Agent).where(Agent.id == from_agent_id))
+            source_agent = src_result.scalar_one_or_none()
+            source_name = source_agent.name if source_agent else "Unknown agent"
+            source_tenant_id = source_agent.tenant_id if source_agent else None
+
+            # Build base filter: same tenant + not self
+            base_filter = [Agent.id != from_agent_id]
+            if source_tenant_id:
+                base_filter.append(Agent.tenant_id == source_tenant_id)
+
+            # Try exact name match first, then fuzzy
+            target_agent = None
+            exact_result = await db.execute(
+                select(Agent).where(Agent.name == agent_name, *base_filter)
+            )
+            target_agent = exact_result.scalars().first()
+            if not target_agent:
+                # Sanitize SQL wildcards in user input
+                safe_name = agent_name.replace("%", "").replace("_", "\_")
+                fuzzy_result = await db.execute(
+                    select(Agent).where(Agent.name.ilike(f"%{safe_name}%"), *base_filter)
+                )
+                target_agent = fuzzy_result.scalars().first()
+            if not target_agent:
+                # Only show agents from relationships, not all agents
+                from app.models.org import AgentAgentRelationship
+                rel_r = await db.execute(
+                    select(Agent.name).join(
+                        AgentAgentRelationship,
+                        (AgentAgentRelationship.target_agent_id == Agent.id) & (AgentAgentRelationship.agent_id == from_agent_id)
+                    )
+                )
+                rel_names = [n for (n,) in rel_r.all()]
+                return f"❌ No agent found matching '{agent_name}'. Your connected colleagues: {', '.join(rel_names) if rel_names else 'none — ask your administrator to set up relationships'}"
+
+            if target_agent.is_expired or (target_agent.expires_at and datetime.now(timezone.utc) >= target_agent.expires_at):
+                return f"⚠️ {target_agent.name} is currently unavailable — their service period has ended. Please contact the platform administrator."
+
+            # Enforce relationship: only allow file transfer with agents in relationships
+            from app.models.org import AgentAgentRelationship
+            rel_check = await db.execute(
+                select(AgentAgentRelationship.id).where(
+                    ((AgentAgentRelationship.agent_id == from_agent_id) & (AgentAgentRelationship.target_agent_id == target_agent.id))
+                    | ((AgentAgentRelationship.agent_id == target_agent.id) & (AgentAgentRelationship.target_agent_id == from_agent_id))
+                ).limit(1)
+            )
+            if not rel_check.scalar_one_or_none():
+                return f"❌ You do not have a relationship with {target_agent.name}. Only agents in your relationship list can receive files. Ask your administrator to add a relationship if needed."
+
+            target_tenant_id = str(target_agent.tenant_id) if target_agent.tenant_id else None
+            target_name = target_agent.name
+            target_id = target_agent.id
+
+        target_ws = await ensure_workspace(target_id, tenant_id=target_tenant_id)
+        inbox_dir = (target_ws / "workspace" / "inbox").resolve()
+        files_dir = (inbox_dir / "files").resolve()
+        target_ws_resolved = target_ws.resolve()
+        if not str(inbox_dir).startswith(str(target_ws_resolved)) or not str(files_dir).startswith(str(target_ws_resolved)):
+            return "❌ Access denied for target agent inbox path"
+
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        files_dir.mkdir(parents=True, exist_ok=True)
+
+        ts = datetime.now(timezone.utc)
+        stamp = ts.strftime("%Y%m%d_%H%M%S_%f")
+        delivered_name = source_file_path.name
+        delivered_path = files_dir / delivered_name
+        while delivered_path.exists():
+            delivered_name = f"{stamp}_{source_file_path.name}"
+            delivered_path = files_dir / delivered_name
+
+        shutil.copy2(source_file_path, delivered_path)
+
+        sender_short = str(from_agent_id)[:8]
+        note_path = inbox_dir / f"{stamp}_{sender_short}_file_delivery.md"
+        target_rel_path = f"workspace/inbox/files/{delivered_name}"
+        note_lines = [
+            f"# File delivery from {source_name}",
+            "",
+            f"- Time (UTC): {ts.isoformat()}",
+            f"- Sender: {source_name}",
+            f"- Source path: {rel_path}",
+            f"- Delivered file: {target_rel_path}",
+            "",
+        ]
+        if delivery_note:
+            note_lines.append("## Note")
+            note_lines.append(delivery_note)
+            note_lines.append("")
+        note_lines.append("## Action")
+        note_lines.append(f"- Read the file via `read_file(path=\"{target_rel_path}\")`")
+        note_path.write_text("\n".join(note_lines), encoding="utf-8")
+
+        from app.models.audit import AuditLog
+        async with async_session() as db:
+            db.add(AuditLog(
+                agent_id=from_agent_id,
+                action="collaboration:file_send",
+                details={
+                    "to_agent": str(target_id),
+                    "to_agent_name": target_name,
+                    "source_file": rel_path,
+                    "delivered_file": target_rel_path,
+                },
+            ))
+            db.add(AuditLog(
+                agent_id=target_id,
+                action="collaboration:file_receive",
+                details={
+                    "from_agent": str(from_agent_id),
+                    "from_agent_name": source_name,
+                    "source_file": rel_path,
+                    "delivered_file": target_rel_path,
+                },
+            ))
+            await db.commit()
+
+        await log_activity(
+            from_agent_id,
+            "agent_file_sent",
+            f"Sent file to {target_name}",
+            detail={"target_agent": target_name, "source_file": rel_path, "delivered_file": target_rel_path},
+        )
+        await log_activity(
+            target_id,
+            "agent_file_received",
+            f"Received file from {source_name}",
+            detail={"source_agent": source_name, "source_file": rel_path, "delivered_file": target_rel_path},
+        )
+
+        return (
+            f"✅ File sent to {target_name}.\n"
+            f"- Delivered to: {target_rel_path}\n"
+            f"- Inbox note: workspace/inbox/{note_path.name}"
+        )
+    except Exception as e:
+        return f"❌ Agent file send error: {str(e)[:200]}"
+
+
 async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
     """Send a message to another digital employee. Uses a single request-response pattern:
     the source agent sends a message, the target agent replies once, and the result is returned.
@@ -2680,36 +3159,52 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
             src_result = await db.execute(select(Agent).where(Agent.id == from_agent_id))
             source_agent = src_result.scalar_one_or_none()
             source_name = source_agent.name if source_agent else "Unknown agent"
+            source_tenant_id = source_agent.tenant_id if source_agent else None
 
-            # Find target agent by name
-            result = await db.execute(
-                select(Agent).where(Agent.name.ilike(f"%{agent_name}%"), Agent.id != from_agent_id)
+            # Build base filter: same tenant + not self
+            base_filter = [Agent.id != from_agent_id]
+            if source_tenant_id:
+                base_filter.append(Agent.tenant_id == source_tenant_id)
+
+            # Find target agent by name — exact match first, then fuzzy
+            target = None
+            exact_result = await db.execute(
+                select(Agent).where(Agent.name == agent_name, *base_filter)
             )
-            target = result.scalars().first()
+            target = exact_result.scalars().first()
             if not target:
-                all_r = await db.execute(select(Agent).where(Agent.id != from_agent_id))
-                names = [a.name for a in all_r.scalars().all()]
-                return f"❌ No agent found matching '{agent_name}'. Available: {', '.join(names) if names else 'none'}"
+                safe_name = agent_name.replace("%", "").replace("_", "\_")
+                fuzzy_result = await db.execute(
+                    select(Agent).where(Agent.name.ilike(f"%{safe_name}%"), *base_filter)
+                )
+                target = fuzzy_result.scalars().first()
+            if not target:
+                # Only show agents from relationships, not all agents
+                from app.models.org import AgentAgentRelationship
+                rel_r = await db.execute(
+                    select(Agent.name).join(
+                        AgentAgentRelationship,
+                        (AgentAgentRelationship.target_agent_id == Agent.id) & (AgentAgentRelationship.agent_id == from_agent_id)
+                    )
+                )
+                rel_names = [n for (n,) in rel_r.all()]
+                return f"❌ No agent found matching '{agent_name}'. Your connected colleagues: {', '.join(rel_names) if rel_names else 'none — ask your administrator to set up relationships'}"
 
             # Check if target agent has expired
             if target.is_expired or (target.expires_at and datetime.now(timezone.utc) >= target.expires_at):
                 return f"⚠️ {target.name} is currently unavailable — their service period has ended. Please contact the platform administrator."
 
-            # ── OpenClaw target: queue message for gateway poll ──
-            if getattr(target, "agent_type", "native") == "openclaw":
-                from app.models.gateway_message import GatewayMessage as GMsg
-                gw_msg = GMsg(
-                    agent_id=target.id,
-                    sender_agent_id=from_agent_id,
-                    sender_user_id=source_agent.creator_id if source_agent else None,
-                    content=f"[From {source_name}] {message_text}",
-                    status="pending",
-                )
-                db.add(gw_msg)
-                await db.commit()
-                online = target.openclaw_last_seen and (datetime.now(timezone.utc) - target.openclaw_last_seen).total_seconds() < 300
-                status_hint = "online" if online else "offline (message will be delivered on next heartbeat)"
-                return f"✅ Message sent to {target.name} (OpenClaw agent, currently {status_hint}). The message has been queued and will be delivered when the agent polls for updates."
+            # Enforce relationship: only allow communication with agents in relationships
+            from app.models.org import AgentAgentRelationship
+            rel_check = await db.execute(
+                select(AgentAgentRelationship.id).where(
+                    ((AgentAgentRelationship.agent_id == from_agent_id) & (AgentAgentRelationship.target_agent_id == target.id))
+                    | ((AgentAgentRelationship.agent_id == target.id) & (AgentAgentRelationship.target_agent_id == from_agent_id))
+                ).limit(1)
+            )
+            if not rel_check.scalar_one_or_none():
+                return f"❌ You do not have a relationship with {target.name}. Only agents in your relationship list can be contacted. Ask your administrator to add a relationship if needed."
+
             src_part_r = await db.execute(select(Participant).where(Participant.type == "agent", Participant.ref_id == from_agent_id))
             src_participant = src_part_r.scalar_one_or_none()
             tgt_part_r = await db.execute(select(Participant).where(Participant.type == "agent", Participant.ref_id == target.id))
@@ -2726,8 +3221,8 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
                 )
             )
             chat_session = sess_r.scalar_one_or_none()
+            owner_id = source_agent.creator_id if source_agent else from_agent_id
             if not chat_session:
-                owner_id = source_agent.creator_id if source_agent else from_agent_id
                 src_part_id = src_participant.id if src_participant else None
                 chat_session = ChatSession(
                     agent_id=session_agent_id,
@@ -2741,6 +3236,44 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
                 await db.flush()
 
             session_id = str(chat_session.id)
+
+            # ── OpenClaw target: queue message for gateway poll ──
+            if getattr(target, "agent_type", "native") == "openclaw":
+                # 1. Save the source message to the chat session
+                db.add(ChatMessage(
+                    agent_id=session_agent_id,
+                    user_id=owner_id,
+                    role="user",
+                    content=message_text,
+                    conversation_id=session_id,
+                    participant_id=src_participant.id if src_participant else None,
+                ))
+                chat_session.last_message_at = datetime.now(timezone.utc)
+                
+                # 2. Queue for Gateway
+                from app.models.gateway_message import GatewayMessage as GMsg
+                gw_msg = GMsg(
+                    agent_id=target.id,
+                    sender_agent_id=from_agent_id,
+                    sender_user_id=owner_id,
+                    content=f"[From {source_name}] {message_text}",
+                    status="pending",
+                    conversation_id=session_id,
+                )
+                db.add(gw_msg)
+                await db.commit()
+                
+                # 3. Log activity
+                from app.services.activity_logger import log_activity
+                await log_activity(
+                    from_agent_id, "agent_msg_sent",
+                    f"Sent message to {target.name} (queued)",
+                    detail={"partner": target.name, "message": message_text[:200]},
+                )
+
+                online = target.openclaw_last_seen and (datetime.now(timezone.utc) - target.openclaw_last_seen).total_seconds() < 300
+                status_hint = "online" if online else "offline (message will be delivered on next heartbeat)"
+                return f"✅ Message sent to {target.name} (OpenClaw agent, currently {status_hint}). The message has been queued and will be delivered when the agent polls for updates."
 
             # Prepare target LLM
             from app.services.agent_context import build_agent_context
@@ -2768,6 +3301,11 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
                 "\n\n--- Agent-to-Agent Message ---\n"
                 "You are receiving a message from another digital employee. "
                 "Reply concisely and helpfully. Focus on the request and provide a clear answer.\n"
+                "\n** CRITICAL FILE DELIVERY RULE **\n"
+                "After you write any file (report, document, analysis, etc.) that the requesting agent needs, "
+                "you MUST call `send_file_to_agent(agent_name=\"<requester_name>\", file_path=\"<path>\")` "
+                "to deliver it. The other agent CANNOT access your workspace. "
+                "Never just tell them the path — always deliver explicitly.\n"
             )
 
             # Load recent history for context
@@ -2805,11 +3343,15 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
             await db.commit()
 
             # Call target LLM with tool support (multi-round)
+            import asyncio
+            import random
+            import httpx
             from app.services.llm_utils import (
                 get_provider_base_url,
                 create_llm_client,
                 LLMMessage,
             )
+            from app.services.llm_client import LLMError
             from app.services.agent_tools import get_agent_tools_for_llm, execute_tool
             base_url = get_provider_base_url(target_model.provider, target_model.base_url)
             if not base_url:
@@ -2835,14 +3377,49 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
                 base_url=base_url,
                 timeout=120.0,
             )
+            _A2A_RETRYABLE_MARKERS = (
+                "http 408", "http 429", "http 500", "http 502", "http 503", "http 504",
+                "timeout", "timed out", "connection failed", "temporarily unavailable", "rate limit",
+            )
+            _A2A_MAX_RETRIES = 3
+
+            def _is_retryable_llm_error(exc: Exception) -> bool:
+                """Determine whether an LLM exception is transient and worth retrying."""
+                if isinstance(exc, (httpx.TimeoutException, httpx.TransportError)):
+                    return True
+                if isinstance(exc, LLMError):
+                    lowered = (str(exc) or "").lower()
+                    return any(m in lowered for m in _A2A_RETRYABLE_MARKERS)
+                return False
+
             try:
                 for _round in range(max_tool_rounds):
-                    response = await llm_client.complete(
-                        messages=full_msgs,
-                        tools=tools_for_llm if tools_for_llm else None,
-                        temperature=0.7,
-                        max_tokens=4096,
-                    )
+                    response = None
+                    for attempt in range(1, _A2A_MAX_RETRIES + 1):
+                        try:
+                            response = await llm_client.complete(
+                                messages=full_msgs,
+                                tools=tools_for_llm if tools_for_llm else None,
+                                temperature=target_model.temperature,
+                                max_tokens=4096,
+                            )
+                            break
+                        except Exception as llm_exc:
+                            if not _is_retryable_llm_error(llm_exc) or attempt >= _A2A_MAX_RETRIES:
+                                raise
+
+                            err_text = str(llm_exc) or type(llm_exc).__name__
+                            # Exponential backoff with jitter to prevent thundering herd
+                            backoff = (2 ** (attempt - 1)) + random.uniform(0, 0.5)
+                            logger.warning(
+                                f"[A2A] LLM call failed for {target.name} (round={_round + 1}, "
+                                f"attempt={attempt}/{_A2A_MAX_RETRIES}): {err_text[:200]}. "
+                                f"Retrying in {backoff:.1f}s"
+                            )
+                            await asyncio.sleep(backoff)
+
+                    if response is None:
+                        raise RuntimeError("A2A LLM response is unexpectedly empty after retries")
 
                     # Track tokens from API response
                     real_tokens = extract_usage_tokens(response.usage)
@@ -2880,6 +3457,15 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
                                     tool_args = {}
 
                             tool_result = await execute_tool(tool_name, tool_args, target.id, owner_id)
+
+                            # Nudge: after write_file in A2A, remind to deliver via send_file_to_agent
+                            if tool_name == "write_file" and isinstance(tool_result, str) and tool_result.startswith("\u2705"):
+                                wrote_path = tool_args.get("path", "")
+                                tool_result += (
+                                    f"\n\n⚠️ REMINDER: The requesting agent ({source_name}) cannot access your workspace. "
+                                    f"You MUST now call `send_file_to_agent(agent_name=\"{source_name}\", file_path=\"{wrote_path}\")` "
+                                    f"to deliver this file to them."
+                                )
 
                             # Save tool_call to DB so it appears in chat history
                             try:
@@ -2952,9 +3538,18 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
             return f"💬 {target.name} replied:\n{target_reply}"
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return f"❌ Message send error: {str(e)[:200]}"
+        logger.exception(
+            f"[A2A] send_message_to_agent failed: from={from_agent_id}, to={args.get('agent_name', '')}"
+        )
+        error_type = type(e).__name__
+        error_detail = (str(e) or "").strip()
+        if not error_detail:
+            timeout_types = {"ReadTimeout", "ConnectTimeout", "TimeoutException"}
+            if error_type in timeout_types:
+                error_detail = "LLM request timed out while waiting for target agent response"
+            else:
+                error_detail = "No detailed error message returned from upstream"
+        return f"❌ Message send error ({error_type}): {error_detail[:200]}"
 
 
 
@@ -3014,7 +3609,7 @@ async def _plaza_create_post(agent_id: uuid.UUID, arguments: dict) -> str:
 
     content = arguments.get("content", "").strip()
     if not content:
-        return "❌ Post content cannot be empty."
+        return "Error: Post content cannot be empty."
     if len(content) > 500:
         content = content[:500]
 
@@ -3024,7 +3619,7 @@ async def _plaza_create_post(agent_id: uuid.UUID, arguments: dict) -> str:
             ar = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
             agent = ar.scalar_one_or_none()
             if not agent:
-                return "❌ Agent not found."
+                return "Error: Agent not found."
 
             post = PlazaPost(
                 author_id=agent_id,
@@ -3034,12 +3629,41 @@ async def _plaza_create_post(agent_id: uuid.UUID, arguments: dict) -> str:
                 tenant_id=agent.tenant_id,
             )
             db.add(post)
+            await db.flush()  # get post.id
+
+            # Extract @mentions
+            try:
+                import re
+                mentions = re.findall(r'@(\S+)', content)
+                if mentions:
+                    from app.services.notification_service import send_notification
+                    a_q = select(AgentModel).where(AgentModel.id != agent_id)
+                    if agent.tenant_id:
+                        a_q = a_q.where(AgentModel.tenant_id == agent.tenant_id)
+                    a_map = {a.name.lower(): a for a in (await db.execute(a_q)).scalars().all()}
+                    notified = set()
+                    for m in mentions:
+                        ma = a_map.get(m.lower())
+                        if ma and ma.id not in notified:
+                            notified.add(ma.id)
+                            await send_notification(
+                                db, agent_id=ma.id,
+                                type="mention",
+                                title=f"{agent.name} mentioned you in a plaza post",
+                                body=content[:150],
+                                link=f"/plaza?post={post.id}",
+                                ref_id=post.id,
+                                sender_name=agent.name,
+                            )
+            except Exception:
+                pass
+
             await db.commit()
             await db.refresh(post)
-            return f"✅ Post published! (ID: {post.id})"
+            return f"Post published! (ID: {post.id})"
 
     except Exception as e:
-        return f"❌ Failed to create post: {str(e)[:200]}"
+        return f"Failed to create post: {str(e)[:200]}"
 
 
 async def _plaza_add_comment(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -3050,14 +3674,14 @@ async def _plaza_add_comment(agent_id: uuid.UUID, arguments: dict) -> str:
     post_id = arguments.get("post_id", "")
     content = arguments.get("content", "").strip()
     if not content:
-        return "❌ Comment content cannot be empty."
+        return "Error: Comment content cannot be empty."
     if len(content) > 300:
         content = content[:300]
 
     try:
         pid = uuid.UUID(str(post_id))
     except Exception:
-        return "❌ Invalid post_id format."
+        return "Error: Invalid post_id format."
 
     try:
         async with async_session() as db:
@@ -3065,13 +3689,13 @@ async def _plaza_add_comment(agent_id: uuid.UUID, arguments: dict) -> str:
             pr = await db.execute(select(PlazaPost).where(PlazaPost.id == pid))
             post = pr.scalar_one_or_none()
             if not post:
-                return "❌ Post not found."
+                return "Error: Post not found."
 
             # Get agent name
             ar = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
             agent = ar.scalar_one_or_none()
             if not agent:
-                return "❌ Agent not found."
+                return "Error: Agent not found."
 
             comment = PlazaComment(
                 post_id=pid,
@@ -3082,16 +3706,112 @@ async def _plaza_add_comment(agent_id: uuid.UUID, arguments: dict) -> str:
             )
             db.add(comment)
             post.comments_count = (post.comments_count or 0) + 1
+
+            # Notify post author (if not self)
+            if post.author_id != agent_id:
+                try:
+                    from app.services.notification_service import send_notification
+                    if post.author_type == "agent":
+                        await send_notification(
+                            db, agent_id=post.author_id,
+                            type="plaza_reply",
+                            title=f"{agent.name} commented on your post",
+                            body=content[:150],
+                            link=f"/plaza?post={pid}",
+                            ref_id=pid,
+                            sender_name=agent.name,
+                        )
+                        # Also notify human creator
+                        pa = (await db.execute(select(AgentModel).where(AgentModel.id == post.author_id))).scalar_one_or_none()
+                        if pa and pa.creator_id:
+                            await send_notification(
+                                db, user_id=pa.creator_id,
+                                type="plaza_comment",
+                                title=f"{agent.name} commented on {pa.name}'s post",
+                                body=content[:100],
+                                link=f"/plaza?post={pid}",
+                                ref_id=pid,
+                                sender_name=agent.name,
+                            )
+                    elif post.author_type == "human":
+                        await send_notification(
+                            db, user_id=post.author_id,
+                            type="plaza_reply",
+                            title=f"{agent.name} commented on your post",
+                            body=content[:150],
+                            link=f"/plaza?post={pid}",
+                            ref_id=pid,
+                            sender_name=agent.name,
+                        )
+                except Exception:
+                    pass
+
+            # Notify other agents who commented on this post
+            try:
+                from app.services.notification_service import send_notification
+                other_crs = await db.execute(
+                    select(PlazaComment.author_id, PlazaComment.author_type)
+                    .where(PlazaComment.post_id == pid)
+                    .distinct()
+                )
+                notified = {post.author_id, agent_id}
+                for row in other_crs.fetchall():
+                    cid, ctype = row
+                    if cid in notified:
+                        continue
+                    notified.add(cid)
+                    if ctype == "agent":
+                        await send_notification(
+                            db, agent_id=cid,
+                            type="plaza_reply",
+                            title=f"{agent.name} also commented on a post you commented on",
+                            body=content[:150],
+                            link=f"/plaza?post={pid}",
+                            ref_id=pid,
+                            sender_name=agent.name,
+                        )
+            except Exception:
+                pass
+
+            # Extract @mentions
+            try:
+                import re
+                mentions = re.findall(r'@(\S+)', content)
+                if mentions:
+                    from app.services.notification_service import send_notification
+                    from app.models.user import User
+                    # Load agents in tenant
+                    a_q = select(AgentModel).where(AgentModel.id != agent_id)
+                    if agent.tenant_id:
+                        a_q = a_q.where(AgentModel.tenant_id == agent.tenant_id)
+                    a_map = {a.name.lower(): a for a in (await db.execute(a_q)).scalars().all()}
+                    notified_m = set()
+                    for m in mentions:
+                        ma = a_map.get(m.lower())
+                        if ma and ma.id not in notified_m:
+                            notified_m.add(ma.id)
+                            await send_notification(
+                                db, agent_id=ma.id,
+                                type="mention",
+                                title=f"{agent.name} mentioned you in a comment",
+                                body=content[:150],
+                                link=f"/plaza?post={pid}",
+                                ref_id=pid,
+                                sender_name=agent.name,
+                            )
+            except Exception:
+                pass
+
             await db.commit()
-            return f"✅ Comment added to post by {post.author_name}."
+            return f"Comment added to post by {post.author_name}."
 
     except Exception as e:
-        return f"❌ Failed to add comment: {str(e)[:200]}"
+        return f"Failed to add comment: {str(e)[:200]}"
 
 
 # ─── Code Execution ─────────────────────────────────────────────
 
-# Dangerous patterns to block
+# Dangerous patterns to block (for legacy fallback)
 _DANGEROUS_BASH = [
     "rm -rf /", "rm -rf ~", "sudo ", "mkfs", "dd if=",
     ":(){ :", "chmod 777 /", "chown ", "shutdown", "reboot",
@@ -3135,13 +3855,72 @@ def _check_code_safety(language: str, code: str) -> str | None:
     return None
 
 
-async def _execute_code(ws: Path, arguments: dict) -> str:
-    """Execute code in a sandboxed subprocess within the agent's workspace."""
+async def _execute_code(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Execute code using the configured sandbox backend."""
+    language = arguments.get("language", "python")
+    code = arguments.get("code", "")
+    timeout = min(arguments.get("timeout", 30), 60)  # Max 60 seconds
+
+    if not code.strip():
+        return "❌ No code provided"
+
+    if language not in ("python", "bash", "node"):
+        return f"❌ Unsupported language: {language}. Use: python, bash, or node"
+
+    # Working directory is the agent's workspace/ subdirectory (must be absolute)
+    work_dir = (ws / "workspace").resolve()
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # Import here to avoid circular imports
+        from app.config import get_sandbox_config
+        from app.services.sandbox.config import SandboxConfig
+        from app.services.sandbox.registry import get_sandbox_backend
+
+        # Get sandbox config: prefer tool config from DB, fallback to env vars
+        fallback_config = get_sandbox_config()
+        tool_config = await _get_tool_config(agent_id, "execute_code")
+
+        if tool_config:
+            sandbox_config = SandboxConfig.from_dict(tool_config, fallback_config)
+        else:
+            sandbox_config = fallback_config
+            logger.info(f"[Sandbox] Using fallback config for agent {agent_id}")
+
+        backend = get_sandbox_backend(sandbox_config)
+        logger.info(f"[Sandbox] Executing code with backend: {backend.__class__.__name__}")
+        result = await backend.execute(
+            code=code,
+            language=language,
+            timeout=timeout,
+            work_dir=str(work_dir),
+        )
+
+        # Format result for user display
+        return backend._format_result(result)
+
+    except ValueError as e:
+        # Sandbox disabled or misconfigured - fall back to legacy subprocess
+        logger.warning(f"[Sandbox] Config issue, falling back to legacy: {e}")
+        return await _execute_code_legacy(ws, arguments)
+
+    except Exception as e:
+        logger.exception(f"[Sandbox] Execution failed for agent {agent_id}")
+        # Try fallback to legacy subprocess
+        try:
+            return await _execute_code_legacy(ws, arguments)
+        except Exception as fallback_error:
+            logger.exception(f"[Sandbox] Fallback also failed for agent {agent_id}")
+            return f"❌ Execution error: {str(e)[:200]}"
+
+
+async def _execute_code_legacy(ws: Path, arguments: dict) -> str:
+    """Legacy subprocess-based code execution (fallback)."""
     import asyncio
 
     language = arguments.get("language", "python")
     code = arguments.get("code", "")
-    timeout = min(arguments.get("timeout", 30), 60)  # Max 60 seconds
+    timeout = min(arguments.get("timeout", 30), 60)
 
     if not code.strip():
         return "❌ No code provided"
@@ -3360,6 +4139,11 @@ async def _handle_set_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
                     return f"❌ Trigger '{name}' already exists and is active. Use update_trigger to modify it, or cancel_trigger first."
                 else:
                     # Re-enable disabled trigger with new config (preserve fire history)
+                    # For webhook triggers: reuse the old token so the URL stays stable
+                    if ttype == "webhook":
+                        old_token = (existing.config or {}).get("token")
+                        if old_token:
+                            config["token"] = old_token
                     existing.type = ttype
                     existing.config = config
                     existing.reason = reason
@@ -4940,17 +5724,20 @@ async def _publish_page(agent_id: uuid.UUID, user_id: uuid.UUID, ws: Path, argum
     except Exception as e:
         return f"Failed to publish: {e}"
 
-    # Build public URL
+    # Build public URL using configured PUBLIC_BASE_URL
     public_base = ""
     try:
         from app.models.system_settings import SystemSetting
-        async with async_session() as db:
-            r = await db.execute(
+        async with async_session() as db2:
+            r = await db2.execute(
                 select(SystemSetting).where(SystemSetting.key == "platform")
             )
             setting = r.scalar_one_or_none()
             if setting and setting.value and setting.value.get("public_base_url"):
-                public_base = setting.value["public_base_url"].rstrip("/")
+                raw = setting.value["public_base_url"].strip().rstrip("/")
+                if raw and not raw.startswith("http"):
+                    raw = f"https://{raw}"
+                public_base = raw
     except Exception:
         pass
 
@@ -4985,6 +5772,138 @@ async def _list_published_pages(agent_id: uuid.UUID) -> str:
         return "\n".join(lines)
     except Exception as e:
         return f"Failed to list pages: {e}"
+
+
+# ─── AgentBay Tool Handlers ─────────────────────────────────────
+
+async def _agentbay_browser_navigate(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """AgentBay 浏览器导航。"""
+    if not agent_id:
+        return "❌ AgentBay 工具需要 agent 上下文"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    url = arguments.get("url", "")
+    screenshot = arguments.get("screenshot", False)
+    wait_for = arguments.get("wait_for", "")
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "browser")
+        result = await client.browser_navigate(url, wait_for=wait_for, screenshot=screenshot)
+
+        # 格式化返回结果
+        parts = [f"✅ 已访问: {url}"]
+        if result.get("title"):
+            parts.append(f"标题: {result['title']}")
+        if result.get("content"):
+            content = result["content"][:3000]  # 限制长度
+            parts.append(f"内容:\n{content}")
+        logger.info(f"[AgentBay] Browser navigate result: {result['title']}")
+        screenshot_data = result.get("screenshot")
+        if screenshot and screenshot_data:
+            import time
+            rel_path = f"workspace/screenshot_{int(time.time())}.png"
+            screenshot_path = ws / rel_path
+            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+            # data from agent.screenshot can be base64 string or bytes.
+            if isinstance(screenshot_data, str):
+                import base64
+                if screenshot_data.startswith("data:image"):
+                    screenshot_data = screenshot_data.split(",", 1)[1]
+                screenshot_data = base64.b64decode(screenshot_data)
+            screenshot_path.write_bytes(screenshot_data)
+            
+            # 告诉大模型可以直接用 Markdown 显示出来
+            parts.append(
+                f"截图: 已保存至 `{rel_path}`。\n\n"
+                f"⚠️ 要在聊天框里向用户展示该截图，请必须在回复中包含以下原样 Markdown 语法：\n"
+                f"![浏览器截图](/api/agents/{agent_id}/files/download?path={rel_path})"
+            )
+
+        return "\n\n".join(parts)
+
+    except RuntimeError as e:
+        return f"❌ {str(e)}。请先在 Agent 设置中配置 AgentBay 通道。"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Browser navigate failed for agent {agent_id}")
+        return f"❌ AgentBay 浏览器访问失败: {str(e)[:200]}"
+
+
+async def _agentbay_browser_click(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """AgentBay 浏览器点击。"""
+    if not agent_id:
+        return "❌ AgentBay 工具需要 agent 上下文"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    selector = arguments.get("selector", "")
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "browser")
+        await client.browser_click(selector)
+        return f"✅ 已点击元素: {selector}"
+    except RuntimeError as e:
+        return f"❌ {str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Browser click failed")
+        return f"❌ 点击失败: {str(e)[:200]}"
+
+
+async def _agentbay_browser_type(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """AgentBay 浏览器输入。"""
+    if not agent_id:
+        return "❌ AgentBay 工具需要 agent 上下文"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    selector = arguments.get("selector", "")
+    text = arguments.get("text", "")
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "browser")
+        await client.browser_type(selector, text)
+        return f"✅ 已在 {selector} 输入文本"
+    except RuntimeError as e:
+        return f"❌ {str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Browser type failed")
+        return f"❌ 输入失败: {str(e)[:200]}"
+
+
+async def _agentbay_code_execute(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """在 AgentBay 代码空间执行代码。"""
+    if not agent_id:
+        return "❌ AgentBay 工具需要 agent 上下文"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    language = arguments.get("language", "python")
+    code = arguments.get("code", "")
+    timeout = arguments.get("timeout", 30)
+
+    if not code.strip():
+        return "❌ 请提供要执行的代码"
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "code")
+        result = await client.code_execute(language, code, timeout)
+
+        # 格式化返回结果
+        parts = [f"✅ 代码执行完成 ({language})"]
+        if result.get("stdout"):
+            parts.append(f"📤 输出:\n{result['stdout']}")
+        if result.get("stderr"):
+            parts.append(f"⚠️ 错误输出:\n{result['stderr']}")
+        if result.get("exit_code") != 0:
+            parts.append(f"退出码: {result['exit_code']}")
+
+        return "\n\n".join(parts)
+
+    except RuntimeError as e:
+        return f"❌ {str(e)}。请先在 Agent 设置中配置 AgentBay 通道。"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Code execution failed for agent {agent_id}")
+        return f"❌ 代码执行失败: {str(e)[:200]}"
 
 
 async def _handle_email_tool(tool_name: str, agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
@@ -5029,3 +5948,600 @@ async def _handle_email_tool(tool_name: str, agent_id: uuid.UUID, ws: Path, argu
             return f"❌ Unknown email tool: {tool_name}"
     except Exception as e:
         return f"❌ Email tool error: {str(e)[:200]}"
+
+
+# ─── Skill Management Tools ────────────────────────────────────
+
+
+async def _search_clawhub(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Search the ClawHub skill registry."""
+    import httpx
+    query = arguments.get("query", "").strip()
+    if not query:
+        return "Missing required argument 'query'"
+
+    # Resolve tenant ClawHub API key
+    from app.api.skills import _get_clawhub_key
+    tenant_id = await _get_agent_tenant_id(agent_id)
+    api_key = await _get_clawhub_key(tenant_id)
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                "https://clawhub.ai/api/search",
+                params={"q": query},
+                headers=headers,
+            )
+            if resp.status_code != 200:
+                return f"ClawHub search failed (HTTP {resp.status_code})"
+            data = resp.json()
+    except Exception as e:
+        return f"❌ ClawHub search error: {str(e)[:200]}"
+
+    results = data.get("results", [])
+    if not results:
+        return f"No skills found matching '{query}'."
+
+    lines = [f"Found {len(results)} skill(s) matching '{query}':\n"]
+    for r in results:
+        name = r.get("displayName") or r.get("slug", "?")
+        slug = r.get("slug", "")
+        summary = (r.get("summary") or "")[:120]
+        updated = ""
+        if r.get("updatedAt"):
+            from datetime import datetime
+            try:
+                dt = datetime.fromtimestamp(r["updatedAt"] / 1000)
+                updated = f" | Updated: {dt.strftime('%Y-%m-%d')}"
+            except Exception:
+                pass
+        lines.append(f"• **{name}** (`{slug}`){updated}")
+        if summary:
+            lines.append(f"  {summary}")
+    lines.append("\nTo install a skill, use: install_skill(source=\"<slug>\")")
+    return "\n".join(lines)
+
+
+async def _install_skill(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
+    """Install a skill from ClawHub slug or GitHub URL into the agent's workspace."""
+    import httpx
+    source = arguments.get("source", "").strip()
+    if not source:
+        return "❌ Missing required argument 'source'. Provide a ClawHub slug (e.g. 'market-research') or a GitHub URL."
+
+    is_url = source.startswith("http://") or source.startswith("https://")
+    base = ws  # agent workspace dir (skills/ lives under workspace/)
+
+    try:
+        if is_url:
+            # ── GitHub URL path ──
+            from app.api.skills import _parse_github_url, _fetch_github_directory, _get_github_token
+
+            parsed = _parse_github_url(source)
+            if not parsed:
+                return "❌ Invalid GitHub URL. Expected format: https://github.com/{owner}/{repo} or https://github.com/{owner}/{repo}/tree/{branch}/{path}"
+
+            owner, repo, branch, path = parsed["owner"], parsed["repo"], parsed["branch"], parsed["path"]
+            tenant_id = await _get_agent_tenant_id(agent_id)
+            token = await _get_github_token(tenant_id)
+            files = await _fetch_github_directory(owner, repo, path, branch, token)
+            if not files:
+                return "❌ No files found at the specified URL."
+
+            folder_name = path.rstrip("/").split("/")[-1] if path else repo
+        else:
+            # ── ClawHub slug path ──
+            slug = source
+            from app.api.skills import _fetch_github_directory, _get_github_token, _get_clawhub_key
+
+            # 1. Fetch metadata from ClawHub (with tenant API key)
+            tenant_id = await _get_agent_tenant_id(agent_id)
+            api_key = await _get_clawhub_key(tenant_id)
+            ch_headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.get(f"https://clawhub.ai/api/v1/skills/{slug}", headers=ch_headers)
+                    if resp.status_code == 404:
+                        return f"Skill '{slug}' not found on ClawHub. Use search_clawhub to find available skills."
+                    if resp.status_code != 200:
+                        return f"ClawHub API error (HTTP {resp.status_code})"
+                    meta = resp.json()
+            except Exception as e:
+                return f"Failed to connect to ClawHub: {str(e)[:200]}"
+
+            owner_info = meta.get("owner", {})
+            handle = owner_info.get("handle", "").lower()
+            if not handle:
+                return "❌ Could not determine skill owner from ClawHub metadata."
+
+            # 2. Fetch files from GitHub
+            github_path = f"skills/{handle}/{slug}"
+            token = await _get_github_token(tenant_id)
+            files = await _fetch_github_directory("openclaw", "skills", github_path, "main", token)
+            if not files:
+                return f"❌ No files found for skill '{slug}' in GitHub archive."
+
+            folder_name = slug
+
+        # 3. Write files to agent workspace
+        skill_dir = base / "skills" / folder_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+
+        written = []
+        for f in files:
+            file_path = (skill_dir / f["path"]).resolve()
+            if not str(file_path).startswith(str(base.resolve())):
+                continue  # safety: skip path traversal
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(f["content"], encoding="utf-8")
+            written.append(f["path"])
+
+        return f"✅ Skill '{folder_name}' installed successfully ({len(written)} files written to skills/{folder_name}/).\n\nFiles: {', '.join(written)}"
+
+    except Exception as e:
+        return f"Install failed: {str(e)[:300]}"
+
+
+# ─── AgentBay: Browser Extract & Observe ────────────────────────────────
+
+async def _agentbay_browser_extract(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Extract structured data from current browser page."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    instruction = arguments.get("instruction", "")
+    selector = arguments.get("selector", "")
+
+    if not instruction.strip():
+        return "Missing required argument 'instruction'"
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "browser")
+        result = await client.browser_extract(instruction, selector=selector)
+
+        if result.get("success"):
+            import json
+            data = result.get("data", {})
+            data_str = json.dumps(data, ensure_ascii=False, indent=2) if isinstance(data, (dict, list)) else str(data)
+            return f"Extraction successful:\n\n{data_str[:5000]}"
+        else:
+            return f"Extraction failed: {result}"
+
+    except RuntimeError as e:
+        return f"{str(e)}. Please configure AgentBay in Agent settings."
+    except Exception as e:
+        logger.exception(f"[AgentBay] Browser extract failed for agent {agent_id}")
+        return f"Browser extract failed: {str(e)[:200]}"
+
+
+async def _agentbay_browser_observe(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Observe the current browser page state."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    instruction = arguments.get("instruction", "")
+    selector = arguments.get("selector", "")
+
+    if not instruction.strip():
+        return "Missing required argument 'instruction'"
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "browser")
+        result = await client.browser_observe(instruction, selector=selector)
+
+        if result.get("success"):
+            import json
+            elements = result.get("elements", [])
+            if not elements:
+                return "No interactive elements found matching your instruction."
+            elements_str = json.dumps(elements, ensure_ascii=False, indent=2)
+            return f"Found {len(elements)} interactive element(s):\n\n{elements_str[:5000]}"
+        else:
+            return f"Observation failed: {result}"
+
+    except RuntimeError as e:
+        return f"{str(e)}. Please configure AgentBay in Agent settings."
+    except Exception as e:
+        logger.exception(f"[AgentBay] Browser observe failed for agent {agent_id}")
+        return f"Browser observe failed: {str(e)[:200]}"
+
+
+# ─── AgentBay: Command (Shell) ──────────────────────────────────────────
+
+async def _agentbay_command_exec(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Execute a shell command in the AgentBay environment."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    command = arguments.get("command", "")
+    timeout_ms = arguments.get("timeout_ms", 50000)
+    cwd = arguments.get("cwd", "")
+
+    if not command.strip():
+        return "Missing required argument 'command'"
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "code")
+        result = await client.command_exec(command, timeout_ms=timeout_ms, cwd=cwd)
+
+        parts = []
+        if result.get("success"):
+            parts.append(f"Command executed successfully (exit code: {result.get('exit_code', 0)})")
+        else:
+            parts.append(f"Command failed (exit code: {result.get('exit_code', -1)})")
+
+        if result.get("stdout"):
+            parts.append(f"stdout:\n{result['stdout'][:3000]}")
+        if result.get("stderr"):
+            parts.append(f"stderr:\n{result['stderr'][:1000]}")
+        if result.get("error_message"):
+            parts.append(f"Error: {result['error_message']}")
+
+        return "\n\n".join(parts)
+
+    except RuntimeError as e:
+        return f"{str(e)}. Please configure AgentBay in Agent settings."
+    except Exception as e:
+        logger.exception(f"[AgentBay] Command exec failed for agent {agent_id}")
+        return f"Command execution failed: {str(e)[:200]}"
+
+
+# ─── AgentBay: Computer Use Handlers ────────────────────────────────────
+
+def _save_screenshot_to_workspace(agent_id: uuid.UUID, ws: Path, data) -> str:
+    """Save screenshot data to workspace and return markdown image link.
+
+    Common helper for computer_screenshot and browser screenshot data.
+    """
+    import time
+    import base64
+
+    rel_path = f"workspace/desktop_screenshot_{int(time.time())}.png"
+    screenshot_path = ws / rel_path
+    screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Handle various data formats from the SDK
+    if isinstance(data, str):
+        if data.startswith("data:image"):
+            data = data.split(",", 1)[1]
+        raw_bytes = base64.b64decode(data)
+    elif isinstance(data, bytes):
+        raw_bytes = data
+    else:
+        return ""
+
+    screenshot_path.write_bytes(raw_bytes)
+    return (
+        f"Screenshot saved to `{rel_path}`.\n\n"
+        f"To display the screenshot in chat, include this markdown in your reply:\n"
+        f"![Desktop Screenshot](/api/agents/{agent_id}/files/download?path={rel_path})"
+    )
+
+
+async def _agentbay_computer_screenshot(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Take a screenshot of the AgentBay cloud desktop."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_screenshot()
+
+        if result.get("success") and result.get("data"):
+            screenshot_info = _save_screenshot_to_workspace(agent_id, ws, result["data"])
+            if screenshot_info:
+                return f"Desktop screenshot captured.\n\n{screenshot_info}"
+            return "Screenshot captured but could not save to workspace."
+        else:
+            return f"Screenshot failed: {result.get('error_message', 'Unknown error')}"
+
+    except RuntimeError as e:
+        return f"{str(e)}. Please configure AgentBay in Agent settings."
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer screenshot failed for agent {agent_id}")
+        return f"Desktop screenshot failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_click(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Click the mouse at specific coordinates on the desktop."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    x = arguments.get("x", 0)
+    y = arguments.get("y", 0)
+    button = arguments.get("button", "left")
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_click(x, y, button=button)
+        if result.get("success"):
+            return f"Clicked at ({x}, {y}) with {button} button"
+        return f"Click failed at ({x}, {y})"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer click failed")
+        return f"Click failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_input_text(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Type text at the current cursor position."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    text = arguments.get("text", "")
+    if not text:
+        return "Missing required argument 'text'"
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_input_text(text)
+        if result.get("success"):
+            return f"Typed text: {text[:100]}"
+        return f"Text input failed"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer input_text failed")
+        return f"Text input failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_press_keys(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Press keyboard keys or shortcuts."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    keys = arguments.get("keys", [])
+    hold = arguments.get("hold", False)
+
+    if not keys:
+        return "Missing required argument 'keys'"
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_press_keys(keys, hold=hold)
+        key_str = "+".join(keys)
+        if result.get("success"):
+            return f"Pressed keys: {key_str}" + (" (held)" if hold else "")
+        return f"Key press failed: {key_str}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer press_keys failed")
+        return f"Key press failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_scroll(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Scroll the screen at a specific position."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    x = arguments.get("x", 0)
+    y = arguments.get("y", 0)
+    direction = arguments.get("direction", "down")
+    amount = arguments.get("amount", 1)
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_scroll(x, y, direction=direction, amount=amount)
+        if result.get("success"):
+            return f"Scrolled {direction} by {amount} step(s) at ({x}, {y})"
+        return f"Scroll failed"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer scroll failed")
+        return f"Scroll failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_move_mouse(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Move mouse to coordinates without clicking."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    x = arguments.get("x", 0)
+    y = arguments.get("y", 0)
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_move_mouse(x, y)
+        if result.get("success"):
+            return f"Mouse moved to ({x}, {y})"
+        return f"Mouse move failed"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer move_mouse failed")
+        return f"Mouse move failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_drag_mouse(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Drag mouse from one position to another."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    from_x = arguments.get("from_x", 0)
+    from_y = arguments.get("from_y", 0)
+    to_x = arguments.get("to_x", 0)
+    to_y = arguments.get("to_y", 0)
+    button = arguments.get("button", "left")
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_drag_mouse(from_x, from_y, to_x, to_y, button=button)
+        if result.get("success"):
+            return f"Dragged from ({from_x}, {from_y}) to ({to_x}, {to_y})"
+        return f"Drag failed"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer drag_mouse failed")
+        return f"Drag failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_get_screen_size(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Get the screen resolution."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_get_screen_size()
+        if result.get("success"):
+            import json
+            data = result.get("data")
+            data_str = json.dumps(data, ensure_ascii=False) if isinstance(data, (dict, list)) else str(data)
+            return f"Screen size: {data_str}"
+        return f"Failed to get screen size: {result.get('error_message', 'Unknown error')}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer get_screen_size failed")
+        return f"Get screen size failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_start_app(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Start an application on the desktop."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    cmd = arguments.get("cmd", "")
+    work_dir = arguments.get("work_dir", "")
+
+    if not cmd.strip():
+        return "Missing required argument 'cmd'"
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_start_app(cmd, work_dir=work_dir)
+        if result.get("success"):
+            import json
+            data = result.get("data")
+            data_str = json.dumps(data, ensure_ascii=False, indent=2) if isinstance(data, (dict, list)) else str(data or "")
+            return f"Application started: {cmd}\n\n{data_str[:1000]}" if data_str else f"Application started: {cmd}"
+        return f"Failed to start application: {result.get('error_message', 'Unknown error')}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer start_app failed")
+        return f"Start application failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_get_cursor_position(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Get current cursor position."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_get_cursor_position()
+        if result.get("success"):
+            import json
+            data = result.get("data")
+            data_str = json.dumps(data, ensure_ascii=False) if isinstance(data, (dict, list)) else str(data)
+            return f"Cursor position: {data_str}"
+        return f"Failed to get cursor position: {result.get('error_message', 'Unknown error')}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer get_cursor_position failed")
+        return f"Get cursor position failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_get_active_window(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Get info about the currently active window."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_get_active_window()
+        if result.get("success"):
+            import json
+            window = result.get("window")
+            window_str = json.dumps(window, ensure_ascii=False, indent=2) if isinstance(window, dict) else str(window)
+            return f"Active window:\n\n{window_str}"
+        return f"Failed to get active window: {result.get('error_message', 'Unknown error')}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer get_active_window failed")
+        return f"Get active window failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_activate_window(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Activate (bring to front) a window by its ID."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    window_id = arguments.get("window_id")
+    if window_id is None:
+        return "Missing required argument 'window_id'"
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_activate_window(int(window_id))
+        if result.get("success"):
+            return f"Window {window_id} activated (brought to front)"
+        return f"Failed to activate window {window_id}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer activate_window failed")
+        return f"Activate window failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_list_visible_apps(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """List currently visible/running applications."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_list_visible_apps()
+        if result.get("success"):
+            import json
+            apps = result.get("apps", [])
+            if not apps:
+                return "No visible applications running."
+            apps_str = json.dumps(apps, ensure_ascii=False, indent=2)
+            return f"Visible applications ({len(apps)}):\n\n{apps_str[:3000]}"
+        return f"Failed to list applications: {result.get('error_message', 'Unknown error')}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer list_visible_apps failed")
+        return f"List applications failed: {str(e)[:200]}"

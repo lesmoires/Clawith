@@ -26,7 +26,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 
 interface LLMModel {
     id: string; provider: string; model: string; label: string;
-    base_url?: string; api_key_masked?: string; max_tokens_per_day?: number; enabled: boolean; supports_vision?: boolean; max_output_tokens?: number; created_at: string;
+    base_url?: string; api_key_masked?: string; max_tokens_per_day?: number; enabled: boolean; supports_vision?: boolean; max_output_tokens?: number; temperature?: number; created_at: string;
 }
 
 interface LLMProviderSpec {
@@ -46,6 +46,7 @@ const FALLBACK_LLM_PROVIDERS: LLMProviderSpec[] = [
     { provider: 'minimax', display_name: 'MiniMax', protocol: 'openai_compatible', default_base_url: 'https://api.minimaxi.com/v1', supports_tool_choice: true, default_max_tokens: 16384 },
     { provider: 'qwen', display_name: 'Qwen (DashScope)', protocol: 'openai_compatible', default_base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', supports_tool_choice: true, default_max_tokens: 8192 },
     { provider: 'zhipu', display_name: 'Zhipu', protocol: 'openai_compatible', default_base_url: 'https://open.bigmodel.cn/api/paas/v4', supports_tool_choice: true, default_max_tokens: 8192 },
+    { provider: 'baidu', display_name: 'Baidu (Qianfan)', protocol: 'openai_compatible', default_base_url: 'https://qianfan.baidubce.com/v2', supports_tool_choice: false, default_max_tokens: 4096 },
     { provider: 'gemini', display_name: 'Gemini', protocol: 'gemini', default_base_url: 'https://generativelanguage.googleapis.com/v1beta', supports_tool_choice: true, default_max_tokens: 8192 },
     { provider: 'openrouter', display_name: 'OpenRouter', protocol: 'openai_compatible', default_base_url: 'https://openrouter.ai/api/v1', supports_tool_choice: true, default_max_tokens: 4096 },
     { provider: 'kimi', display_name: 'Kimi (Moonshot)', protocol: 'openai_compatible', default_base_url: 'https://api.moonshot.cn/v1', supports_tool_choice: true, default_max_tokens: 8192 },
@@ -293,53 +294,19 @@ function ThemeColorPicker() {
     );
 }
 
-// ─── Platform Settings ─────────────────────────────
-function PlatformSettings() {
-    const { t } = useTranslation();
-    const [publicBaseUrl, setPublicBaseUrl] = useState('');
-    const [saving, setSaving] = useState(false);
-    const [saved, setSaved] = useState(false);
 
-    useEffect(() => {
-        fetchJson<any>('/enterprise/system-settings/platform')
-            .then(d => {
-                if (d.value?.public_base_url) setPublicBaseUrl(d.value.public_base_url);
-            }).catch(() => { });
-    }, []);
 
-    const handleSave = async () => {
-        setSaving(true);
-        try {
-            await fetchJson('/enterprise/system-settings/platform', {
-                method: 'PUT', body: JSON.stringify({ value: { public_base_url: publicBaseUrl } }),
-            });
-            setSaved(true);
-            setTimeout(() => setSaved(false), 2000);
-        } catch (e) {
-            alert(t('agent.upload.failed'));
-        } finally { setSaving(false); }
-    };
 
-    return (
-        <div className="card" style={{ padding: '16px' }}>
-            <div className="form-group">
-                <label className="form-label">{t('enterprise.config.publicUrl')}</label>
-                <input className="form-input" value={publicBaseUrl} onChange={e => setPublicBaseUrl(e.target.value)}
-                    placeholder={t("enterprise.config.publicUrlPlaceholder")} />
-                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                    {t('enterprise.config.publicUrl')}
-                </div>
-            </div>
-            <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                    {saving ? t('common.loading') : t('enterprise.config.save')}
-                </button>
-                {saved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>{t('enterprise.config.saved')}</span>}
-            </div>
-        </div>
-    );
-}
 
+// Preset common models per provider
+const PRESET_MODELS: Record<string, string[]> = {
+    'openai': ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo', 'o1-preview', 'o1-mini'],
+    'anthropic': ['claude-3-5-sonnet-20241022', 'claude-3-5-sonnet-20240620', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
+    'google': ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash'],
+    'deepseek': ['deepseek-chat', 'deepseek-reasoner'],
+    'ollama': ['llama3.1', 'llama3.2', 'qwen2.5', 'mistral', 'gemma2'],
+    'azure': ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
+};
 
 // ─── Main Component ────────────────────────────────
 // ─── Enterprise KB Browser ─────────────────────────
@@ -467,7 +434,7 @@ function SkillsTab() {
                 <div>
                     <h3>{t('enterprise.tabs.skills', 'Skill Registry')}</h3>
                     <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                        Manage global skills. Each skill is a folder with a SKILL.md file. Skills selected during agent creation are copied to the agent's workspace.
+                        {t('enterprise.tools.manageGlobalSkills')}
                     </p>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
@@ -495,14 +462,14 @@ function SkillsTab() {
                         style={{ fontSize: '13px' }}
                         onClick={() => { setShowUrlModal(true); setUrlInput(''); setUrlPreview(null); }}
                     >
-                        Import from URL
+                        {t('enterprise.tools.importFromUrl')}
                     </button>
                     <button
                         className="btn btn-primary"
                         style={{ fontSize: '13px' }}
                         onClick={() => { setShowClawhubModal(true); setSearchQuery(''); setSearchResults([]); setHasSearched(false); }}
                     >
-                        Browse ClawHub
+                        {t('enterprise.tools.browseClawhub')}
                     </button>
                 </div>
             </div>
@@ -515,28 +482,28 @@ function SkillsTab() {
                     background: 'var(--bg-secondary, rgba(255,255,255,0.02))',
                 }}>
                     <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        GitHub Token
+                        {t('enterprise.tools.githubToken')}
                         <span className="metric-tooltip-trigger" style={{ display: 'inline-flex', alignItems: 'center', cursor: 'help', color: 'var(--text-tertiary)' }}>
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="6.5" /><path d="M8 7v4M8 5.5v0" /></svg>
                             <span className="metric-tooltip" style={{ width: '300px', bottom: 'auto', top: 'calc(100% + 6px)', left: '-8px', fontWeight: 400 }}>
-                                <div style={{ marginBottom: '6px', fontWeight: 500 }}>How to generate a GitHub Token:</div>
-                                1. Go to github.com &rarr; Settings &rarr; Developer settings<br/>
-                                2. Click "Personal access tokens" &rarr; "Tokens (classic)"<br/>
-                                3. Click "Generate new token (classic)"<br/>
-                                4. Set a name and expiration, no scopes needed for public repos<br/>
-                                5. Click "Generate token" and copy the value<br/>
+                                <div style={{ marginBottom: '6px', fontWeight: 500 }}>{t('enterprise.tools.howToGenerateGithubToken')}</div>
+                                {t('enterprise.tools.githubTokenStep1')}<br/>
+                                {t('enterprise.tools.githubTokenStep2')}<br/>
+                                {t('enterprise.tools.githubTokenStep3')}<br/>
+                                {t('enterprise.tools.githubTokenStep4')}<br/>
+                                {t('enterprise.tools.githubTokenStep5')}<br/>
                                 <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                    Or visit: github.com/settings/tokens
+                                    {t('enterprise.tools.orVisit')}
                                 </div>
                             </span>
                         </span>
                     </div>
                     <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                        Increases GitHub API rate limits from 60/hr to 5,000/hr for skill imports.
+                        {t('enterprise.tools.githubTokenDesc')}
                     </p>
                     {tokenStatus?.configured && (
                         <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                            Current token: <code style={{ padding: '2px 6px', borderRadius: '4px', background: 'var(--bg-tertiary)', fontSize: '11px' }}>{tokenStatus.masked}</code>
+                            {t('enterprise.tools.currentToken')} <code style={{ padding: '2px 6px', borderRadius: '4px', background: 'var(--bg-tertiary)', fontSize: '11px' }}>{tokenStatus.masked}</code>
                             <span style={{ marginLeft: '8px', color: 'var(--text-tertiary)' }}>({tokenStatus.source})</span>
                         </div>
                     )}
@@ -565,14 +532,14 @@ function SkillsTab() {
                                     const status = await skillApi.settings.getToken();
                                     setTokenStatus(status);
                                     setTokenInput('');
-                                    showToast('GitHub token saved');
+                                    showToast(t('enterprise.tools.githubTokenSaved'));
                                 } catch (e: any) {
-                                    showToast(e.message || 'Failed to save', 'error');
+                                    showToast(e.message || t('enterprise.tools.failedToSave'), 'error');
                                 }
                                 setSavingToken(false);
                             }}
                         >
-                            {savingToken ? 'Saving...' : 'Save'}
+                            {savingToken ? t('enterprise.tools.saving') : t('enterprise.tools.save')}
                         </button>
                         {tokenStatus?.configured && tokenStatus.source === 'tenant' && (
                             <button
@@ -583,13 +550,13 @@ function SkillsTab() {
                                         await skillApi.settings.setToken('');
                                         const status = await skillApi.settings.getToken();
                                         setTokenStatus(status);
-                                        showToast('Token cleared');
+                                        showToast(t('enterprise.tools.tokenCleared'));
                                     } catch (e: any) {
-                                        showToast(e.message || 'Failed', 'error');
+                                        showToast(e.message || t('enterprise.tools.failed'), 'error');
                                     }
                                 }}
                             >
-                                Clear
+                                {t('enterprise.tools.clear')}
                             </button>
                         )}
                     </div>
@@ -597,20 +564,20 @@ function SkillsTab() {
                     {/* ClawHub API Key */}
                     <div style={{ marginTop: '16px' }}>
                         <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            ClawHub API Key
+                            {t('enterprise.tools.clawhubApiKey')}
                             <span className="metric-tooltip-trigger" style={{ display: 'inline-flex', alignItems: 'center', cursor: 'help', color: 'var(--text-tertiary)' }}>
                                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="6.5" /><path d="M8 7v4M8 5.5v0" /></svg>
                                 <span className="metric-tooltip" style={{ width: '280px', bottom: 'auto', top: 'calc(100% + 6px)', left: '-8px', fontWeight: 400 }}>
-                                    Authenticate ClawHub API calls to avoid rate limiting when browsing and installing skills from ClawHub.
+                                    {t('enterprise.tools.clawhubApiKeyDesc')}
                                 </span>
                             </span>
                         </div>
                         <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                            Authenticated requests get higher rate limits for ClawHub skill browsing and installation.
+                            {t('enterprise.tools.authenticatedRequestsGetHigherRateLimits')}
                         </p>
                         {tokenStatus?.clawhub_configured && (
                             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                                Current key: <code style={{ padding: '2px 6px', borderRadius: '4px', background: 'var(--bg-tertiary)', fontSize: '11px' }}>{tokenStatus.clawhub_masked}</code>
+                                {t('enterprise.tools.currentKey')} <code style={{ padding: '2px 6px', borderRadius: '4px', background: 'var(--bg-tertiary)', fontSize: '11px' }}>{tokenStatus.clawhub_masked}</code>
                             </div>
                         )}
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -637,14 +604,14 @@ function SkillsTab() {
                                         const status = await skillApi.settings.getToken();
                                         setTokenStatus(status);
                                         setClawhubKeyInput('');
-                                        showToast('ClawHub API key saved');
+                                        showToast(t('enterprise.tools.clawhubApiKeySaved'));
                                     } catch (e: any) {
-                                        showToast(e.message || 'Failed to save', 'error');
+                                        showToast(e.message || t('enterprise.tools.failedToSave'), 'error');
                                     }
                                     setSavingClawhubKey(false);
                                 }}
                             >
-                                {savingClawhubKey ? 'Saving...' : 'Save'}
+                                {savingClawhubKey ? t('enterprise.tools.saving') : t('enterprise.tools.save')}
                             </button>
                             {tokenStatus?.clawhub_configured && (
                                 <button
@@ -655,13 +622,13 @@ function SkillsTab() {
                                             await skillApi.settings.setClawhubKey('');
                                             const status = await skillApi.settings.getToken();
                                             setTokenStatus(status);
-                                            showToast('ClawHub key cleared');
+                                            showToast(t('enterprise.tools.tokenCleared'));
                                         } catch (e: any) {
-                                            showToast(e.message || 'Failed', 'error');
+                                            showToast(e.message || t('enterprise.tools.failed'), 'error');
                                         }
                                     }}
                                 >
-                                    Clear
+                                    {t('enterprise.tools.clear')}
                                 </button>
                             )}
                         </div>
@@ -704,13 +671,13 @@ function SkillsTab() {
                         {/* Header */}
                         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                <h3 style={{ margin: 0, fontSize: '16px' }}>Browse ClawHub</h3>
+                                <h3 style={{ margin: 0, fontSize: '16px' }}>{t('enterprise.tools.browseClawhub')}</h3>
                                 <button className="btn btn-ghost" onClick={() => setShowClawhubModal(false)} style={{ padding: '4px 8px', fontSize: '16px', lineHeight: 1 }}>x</button>
                             </div>
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <input
                                     className="input"
-                                    placeholder="Search skills..."
+                                    placeholder={t('enterprise.tools.searchSkills')}
                                     value={searchQuery}
                                     onChange={e => setSearchQuery(e.target.value)}
                                     onKeyDown={e => e.key === 'Enter' && handleSearch()}
@@ -718,7 +685,7 @@ function SkillsTab() {
                                     style={{ flex: 1, fontSize: '13px' }}
                                 />
                                 <button className="btn btn-primary" onClick={handleSearch} disabled={searching} style={{ fontSize: '13px' }}>
-                                    {searching ? 'Searching...' : 'Search'}
+                                    {searching ? t('enterprise.tools.searching') : t('enterprise.tools.search')}
                                 </button>
                             </div>
                         </div>
@@ -726,12 +693,12 @@ function SkillsTab() {
                         <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }}>
                             {searchResults.length === 0 && !searching && (
                                 <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                                    {hasSearched ? 'No results found' : 'Search for skills on ClawHub marketplace'}
+                                    {hasSearched ? t('enterprise.tools.noResultsFound') : t('enterprise.tools.searchForSkills')}
                                 </div>
                             )}
                             {searching && (
                                 <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                                    Searching ClawHub...
+                                    {t('enterprise.tools.searchingClawhub')}
                                 </div>
                             )}
                             {searchResults.map((r: any) => (
@@ -743,10 +710,12 @@ function SkillsTab() {
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                                             <span style={{ fontWeight: 600, fontSize: '14px' }}>{r.displayName}</span>
                                             <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{r.slug}</span>
+                                            {r.version && <span style={{ fontSize: '10px', color: 'var(--accent-text)', background: 'var(--accent-subtle)', padding: '1px 6px', borderRadius: '4px' }}>v{r.version}</span>}
                                         </div>
                                         <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
                                             {r.summary?.slice(0, 160)}{r.summary?.length > 160 ? '...' : ''}
                                         </div>
+                                        {r.updatedAt && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Updated {new Date(r.updatedAt).toLocaleDateString()}</div>}
                                     </div>
                                     <button
                                         className="btn btn-secondary"
@@ -754,7 +723,7 @@ function SkillsTab() {
                                         disabled={installing === r.slug}
                                         onClick={() => handleInstall(r.slug)}
                                     >
-                                        {installing === r.slug ? 'Installing...' : 'Install'}
+                                        {installing === r.slug ? t('enterprise.tools.installing') : t('enterprise.tools.install')}
                                     </button>
                                 </div>
                             ))}
@@ -775,16 +744,16 @@ function SkillsTab() {
                     }} onClick={e => e.stopPropagation()}>
                         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                <h3 style={{ margin: 0, fontSize: '16px' }}>Import from URL</h3>
+                                <h3 style={{ margin: 0, fontSize: '16px' }}>{t('enterprise.tools.importFromUrl')}</h3>
                                 <button className="btn btn-ghost" onClick={() => setShowUrlModal(false)} style={{ padding: '4px 8px', fontSize: '16px', lineHeight: 1 }}>x</button>
                             </div>
                             <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: '0 0 12px' }}>
-                                Paste a GitHub URL pointing to a skill directory containing SKILL.md
+                                {t('enterprise.tools.pasteGithubUrl')}
                             </p>
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <input
                                     className="input"
-                                    placeholder="https://github.com/owner/repo/tree/main/skills/my-skill"
+                                    placeholder={t('enterprise.tools.githubUrlPlaceholder')}
                                     value={urlInput}
                                     onChange={e => { setUrlInput(e.target.value); setUrlPreview(null); }}
                                     autoFocus
@@ -792,7 +761,7 @@ function SkillsTab() {
                                     onKeyDown={e => e.key === 'Enter' && handleUrlPreview()}
                                 />
                                 <button className="btn btn-secondary" onClick={handleUrlPreview} disabled={urlPreviewing || !urlInput.trim()} style={{ fontSize: '12px' }}>
-                                    {urlPreviewing ? 'Loading...' : 'Preview'}
+                                    {urlPreviewing ? t('enterprise.tools.loading') : t('enterprise.tools.preview')}
                                 </button>
                             </div>
                         </div>
@@ -961,6 +930,81 @@ function CompanyTimezoneEditor() {
 }
 
 
+// ── Broadcast Section ──────────────────────────
+function BroadcastSection() {
+    const { t } = useTranslation();
+    const [title, setTitle] = useState('');
+    const [body, setBody] = useState('');
+    const [sending, setSending] = useState(false);
+    const [result, setResult] = useState<{ users: number; agents: number } | null>(null);
+
+    const handleSend = async () => {
+        if (!title.trim()) return;
+        setSending(true);
+        setResult(null);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/notifications/broadcast', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ title: title.trim(), body: body.trim() }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                alert(err.detail || 'Failed to send broadcast');
+                setSending(false);
+                return;
+            }
+            const data = await res.json();
+            setResult({ users: data.users_notified, agents: data.agents_notified });
+            setTitle('');
+            setBody('');
+        } catch (e: any) {
+            alert(e.message || 'Failed');
+        }
+        setSending(false);
+    };
+
+    return (
+        <div style={{ marginTop: '24px', marginBottom: '24px' }}>
+            <h3 style={{ marginBottom: '4px' }}>{t('enterprise.broadcast.title', 'Broadcast Notification')}</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                {t('enterprise.broadcast.description', 'Send a notification to all users and agents in this company.')}
+            </p>
+            <div className="card" style={{ padding: '16px' }}>
+                <input
+                    className="form-input"
+                    placeholder={t('enterprise.broadcast.titlePlaceholder', 'Notification title')}
+                    value={title}
+                    onChange={e => setTitle(e.target.value)}
+                    maxLength={200}
+                    style={{ marginBottom: '8px', fontSize: '13px' }}
+                />
+                <textarea
+                    className="form-input"
+                    placeholder={t('enterprise.broadcast.bodyPlaceholder', 'Optional details...')}
+                    value={body}
+                    onChange={e => setBody(e.target.value)}
+                    maxLength={1000}
+                    rows={3}
+                    style={{ resize: 'vertical', fontSize: '13px', marginBottom: '12px' }}
+                />
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button className="btn btn-primary" onClick={handleSend} disabled={sending || !title.trim()}>
+                        {sending ? t('common.loading') : t('enterprise.broadcast.send', 'Send Broadcast')}
+                    </button>
+                    {result && (
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            {t('enterprise.broadcast.sent', `Sent to ${result.users} users and ${result.agents} agents`, { users: result.users, agents: result.agents })}
+                        </span>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+
 export default function EnterpriseSettings() {
     const { t } = useTranslation();
     const qc = useQueryClient();
@@ -1052,6 +1096,34 @@ export default function EnterpriseSettings() {
     const [mcpTesting, setMcpTesting] = useState(false);
     const [editingToolId, setEditingToolId] = useState<string | null>(null);
     const [editingConfig, setEditingConfig] = useState<Record<string, any>>({});
+    const [configCategory, setConfigCategory] = useState<string | null>(null);
+
+    // Category-level config schemas: tools sharing the same key have config on category header
+    const GLOBAL_CATEGORY_CONFIG_SCHEMAS: Record<string, { title: string; fields: any[] }> = {
+        agentbay: {
+            title: 'AgentBay Settings',
+            fields: [
+                { key: 'api_key', label: 'API Key (from AgentBay)', type: 'password', placeholder: 'Enter your AgentBay API key' },
+            ],
+        },
+    };
+
+    // Labels for tool categories (mirrors AgentDetail getCategoryLabels)
+    const categoryLabels: Record<string, string> = {
+        file: t('agent.toolCategories.file'),
+        task: t('agent.toolCategories.task'),
+        communication: t('agent.toolCategories.communication'),
+        search: t('agent.toolCategories.search'),
+        aware: t('agent.toolCategories.aware', 'Aware & Triggers'),
+        social: t('agent.toolCategories.social', 'Social'),
+        code: t('agent.toolCategories.code', 'Code & Execution'),
+        discovery: t('agent.toolCategories.discovery', 'Discovery'),
+        email: t('agent.toolCategories.email', 'Email'),
+        feishu: t('agent.toolCategories.feishu', 'Feishu / Lark'),
+        custom: t('agent.toolCategories.custom'),
+        general: t('agent.toolCategories.general'),
+        agentbay: t('agent.toolCategories.agentbay', 'AgentBay'),
+    };
     const [toolsView, setToolsView] = useState<'global' | 'agent-installed'>('global');
     const [agentInstalledTools, setAgentInstalledTools] = useState<any[]>([]);
     const loadAllTools = async () => {
@@ -1121,7 +1193,7 @@ export default function EnterpriseSettings() {
     });
     const [showAddModel, setShowAddModel] = useState(false);
     const [editingModelId, setEditingModelId] = useState<string | null>(null);
-    const [modelForm, setModelForm] = useState({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false, max_output_tokens: '' as string });
+    const [modelForm, setModelForm] = useState({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false, max_output_tokens: '' as string, temperature: '' as string });
     const { data: providerSpecs = [] } = useQuery({
         queryKey: ['llm-provider-specs'],
         queryFn: () => fetchJson<LLMProviderSpec[]>('/enterprise/llm-providers'),
@@ -1224,6 +1296,7 @@ export default function EnterpriseSettings() {
                                     base_url: defaultSpec?.default_base_url || '',
                                     label: '', supports_vision: false,
                                     max_output_tokens: defaultSpec ? String(defaultSpec.default_max_tokens) : '4096',
+                                    temperature: '',
                                 });
                                 setShowAddModel(true);
                             }}>+ {t('enterprise.llm.addModel')}</button>
@@ -1235,7 +1308,7 @@ export default function EnterpriseSettings() {
                                 <h3 style={{ marginBottom: '16px' }}>{t('enterprise.llm.addModel')}</h3>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                     <div className="form-group">
-                                        <label className="form-label">Provider</label>
+                                        <label className="form-label">{t('enterprise.llm.provider')}</label>
                                         <select className="form-input" value={modelForm.provider} onChange={e => {
                                             const newProvider = e.target.value;
                                             const spec = providerOptions.find(p => p.provider === newProvider);
@@ -1256,32 +1329,65 @@ export default function EnterpriseSettings() {
                                         </select>
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">Model</label>
-                                        <input className="form-input" placeholder="claude-sonnet-4-5" value={modelForm.model} onChange={e => setModelForm({ ...modelForm, model: e.target.value })} />
+                                        <label className="form-label">{t('enterprise.llm.model')}</label>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <select 
+                                                className="form-input" 
+                                                value={(!PRESET_MODELS[modelForm.provider]?.includes(modelForm.model) && modelForm.model !== '') ? 'custom' : modelForm.model} 
+                                                onChange={e => {
+                                                    if (e.target.value === 'custom') {
+                                                        setModelForm({ ...modelForm, model: '' });
+                                                    } else {
+                                                        setModelForm({ ...modelForm, model: e.target.value });
+                                                    }
+                                                }}
+                                                style={{ flex: (!PRESET_MODELS[modelForm.provider]?.includes(modelForm.model) && modelForm.model !== '') ? '1' : '100%' }}
+                                            >
+                                                <option value="" disabled>Select a model</option>
+                                                {(PRESET_MODELS[modelForm.provider] || []).map(m => (
+                                                    <option key={m} value={m}>{m}</option>
+                                                ))}
+                                                <option value="custom">Custom (Type manually)</option>
+                                            </select>
+                                            {(!PRESET_MODELS[modelForm.provider]?.includes(modelForm.model) && modelForm.model !== '') && (
+                                                <input 
+                                                    className="form-input" 
+                                                    placeholder="Type model name" 
+                                                    value={modelForm.model} 
+                                                    onChange={e => setModelForm({ ...modelForm, model: e.target.value })} 
+                                                    style={{ flex: '2' }}
+                                                />
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="form-group">
                                         <label className="form-label">{t('enterprise.llm.label')}</label>
-                                        <input className="form-input" placeholder="Claude Sonnet" value={modelForm.label} onChange={e => setModelForm({ ...modelForm, label: e.target.value })} />
+                                        <input className="form-input" placeholder={t('enterprise.llm.labelPlaceholder')} value={modelForm.label} onChange={e => setModelForm({ ...modelForm, label: e.target.value })} />
                                     </div>
                                     <div className="form-group">
                                         <label className="form-label">{t('enterprise.llm.baseUrl')}</label>
-                                        <input className="form-input" placeholder="https://api.custom.com/v1" value={modelForm.base_url} onChange={e => setModelForm({ ...modelForm, base_url: e.target.value })} />
+                                        <input className="form-input" placeholder={t('enterprise.llm.baseUrlPlaceholder')} value={modelForm.base_url} onChange={e => setModelForm({ ...modelForm, base_url: e.target.value })} />
                                     </div>
                                     <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                                        <label className="form-label">API Key</label>
-                                        <input className="form-input" type="password" placeholder="Enter API Key" value={modelForm.api_key} onChange={e => setModelForm({ ...modelForm, api_key: e.target.value })} />
+                                        <label className="form-label">{t('enterprise.llm.apiKey')}</label>
+                                        <input className="form-input" type="password" placeholder={t('enterprise.llm.apiKeyPlaceholder')} value={modelForm.api_key} onChange={e => setModelForm({ ...modelForm, api_key: e.target.value })} />
                                     </div>
                                     <div className="form-group" style={{ gridColumn: 'span 2' }}>
                                         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
                                             <input type="checkbox" checked={modelForm.supports_vision} onChange={e => setModelForm({ ...modelForm, supports_vision: e.target.checked })} />
-                                            👁 Supports Vision (Multimodal)
-                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>— Enable for models that can analyze images (GPT-4o, Claude, Qwen-VL, etc.)</span>
+                                            {t('enterprise.llm.supportsVision')}
+                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>{t('enterprise.llm.supportsVisionDesc')}</span>
                                         </label>
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">Max Output Tokens</label>
-                                        <input className="form-input" type="number" placeholder="Provider default" value={modelForm.max_output_tokens} onChange={e => setModelForm({ ...modelForm, max_output_tokens: e.target.value })} />
-                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Override the default output token limit. Auto-filled from provider; adjust as needed.</div>
+                                        <label className="form-label">{t('enterprise.llm.maxOutputTokens', 'Max Output Tokens')}</label>
+                                        <input className="form-input" type="number" placeholder={t('enterprise.llm.maxOutputTokensPlaceholder', 'e.g. 4096')} value={modelForm.max_output_tokens} onChange={e => setModelForm({ ...modelForm, max_output_tokens: e.target.value })} />
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.maxOutputTokensDesc', 'Limits generation length')}</div>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">{t('enterprise.llm.temperature', 'Temperature')}</label>
+                                        <input className="form-input" type="number" step="0.1" min="0" max="2" placeholder={t('enterprise.llm.temperaturePlaceholder', 'e.g. 0.7 or 1.0 (Leave empty for default)')} value={modelForm.temperature} onChange={e => setModelForm({ ...modelForm, temperature: e.target.value })} />
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.temperatureDesc', 'Leave empty to use the provider default. o1/o3 reasoning models usually require 1.0')}</div>
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -1289,7 +1395,7 @@ export default function EnterpriseSettings() {
                                     <button className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} disabled={!modelForm.model || !modelForm.api_key} onClick={async () => {
                                         const btn = document.activeElement as HTMLButtonElement;
                                         const origText = btn?.textContent || '';
-                                        if (btn) btn.textContent = 'Testing...';
+                                        if (btn) btn.textContent = t('enterprise.llm.testing');
                                         try {
                                             const token = localStorage.getItem('token');
                                             const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
@@ -1301,19 +1407,23 @@ export default function EnterpriseSettings() {
                                             });
                                             const result = await res.json();
                                             if (result.success) {
-                                                if (btn) { btn.textContent = `OK (${result.latency_ms}ms)`; btn.style.color = 'var(--success)'; }
+                                                if (btn) { btn.textContent = t('enterprise.llm.testSuccess', { latency: result.latency_ms }); btn.style.color = 'var(--success)'; }
                                                 setTimeout(() => { if (btn) { btn.textContent = origText; btn.style.color = ''; } }, 3000);
                                             } else {
-                                                alert(`Test failed: ${result.error || 'Unknown error'}\n\nLatency: ${result.latency_ms}ms`);
+                                                alert(t('enterprise.llm.testFailed', { error: result.error || 'Unknown error', latency: result.latency_ms }));
                                                 if (btn) btn.textContent = origText;
                                             }
                                         } catch (e: any) {
-                                            alert(`Test error: ${e.message}`);
+                                            alert(t('enterprise.llm.testError', { message: e.message }));
                                             if (btn) btn.textContent = origText;
                                         }
-                                    }}>Test</button>
+                                    }}>{t('enterprise.llm.test')}</button>
                                     <button className="btn btn-primary" onClick={() => {
-                                        const data = { ...modelForm, max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null };
+                                        const data = { 
+                                            ...modelForm, 
+                                            max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null,
+                                            temperature: modelForm.temperature !== '' ? Number(modelForm.temperature) : null
+                                        };
                                         addModel.mutate(data);
                                     }} disabled={!modelForm.model || !modelForm.api_key}>
                                         {t('common.save')}
@@ -1331,7 +1441,7 @@ export default function EnterpriseSettings() {
                                             <h3 style={{ marginBottom: '16px' }}>Edit Model</h3>
                                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                                 <div className="form-group">
-                                                    <label className="form-label">Provider</label>
+                                                    <label className="form-label">{t('enterprise.llm.provider')}</label>
                                                     <select className="form-input" value={modelForm.provider} onChange={e => {
                                                         const newProvider = e.target.value;
                                                         setModelForm(f => ({ ...f, provider: newProvider }));
@@ -1345,32 +1455,65 @@ export default function EnterpriseSettings() {
                                                     </select>
                                                 </div>
                                                 <div className="form-group">
-                                                    <label className="form-label">Model</label>
-                                                    <input className="form-input" placeholder="claude-sonnet-4-5" value={modelForm.model} onChange={e => setModelForm({ ...modelForm, model: e.target.value })} />
+                                                    <label className="form-label">{t('enterprise.llm.model')}</label>
+                                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                                        <select 
+                                                            className="form-input" 
+                                                            value={(!PRESET_MODELS[modelForm.provider]?.includes(modelForm.model) && modelForm.model !== '') ? 'custom' : modelForm.model} 
+                                                            onChange={e => {
+                                                                if (e.target.value === 'custom') {
+                                                                    setModelForm({ ...modelForm, model: '' });
+                                                                } else {
+                                                                    setModelForm({ ...modelForm, model: e.target.value });
+                                                                }
+                                                            }}
+                                                            style={{ flex: (!PRESET_MODELS[modelForm.provider]?.includes(modelForm.model) && modelForm.model !== '') ? '1' : '100%' }}
+                                                        >
+                                                            <option value="" disabled>Select a model</option>
+                                                            {(PRESET_MODELS[modelForm.provider] || []).map(m => (
+                                                                <option key={m} value={m}>{m}</option>
+                                                            ))}
+                                                            <option value="custom">Custom (Type manually)</option>
+                                                        </select>
+                                                        {(!PRESET_MODELS[modelForm.provider]?.includes(modelForm.model) && modelForm.model !== '') && (
+                                                            <input 
+                                                                className="form-input" 
+                                                                placeholder="Type model name" 
+                                                                value={modelForm.model} 
+                                                                onChange={e => setModelForm({ ...modelForm, model: e.target.value })} 
+                                                                style={{ flex: '2' }}
+                                                            />
+                                                        )}
+                                                    </div>
                                                 </div>
                                                 <div className="form-group">
                                                     <label className="form-label">{t('enterprise.llm.label')}</label>
-                                                    <input className="form-input" placeholder="Claude Sonnet" value={modelForm.label} onChange={e => setModelForm({ ...modelForm, label: e.target.value })} />
+                                                    <input className="form-input" placeholder={t('enterprise.llm.labelPlaceholder')} value={modelForm.label} onChange={e => setModelForm({ ...modelForm, label: e.target.value })} />
                                                 </div>
                                                 <div className="form-group">
                                                     <label className="form-label">{t('enterprise.llm.baseUrl')}</label>
-                                                    <input className="form-input" placeholder="https://api.custom.com/v1" value={modelForm.base_url} onChange={e => setModelForm({ ...modelForm, base_url: e.target.value })} />
+                                                    <input className="form-input" placeholder={t('enterprise.llm.baseUrlPlaceholder')} value={modelForm.base_url} onChange={e => setModelForm({ ...modelForm, base_url: e.target.value })} />
                                                 </div>
                                                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                                                    <label className="form-label">API Key</label>
+                                                    <label className="form-label">{t('enterprise.llm.apiKey')}</label>
                                                     <input className="form-input" type="password" placeholder="•••••••• (Leave blank to keep unchanged)" value={modelForm.api_key} onChange={e => setModelForm({ ...modelForm, api_key: e.target.value })} />
                                                 </div>
                                                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
                                                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
                                                         <input type="checkbox" checked={modelForm.supports_vision} onChange={e => setModelForm({ ...modelForm, supports_vision: e.target.checked })} />
-                                                        👁 Supports Vision (Multimodal)
-                                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>— Enable for models that can analyze images (GPT-4o, Claude, Qwen-VL, etc.)</span>
+                                                        {t('enterprise.llm.supportsVision')}
+                                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>{t('enterprise.llm.supportsVisionDesc')}</span>
                                                     </label>
                                                 </div>
                                                 <div className="form-group">
-                                                    <label className="form-label">Max Output Tokens</label>
-                                                    <input className="form-input" type="number" placeholder="Provider default" value={modelForm.max_output_tokens} onChange={e => setModelForm({ ...modelForm, max_output_tokens: e.target.value })} />
-                                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Override the default output token limit. Auto-filled from provider; adjust as needed.</div>
+                                                    <label className="form-label">{t('enterprise.llm.maxOutputTokens', 'Max Output Tokens')}</label>
+                                                    <input className="form-input" type="number" placeholder={t('enterprise.llm.maxOutputTokensPlaceholder', 'e.g. 4096')} value={modelForm.max_output_tokens} onChange={e => setModelForm({ ...modelForm, max_output_tokens: e.target.value })} />
+                                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.maxOutputTokensDesc', 'Limits generation length')}</div>
+                                                </div>
+                                                <div className="form-group">
+                                                    <label className="form-label">{t('enterprise.llm.temperature', 'Temperature')}</label>
+                                                    <input className="form-input" type="number" step="0.1" min="0" max="2" placeholder={t('enterprise.llm.temperaturePlaceholder', 'e.g. 0.7 or 1.0 (Leave empty for default)')} value={modelForm.temperature} onChange={e => setModelForm({ ...modelForm, temperature: e.target.value })} />
+                                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.temperatureDesc', 'Leave empty to use the provider default. o1/o3 reasoning models usually require 1.0')}</div>
                                                 </div>
                                             </div>
                                             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -1378,7 +1521,7 @@ export default function EnterpriseSettings() {
                                                 <button className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} disabled={!modelForm.model} onClick={async () => {
                                                     const btn = document.activeElement as HTMLButtonElement;
                                                     const origText = btn?.textContent || '';
-                                                    if (btn) btn.textContent = 'Testing...';
+                                                    if (btn) btn.textContent = t('enterprise.llm.testing');
                                                     try {
                                                         const token = localStorage.getItem('token');
                                                         const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
@@ -1391,19 +1534,23 @@ export default function EnterpriseSettings() {
                                                         });
                                                         const result = await res.json();
                                                         if (result.success) {
-                                                            if (btn) { btn.textContent = `OK (${result.latency_ms}ms)`; btn.style.color = 'var(--success)'; }
+                                                            if (btn) { btn.textContent = t('enterprise.llm.testSuccess', { latency: result.latency_ms }); btn.style.color = 'var(--success)'; }
                                                             setTimeout(() => { if (btn) { btn.textContent = origText; btn.style.color = ''; } }, 3000);
                                                         } else {
-                                                            alert(`Test failed: ${result.error || 'Unknown error'}\n\nLatency: ${result.latency_ms}ms`);
+                                                            alert(t('enterprise.llm.testFailed', { error: result.error || 'Unknown error', latency: result.latency_ms }));
                                                             if (btn) btn.textContent = origText;
                                                         }
                                                     } catch (e: any) {
-                                                        alert(`Test error: ${e.message}`);
+                                                        alert(t('enterprise.llm.testError', { message: e.message }));
                                                         if (btn) btn.textContent = origText;
                                                     }
-                                                }}>Test</button>
+                                                }}>{t('enterprise.llm.test')}</button>
                                                 <button className="btn btn-primary" onClick={() => {
-                                                    const data = { ...modelForm, max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null };
+                                                    const data = { 
+                                                        ...modelForm, 
+                                                        max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null,
+                                                        temperature: modelForm.temperature !== '' ? Number(modelForm.temperature) : null
+                                                    };
                                                     updateModel.mutate({ id: editingModelId!, data });
                                                 }} disabled={!modelForm.model}>
                                                     {t('common.save')}
@@ -1427,9 +1574,9 @@ export default function EnterpriseSettings() {
                                                 {m.supports_vision && <span className="badge" style={{ background: 'rgba(99,102,241,0.15)', color: 'rgb(99,102,241)', fontSize: '10px' }}>👁 Vision</span>}
                                                 <button className="btn btn-ghost" onClick={() => {
                                                     setEditingModelId(m.id);
-                                                    setModelForm({ provider: m.provider, model: m.model, label: m.label, base_url: m.base_url || '', api_key: m.api_key_masked || '', supports_vision: m.supports_vision || false, max_output_tokens: m.max_output_tokens ? String(m.max_output_tokens) : '' });
+                                                    setModelForm({ provider: m.provider, model: m.model, label: m.label, base_url: m.base_url || '', api_key: m.api_key_masked || '', supports_vision: m.supports_vision || false, max_output_tokens: m.max_output_tokens ? String(m.max_output_tokens) : '', temperature: m.temperature !== null && m.temperature !== undefined ? String(m.temperature) : '' });
                                                     setShowAddModel(true);
-                                                }} style={{ fontSize: '12px' }}>✏️ Edit</button>
+                                                }} style={{ fontSize: '12px' }}>✏️ {t('enterprise.tools.edit')}</button>
                                                 <button className="btn btn-ghost" onClick={() => deleteModel.mutate({ id: m.id })} style={{ color: 'var(--error)' }}>{t('common.delete')}</button>
                                             </div>
                                         </div>
@@ -1576,12 +1723,13 @@ export default function EnterpriseSettings() {
                             <EnterpriseKBBrowser onRefresh={() => setInfoRefresh((v: number) => v + 1)} refreshKey={infoRefresh} />
                         </div>
 
-                        {/* ── 3. Platform Configuration ── */}
-                        <h3 style={{ marginBottom: '8px' }}>{t('enterprise.config.title')}</h3>
-                        <PlatformSettings />
+
 
                         {/* ── Theme Color ── */}
                         <ThemeColorPicker />
+
+                        {/* ── Broadcast ── */}
+                        <BroadcastSection />
 
                         {/* ── Danger Zone: Delete Company ── */}
                         <div style={{ marginTop: '32px', padding: '16px', border: '1px solid var(--status-error, #e53e3e)', borderRadius: '8px' }}>
@@ -1621,68 +1769,68 @@ export default function EnterpriseSettings() {
                 {/* ── Quotas Tab ── */}
                 {activeTab === 'quotas' && (
                     <div>
-                        <h3 style={{ marginBottom: '4px' }}>Default User Quotas</h3>
+                        <h3 style={{ marginBottom: '4px' }}>{t('enterprise.quotas.defaultUserQuotas')}</h3>
                         <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '16px' }}>
-                            These defaults apply to newly registered users. Existing users are not affected.
+                            {t('enterprise.quotas.defaultsApply')}
                         </p>
                         <div className="card" style={{ padding: '16px' }}>
                             {/* ── Conversation Limits ── */}
-                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>Conversation Limits</div>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>{t('enterprise.quotas.conversationLimits')}</div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
                                 <div className="form-group">
-                                    <label className="form-label">Message Limit</label>
+                                    <label className="form-label">{t('enterprise.quotas.messageLimit')}</label>
                                     <input className="form-input" type="number" min={0} value={quotaForm.default_message_limit}
                                         onChange={e => setQuotaForm({ ...quotaForm, default_message_limit: Number(e.target.value) })} />
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Max messages per period</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.quotas.maxMessagesPerPeriod')}</div>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Message Period</label>
+                                    <label className="form-label">{t('enterprise.quotas.messagePeriod')}</label>
                                     <select className="form-input" value={quotaForm.default_message_period}
                                         onChange={e => setQuotaForm({ ...quotaForm, default_message_period: e.target.value })}>
-                                        <option value="permanent">Permanent</option>
-                                        <option value="daily">Daily</option>
-                                        <option value="weekly">Weekly</option>
-                                        <option value="monthly">Monthly</option>
+                                        <option value="permanent">{t('enterprise.quotas.permanent')}</option>
+                                        <option value="daily">{t('enterprise.quotas.daily')}</option>
+                                        <option value="weekly">{t('enterprise.quotas.weekly')}</option>
+                                        <option value="monthly">{t('enterprise.quotas.monthly')}</option>
                                     </select>
                                 </div>
                             </div>
 
                             {/* ── Agent Limits ── */}
-                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>Agent Limits</div>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>{t('enterprise.quotas.agentLimits')}</div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
                                 <div className="form-group">
-                                    <label className="form-label">Max Agents</label>
+                                    <label className="form-label">{t('enterprise.quotas.maxAgents')}</label>
                                     <input className="form-input" type="number" min={0} value={quotaForm.default_max_agents}
                                         onChange={e => setQuotaForm({ ...quotaForm, default_max_agents: Number(e.target.value) })} />
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Agents a user can create</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.quotas.agentsUserCanCreate')}</div>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Agent TTL (hours)</label>
+                                    <label className="form-label">{t('enterprise.quotas.agentTTL')}</label>
                                     <input className="form-input" type="number" min={1} value={quotaForm.default_agent_ttl_hours}
                                         onChange={e => setQuotaForm({ ...quotaForm, default_agent_ttl_hours: Number(e.target.value) })} />
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Agent auto-expiry time from creation</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.quotas.agentAutoExpiry')}</div>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Daily LLM Calls / Agent</label>
+                                    <label className="form-label">{t('enterprise.quotas.dailyLLMCalls')}</label>
                                     <input className="form-input" type="number" min={0} value={quotaForm.default_max_llm_calls_per_day}
                                         onChange={e => setQuotaForm({ ...quotaForm, default_max_llm_calls_per_day: Number(e.target.value) })} />
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Max LLM calls per agent per day</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.quotas.maxLLMCallsPerDay')}</div>
                                 </div>
                             </div>
 
                             {/* ── System Limits ── */}
-                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>System</div>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>{t('enterprise.quotas.system')}</div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
                                 <div className="form-group">
-                                    <label className="form-label">Min Heartbeat Interval (min)</label>
+                                    <label className="form-label">{t('enterprise.quotas.minHeartbeatInterval')}</label>
                                     <input className="form-input" type="number" min={1} value={quotaForm.min_heartbeat_interval_minutes}
                                         onChange={e => setQuotaForm({ ...quotaForm, min_heartbeat_interval_minutes: Number(e.target.value) })} />
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Minimum heartbeat interval for all agents</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.quotas.minHeartbeatDesc')}</div>
                                 </div>
                             </div>
 
                             {/* ── Trigger Limits ── */}
-                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>Trigger Limits</div>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>{t('enterprise.quotas.triggerLimits')}</div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
                                 <div className="form-group">
                                     <label className="form-label">{t('enterprise.quotas.defaultMaxTriggers', 'Default Max Triggers')}</label>
@@ -1730,7 +1878,7 @@ export default function EnterpriseSettings() {
                     <div>
                         {/* Sub-tab pills */}
                         <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px' }}>
-                            {([['global', 'Global Tools'], ['agent-installed', 'Agent-installed']] as const).map(([key, label]) => (
+                            {([['global', t('enterprise.tools.globalTools')], ['agent-installed', t('enterprise.tools.agentInstalled')]] as const).map(([key, label]) => (
                                 <button key={key} onClick={() => { setToolsView(key as any); if (key === 'agent-installed') loadAgentInstalledTools(); }} style={{
                                     padding: '4px 14px', borderRadius: '12px', fontSize: '12px', fontWeight: 500, cursor: 'pointer', border: 'none',
                                     background: toolsView === key ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
@@ -1742,9 +1890,9 @@ export default function EnterpriseSettings() {
                         {/* Agent-Installed Tools */}
                         {toolsView === 'agent-installed' && (
                             <div>
-                                <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>Tools installed by agents via <code>import_mcp_server</code>. Deleting removes the tool from that agent.</p>
+                                <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>{t('enterprise.tools.agentInstalledHint')}</p>
                                 {agentInstalledTools.length === 0 ? (
-                                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>No agent-installed tools yet.</div>
+                                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>{t('enterprise.tools.noAgentInstalledTools')}</div>
                                 ) : (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                         {agentInstalledTools.map((row: any) => (
@@ -1760,14 +1908,14 @@ export default function EnterpriseSettings() {
                                                     </div>
                                                 </div>
                                                 <button className="btn btn-ghost" style={{ color: 'var(--error)', fontSize: '12px' }} onClick={async () => {
-                                                    if (!confirm(`Remove "${row.tool_display_name}" from agent?`)) return;
+                                                    if (!confirm(t('enterprise.tools.removeFromAgent', { name: row.tool_display_name }))) return;
                                                     try {
                                                         await fetchJson(`/tools/agent-tool/${row.agent_tool_id}`, { method: 'DELETE' });
                                                     } catch {
                                                         // Already deleted (e.g. removed via Global Tools) — just refresh
                                                     }
                                                     loadAgentInstalledTools();
-                                                }}>🗑️ Delete</button>
+                                                }}>🗑️ {t('enterprise.tools.delete')}</button>
                                             </div>
                                         ))}
                                     </div>
@@ -1778,15 +1926,15 @@ export default function EnterpriseSettings() {
                         {toolsView === 'global' && <>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                                 <h3>{t('enterprise.tools.title')}</h3>
-                                <button className="btn btn-primary" onClick={() => setShowAddMCP(true)}>+ MCP Server</button>
+                                <button className="btn btn-primary" onClick={() => setShowAddMCP(true)}>+ {t('enterprise.tools.addMcpServer')}</button>
                             </div>
 
                             {showAddMCP && (
                                 <div className="card" style={{ padding: '16px', marginBottom: '16px' }}>
-                                    <h4 style={{ marginBottom: '12px' }}>MCP Server</h4>
+                                    <h4 style={{ marginBottom: '12px' }}>{t('enterprise.tools.mcpServer')}</h4>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                         <div>
-                                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>JSON Config</label>
+                                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>{t('enterprise.tools.jsonConfig')}</label>
                                             <textarea className="form-input" value={mcpRawInput} onChange={e => {
                                                 const val = e.target.value;
                                                 setMcpRawInput(val);
@@ -1872,132 +2020,230 @@ export default function EnterpriseSettings() {
                                 </div>
                             )}
 
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {allTools.map((tool: any) => {
-                                    const hasConfig = tool.config_schema?.fields?.length > 0;
-                                    const isEditing = editingToolId === tool.id;
-                                    return (
-                                        <div key={tool.id} className="card" style={{ padding: '0', overflow: 'hidden' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
-                                                    <span style={{ fontSize: '20px' }}>{tool.icon}</span>
-                                                    <div>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                            <span style={{ fontWeight: 500, fontSize: '13px' }}>{tool.display_name}</span>
-                                                            <span style={{ fontSize: '10px', background: tool.type === 'mcp' ? 'var(--primary)' : 'var(--bg-tertiary)', color: tool.type === 'mcp' ? '#fff' : 'var(--text-secondary)', borderRadius: '4px', padding: '1px 5px' }}>
-                                                                {tool.type === 'mcp' ? 'MCP' : 'Built-in'}
-                                                            </span>
-                                                            {tool.is_default && <span style={{ fontSize: '10px', background: 'rgba(0,200,100,0.15)', color: 'var(--success)', borderRadius: '4px', padding: '1px 5px' }}>Default</span>}
-                                                        </div>
-                                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                                            {tool.description?.slice(0, 60)}
-                                                            {tool.mcp_server_name && <span> · {tool.mcp_server_name}</span>}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    {hasConfig && (
-                                                        <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={async () => {
-                                                            if (isEditing) {
-                                                                setEditingToolId(null);
-                                                            } else {
-                                                                setEditingToolId(tool.id);
-                                                                const cfg = { ...tool.config };
-                                                                // Pre-load jina api_key from system_settings
-                                                                if (tool.name === 'jina_search' || tool.name === 'jina_read') {
-                                                                    try {
-                                                                        const token = localStorage.getItem('token');
-                                                                        const res = await fetch('/api/enterprise/system-settings/jina_api_key', { headers: { Authorization: `Bearer ${token}` } });
-                                                                        const d = await res.json();
-                                                                        if (d.value?.api_key) cfg.api_key = d.value.api_key;
-                                                                    } catch { }
-                                                                }
-                                                                setEditingConfig(cfg);
-                                                            }
-                                                        }}>{isEditing ? t('enterprise.tools.collapse') : t('enterprise.tools.configure')}</button>
-                                                    )}
-                                                    {tool.type !== 'builtin' && (
-                                                        <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={async () => {
-                                                            if (!confirm(`${t('common.delete')} ${tool.display_name}?`)) return;
-                                                            await fetchJson(`/tools/${tool.id}`, { method: 'DELETE' });
-                                                            loadAllTools();
-                                                            loadAgentInstalledTools(); // cross-refresh in case it was also in agent-installed
-                                                        }}>{t('common.delete')}</button>
-                                                    )}
-                                                    <label style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px', cursor: 'pointer' }}>
-                                                        <input type="checkbox" checked={tool.enabled} onChange={async (e) => {
-                                                            await fetchJson(`/tools/${tool.id}`, { method: 'PUT', body: JSON.stringify({ enabled: e.target.checked }) });
-                                                            loadAllTools();
-                                                        }} style={{ opacity: 0, width: 0, height: 0 }} />
-                                                        <span style={{ position: 'absolute', inset: 0, background: tool.enabled ? '#22c55e' : 'var(--bg-tertiary)', borderRadius: '11px', transition: 'background 0.2s' }}>
-                                                            <span style={{ position: 'absolute', left: tool.enabled ? '20px' : '2px', top: '2px', width: '18px', height: '18px', background: '#fff', borderRadius: '50%', transition: 'left 0.2s' }} />
-                                                        </span>
-                                                    </label>
-                                                </div>
-                                            </div>
+                            {/* ─── Category-grouped tool list ─── */}
+                            {(() => {
+                                // Group tools by category (same pattern as AgentDetail.tsx)
+                                const grouped = allTools.reduce((acc: Record<string, any[]>, tool: any) => {
+                                    const cat = tool.category || 'general';
+                                    (acc[cat] = acc[cat] || []).push(tool);
+                                    return acc;
+                                }, {} as Record<string, any[]>);
 
-                                            {/* Config editing form */}
-                                            {isEditing && hasConfig && (
-                                                <div style={{ borderTop: '1px solid var(--border-color)', padding: '16px', background: 'var(--bg-secondary)' }}>
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                                        {(tool.config_schema.fields || []).map((field: any) => {
-                                                            // Check depends_on
-                                                            if (field.depends_on) {
-                                                                const visible = Object.entries(field.depends_on).every(([k, vals]: [string, any]) =>
-                                                                    vals.includes(editingConfig[k])
-                                                                );
-                                                                if (!visible) return null;
-                                                            }
+                                if (allTools.length === 0) {
+                                    return <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>{t('enterprise.tools.emptyState')}</div>;
+                                }
+
+                                return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                        {Object.entries(grouped).map(([category, catTools]) => {
+                                            const hasCategoryConfig = !!GLOBAL_CATEGORY_CONFIG_SCHEMAS[category];
+
+                                            return (
+                                                <div key={category}>
+                                                    {/* Category header */}
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                                        <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                                            {categoryLabels[category] || category}
+                                                        </div>
+                                                        {hasCategoryConfig && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setConfigCategory(category);
+                                                                    setEditingConfig({});
+                                                                    // Load existing global config from the first tool in this category
+                                                                    const firstToolWithConfig = (catTools as any[]).find((tl: any) => tl.config_schema?.fields?.length > 0);
+                                                                    if (firstToolWithConfig?.config) {
+                                                                        setEditingConfig({ ...firstToolWithConfig.config });
+                                                                    }
+                                                                }}
+                                                                style={{ background: 'none', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                                                                title={`Configure ${category}`}
+                                                            >Configure</button>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Tools in this category */}
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                        {(catTools as any[]).map((tool: any) => {
+                                                            // If this category has shared config, individual tool config buttons are hidden
+                                                            const hasOwnConfig = tool.config_schema?.fields?.length > 0 && !hasCategoryConfig;
+                                                            const isEditing = editingToolId === tool.id;
+
                                                             return (
-                                                                <div key={field.key}>
-                                                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>{field.label}</label>
-                                                                    {field.type === 'select' ? (
-                                                                        <select className="form-input" value={editingConfig[field.key] ?? field.default ?? ''} onChange={e => setEditingConfig(p => ({ ...p, [field.key]: e.target.value }))}>
-                                                                            {(field.options || []).map((opt: any) => (
-                                                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                                                            ))}
-                                                                        </select>
-                                                                    ) : field.type === 'number' ? (
-                                                                        <input type="number" className="form-input" value={editingConfig[field.key] ?? field.default ?? ''} min={field.min} max={field.max}
-                                                                            onChange={e => setEditingConfig(p => ({ ...p, [field.key]: Number(e.target.value) }))} />
-                                                                    ) : field.type === 'password' ? (
-                                                                        <input type="password" className="form-input" value={editingConfig[field.key] ?? ''} placeholder={field.placeholder || ''}
-                                                                            onChange={e => setEditingConfig(p => ({ ...p, [field.key]: e.target.value }))} />
-                                                                    ) : (
-                                                                        <input type="text" className="form-input" value={editingConfig[field.key] ?? field.default ?? ''} placeholder={field.placeholder || ''}
-                                                                            onChange={e => setEditingConfig(p => ({ ...p, [field.key]: e.target.value }))} />
+                                                                <div key={tool.id} className="card" style={{ padding: '0', overflow: 'hidden' }}>
+                                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
+                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+                                                                            <span style={{ fontSize: '18px' }}>{tool.icon}</span>
+                                                                            <div style={{ minWidth: 0 }}>
+                                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                                    <span style={{ fontWeight: 500, fontSize: '13px' }}>{tool.display_name}</span>
+                                                                                    <span style={{ fontSize: '10px', background: tool.type === 'mcp' ? 'var(--primary)' : 'var(--bg-tertiary)', color: tool.type === 'mcp' ? '#fff' : 'var(--text-secondary)', borderRadius: '4px', padding: '1px 5px' }}>
+                                                                                        {tool.type === 'mcp' ? 'MCP' : 'Built-in'}
+                                                                                    </span>
+                                                                                    {tool.is_default && <span style={{ fontSize: '10px', background: 'rgba(0,200,100,0.15)', color: 'var(--success)', borderRadius: '4px', padding: '1px 5px' }}>Default</span>}
+                                                                                </div>
+                                                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                                    {tool.description?.slice(0, 80)}
+                                                                                    {tool.mcp_server_name && <span> · {tool.mcp_server_name}</span>}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                                                                            {/* Per-tool config button: only if the tool has its own schema AND is NOT part of a category config */}
+                                                                            {hasOwnConfig && (
+                                                                                <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={async () => {
+                                                                                    if (isEditing) {
+                                                                                        setEditingToolId(null);
+                                                                                    } else {
+                                                                                        setEditingToolId(tool.id);
+                                                                                        const cfg = { ...tool.config };
+                                                                                        // Pre-load jina api_key from system_settings
+                                                                                        if (tool.name === 'jina_search' || tool.name === 'jina_read') {
+                                                                                            try {
+                                                                                                const token = localStorage.getItem('token');
+                                                                                                const res = await fetch('/api/enterprise/system-settings/jina_api_key', { headers: { Authorization: `Bearer ${token}` } });
+                                                                                                const d = await res.json();
+                                                                                                if (d.value?.api_key) cfg.api_key = d.value.api_key;
+                                                                                            } catch { }
+                                                                                        }
+                                                                                        setEditingConfig(cfg);
+                                                                                    }
+                                                                                }}>{isEditing ? t('enterprise.tools.collapse') : t('enterprise.tools.configure')}</button>
+                                                                            )}
+
+                                                                            {/* Delete (non-builtin only) */}
+                                                                            {tool.type !== 'builtin' && (
+                                                                                <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={async () => {
+                                                                                    if (!confirm(`${t('common.delete')} ${tool.display_name}?`)) return;
+                                                                                    await fetchJson(`/tools/${tool.id}`, { method: 'DELETE' });
+                                                                                    loadAllTools();
+                                                                                    loadAgentInstalledTools();
+                                                                                }}>{t('common.delete')}</button>
+                                                                            )}
+
+                                                                            {/* Enable toggle */}
+                                                                            <label style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px', cursor: 'pointer', flexShrink: 0 }}>
+                                                                                <input type="checkbox" checked={tool.enabled} onChange={async (e) => {
+                                                                                    await fetchJson(`/tools/${tool.id}`, { method: 'PUT', body: JSON.stringify({ enabled: e.target.checked }) });
+                                                                                    loadAllTools();
+                                                                                }} style={{ opacity: 0, width: 0, height: 0 }} />
+                                                                                <span style={{ position: 'absolute', inset: 0, background: tool.enabled ? '#22c55e' : 'var(--bg-tertiary)', borderRadius: '11px', transition: 'background 0.2s' }}>
+                                                                                    <span style={{ position: 'absolute', left: tool.enabled ? '20px' : '2px', top: '2px', width: '18px', height: '18px', background: '#fff', borderRadius: '50%', transition: 'left 0.2s' }} />
+                                                                                </span>
+                                                                            </label>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Inline config editing form (per-tool only) */}
+                                                                    {isEditing && hasOwnConfig && (
+                                                                        <div style={{ borderTop: '1px solid var(--border-color)', padding: '16px', background: 'var(--bg-secondary)' }}>
+                                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                                                                {(tool.config_schema.fields || []).map((field: any) => {
+                                                                                    // Check depends_on
+                                                                                    if (field.depends_on) {
+                                                                                        const visible = Object.entries(field.depends_on).every(([k, vals]: [string, any]) =>
+                                                                                            vals.includes(editingConfig[k])
+                                                                                        );
+                                                                                        if (!visible) return null;
+                                                                                    }
+                                                                                    return (
+                                                                                        <div key={field.key}>
+                                                                                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>{field.label}</label>
+                                                                                            {field.type === 'select' ? (
+                                                                                                <select className="form-input" value={editingConfig[field.key] ?? field.default ?? ''} onChange={e => setEditingConfig(p => ({ ...p, [field.key]: e.target.value }))}>
+                                                                                                    {(field.options || []).map((opt: any) => (
+                                                                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                                                                    ))}
+                                                                                                </select>
+                                                                                            ) : field.type === 'number' ? (
+                                                                                                <input type="number" className="form-input" value={editingConfig[field.key] ?? field.default ?? ''} min={field.min} max={field.max}
+                                                                                                    onChange={e => setEditingConfig(p => ({ ...p, [field.key]: Number(e.target.value) }))} />
+                                                                                            ) : field.type === 'password' ? (
+                                                                                                <input type="password" autoComplete="new-password" className="form-input" value={editingConfig[field.key] ?? ''} placeholder={field.placeholder || ''}
+                                                                                                    onChange={e => setEditingConfig(p => ({ ...p, [field.key]: e.target.value }))} />
+                                                                                            ) : (
+                                                                                                <input type="text" className="form-input" value={editingConfig[field.key] ?? field.default ?? ''} placeholder={field.placeholder || ''}
+                                                                                                    onChange={e => setEditingConfig(p => ({ ...p, [field.key]: e.target.value }))} />
+                                                                                            )}
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                                <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                                                                    <button className="btn btn-primary" onClick={async () => {
+                                                                                        if (tool.name === 'jina_search' || tool.name === 'jina_read') {
+                                                                                            // Save api_key to system_settings (shared by both jina tools)
+                                                                                            if (editingConfig.api_key) {
+                                                                                                const token = localStorage.getItem('token');
+                                                                                                await fetch('/api/enterprise/system-settings/jina_api_key', {
+                                                                                                    method: 'PUT',
+                                                                                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                                                                                    body: JSON.stringify({ value: { api_key: editingConfig.api_key } }),
+                                                                                                });
+                                                                                            }
+                                                                                        } else {
+                                                                                            await fetchJson(`/tools/${tool.id}`, { method: 'PUT', body: JSON.stringify({ config: editingConfig }) });
+                                                                                        }
+                                                                                        setEditingToolId(null);
+                                                                                        loadAllTools();
+                                                                                    }}>{t('enterprise.tools.saveConfig')}</button>
+                                                                                    <button className="btn btn-secondary" onClick={() => setEditingToolId(null)}>{t('common.cancel')}</button>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
                                                                     )}
                                                                 </div>
                                                             );
                                                         })}
-                                                        <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                                                            <button className="btn btn-primary" onClick={async () => {
-                                                                if (tool.name === 'jina_search' || tool.name === 'jina_read') {
-                                                                    // Save api_key to system_settings (shared by both jina tools)
-                                                                    if (editingConfig.api_key) {
-                                                                        const token = localStorage.getItem('token');
-                                                                        await fetch('/api/enterprise/system-settings/jina_api_key', {
-                                                                            method: 'PUT',
-                                                                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                                            body: JSON.stringify({ value: { api_key: editingConfig.api_key } }),
-                                                                        });
-                                                                    }
-                                                                } else {
-                                                                    await fetchJson(`/tools/${tool.id}`, { method: 'PUT', body: JSON.stringify({ config: editingConfig }) });
-                                                                }
-                                                                setEditingToolId(null);
-                                                                loadAllTools();
-                                                            }}>{t('enterprise.tools.saveConfig')}</button>
-                                                            <button className="btn btn-secondary" onClick={() => setEditingToolId(null)}>{t('common.cancel')}</button>
-                                                        </div>
                                                     </div>
                                                 </div>
-                                            )}
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Category-level config modal */}
+                            {configCategory && GLOBAL_CATEGORY_CONFIG_SCHEMAS[configCategory] && (
+                                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.55)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                    onClick={() => setConfigCategory(null)}>
+                                    <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-primary)', borderRadius: '12px', padding: '24px', width: '480px', maxWidth: '95vw', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                            <div>
+                                                <h3 style={{ margin: 0 }}>{GLOBAL_CATEGORY_CONFIG_SCHEMAS[configCategory].title}</h3>
+                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>Global configuration shared by all tools in this category</div>
+                                            </div>
+                                            <button onClick={() => setConfigCategory(null)} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: 'var(--text-secondary)' }}>x</button>
                                         </div>
-                                    );
-                                })}
-                                {allTools.length === 0 && <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>{t('enterprise.tools.emptyState')}</div>}
-                            </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            {GLOBAL_CATEGORY_CONFIG_SCHEMAS[configCategory].fields.map((field: any) => (
+                                                <div key={field.key}>
+                                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>{field.label}</label>
+                                                    {field.type === 'password' ? (
+                                                        <input type="password" autoComplete="new-password" className="form-input" value={editingConfig[field.key] ?? ''} placeholder={field.placeholder || ''}
+                                                            onChange={e => setEditingConfig(p => ({ ...p, [field.key]: e.target.value }))} />
+                                                    ) : (
+                                                        <input type="text" className="form-input" value={editingConfig[field.key] ?? ''} placeholder={field.placeholder || ''}
+                                                            onChange={e => setEditingConfig(p => ({ ...p, [field.key]: e.target.value }))} />
+                                                    )}
+                                                </div>
+                                            ))}
+                                            <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
+                                                <button className="btn btn-secondary" onClick={() => setConfigCategory(null)}>{t('common.cancel')}</button>
+                                                <button className="btn btn-primary" onClick={async () => {
+                                                    // Save config to all tools in this category that have config_schema
+                                                    const catTools = allTools.filter((tl: any) => (tl.category || 'general') === configCategory && tl.config_schema?.fields?.length > 0);
+                                                    for (const tl of catTools) {
+                                                        await fetchJson(`/tools/${tl.id}`, { method: 'PUT', body: JSON.stringify({ config: editingConfig }) });
+                                                    }
+                                                    setConfigCategory(null);
+                                                    loadAllTools();
+                                                }}>{t('common.save', 'Save')}</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </>}
                     </div>
                 )}

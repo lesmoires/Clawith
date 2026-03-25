@@ -9,6 +9,7 @@ import FileBrowser from '../components/FileBrowser';
 import ChannelConfig from '../components/ChannelConfig';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import PromptModal from '../components/PromptModal';
+import OpenClawSettings from './OpenClawSettings';
 import { activityApi, agentApi, channelApi, enterpriseApi, fileApi, scheduleApi, skillApi, taskApi, triggerApi, uploadFileWithProgress } from '../services/api';
 import { useAuthStore } from '../stores';
 
@@ -35,6 +36,7 @@ const getCategoryLabels = (t: any): Record<string, string> => ({
     feishu: t('agent.toolCategories.feishu', 'Feishu / Lark'),
     custom: t('agent.toolCategories.custom'),
     general: t('agent.toolCategories.general'),
+    agentbay: t('agent.toolCategories.agentbay', 'AgentBay'),
 });
 
 function ToolsManager({ agentId, canManage = false }: { agentId: string; canManage?: boolean }) {
@@ -47,6 +49,23 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
     const [configSaving, setConfigSaving] = useState(false);
     const [toolTab, setToolTab] = useState<'platform' | 'installed'>('platform');
     const [deletingToolId, setDeletingToolId] = useState<string | null>(null);
+    const [configCategory, setConfigCategory] = useState<string | null>(null);
+
+    const CATEGORY_CONFIG_SCHEMAS: Record<string, any> = {
+        agentbay: {
+            title: 'AgentBay Settings',
+            fields: [
+                { key: 'api_key', label: 'API Key (from AgentBay)', type: 'password', placeholder: 'Enter your AgentBay API key' }
+            ]
+        },
+        atlassian: {
+            title: 'Atlassian Connectivity Settings',
+            fields: [
+                { key: 'api_key', label: 'API Key (Atlassian API Token)', type: 'password', placeholder: 'Enter your Atlassian API key' },
+                { key: 'cloud_id', label: 'Cloud ID (Optional)', type: 'text', placeholder: 'e.g. bcc01-abc-123' }
+            ]
+        }
+    };
 
     const loadTools = async () => {
         try {
@@ -85,19 +104,45 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
         setConfigJson(JSON.stringify(tool.agent_config || {}, null, 2));
     };
 
-    const saveConfig = async () => {
-        if (!configTool) return;
+    const openCategoryConfig = async (category: string) => {
+        setConfigCategory(category);
+        setConfigData({});
         setConfigSaving(true);
         try {
             const token = localStorage.getItem('token');
-            const hasSchema = configTool.config_schema?.fields?.length > 0;
-            const payload = hasSchema ? configData : JSON.parse(configJson || '{}');
-            await fetch(`/api/tools/agents/${agentId}/tool-config/${configTool.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ config: payload }),
+            const res = await fetch(`/api/tools/agents/${agentId}/category-config/${category}`, {
+                headers: { Authorization: `Bearer ${token}` },
             });
-            setConfigTool(null);
+            if (res.ok) {
+                const data = await res.json();
+                setConfigData(data.config || {});
+            }
+        } catch (e) { console.error(e); }
+        setConfigSaving(false);
+    };
+
+    const saveConfig = async () => {
+        if (!configTool && !configCategory) return;
+        setConfigSaving(true);
+        try {
+            const token = localStorage.getItem('token');
+            if (configCategory) {
+               await fetch(`/api/tools/agents/${agentId}/category-config/${configCategory}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ config: configData }),
+               });
+               setConfigCategory(null);
+            } else {
+                const hasSchema = configTool.config_schema?.fields?.length > 0;
+                const payload = hasSchema ? configData : JSON.parse(configJson || '{}');
+                await fetch(`/api/tools/agents/${agentId}/tool-config/${configTool.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ config: payload }),
+                });
+                setConfigTool(null);
+            }
             loadTools();
         } catch (e) { alert('Save failed: ' + e); }
         setConfigSaving(false);
@@ -119,13 +164,23 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
     const renderToolGroup = (groupedTools: Record<string, any[]>) =>
         Object.entries(groupedTools).map(([category, catTools]) => (
             <div key={category}>
-                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    {getCategoryLabels(t)[category] || category}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        {getCategoryLabels(t)[category] || category}
+                    </div>
+                    {CATEGORY_CONFIG_SCHEMAS[category] && canManage && (
+                        <button
+                            onClick={() => openCategoryConfig(category)}
+                            style={{ background: 'none', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                            title={`Configure ${category}`}
+                        >⚙️ Config</button>
+                    )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     {(catTools as any[]).map((tool: any) => {
                         const hasConfig = tool.config_schema?.fields?.length > 0 || tool.type === 'mcp';
                         const hasAgentOverride = tool.agent_config && Object.keys(tool.agent_config).length > 0;
+                        const isGlobalCategoryConfig = category === 'agentbay' && tool.name === 'agentbay_browser_navigate';
                         return (
                             <div key={tool.id} className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
@@ -150,7 +205,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                                    {canManage && hasConfig && (
+                                    {canManage && hasConfig && !isGlobalCategoryConfig && (
                                         <button
                                             onClick={() => openConfig(tool)}
                                             style={{ background: 'none', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', color: 'var(--text-secondary)' }}
@@ -260,21 +315,26 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
             )}
 
             {/* Tool Config Modal */}
-            {configTool && (
+            {(configTool || configCategory) && (() => {
+                const target = configTool || CATEGORY_CONFIG_SCHEMAS[configCategory!];
+                const fields = configTool ? (configTool.config_schema?.fields || []) : (target.fields || []);
+                const title = configTool ? configTool.display_name : target.title;
+                const isCat = !!configCategory;
+                return (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.55)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    onClick={() => setConfigTool(null)}>
+                    onClick={() => { setConfigTool(null); setConfigCategory(null); }}>
                     <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-primary)', borderRadius: '12px', padding: '24px', width: '480px', maxWidth: '95vw', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                             <div>
-                                <h3 style={{ margin: 0 }}>⚙️ {configTool.display_name}</h3>
-                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>Per-agent configuration (overrides global defaults)</div>
+                                <h3 style={{ margin: 0 }}>⚙️ {title}</h3>
+                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{isCat ? 'Shared category configuration (affects all tools in this category)' : 'Per-agent configuration (overrides global defaults)'}</div>
                             </div>
-                            <button onClick={() => setConfigTool(null)} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: 'var(--text-secondary)' }}>✕</button>
+                            <button onClick={() => { setConfigTool(null); setConfigCategory(null); }} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: 'var(--text-secondary)' }}>✕</button>
                         </div>
 
-                        {configTool.config_schema?.fields?.length > 0 ? (
+                        {fields.length > 0 ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                {configTool.config_schema.fields
+                                {fields
                                     .filter((field: any) => {
                                         // Handle depends_on: hide fields unless dependency is met
                                         if (!field.depends_on) return true;
@@ -282,113 +342,162 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                                             (depVals as string[]).includes(configData[depKey] ?? '')
                                         );
                                     })
-                                    .map((field: any) => (
-                                        <div key={field.key}>
-                                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>
-                                                {field.label}
-                                                {configTool.global_config?.[field.key] && (
-                                                    <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: '4px' }}>
-                                                        (global: {String(configTool.global_config[field.key]).slice(0, 20)}{String(configTool.global_config[field.key]).length > 20 ? '…' : ''})
-                                                    </span>
-                                                )}
-                                            </label>
-                                            {field.type === 'password' ? (
-                                                <>
-                                                <input type="password" className="form-input" value={configData[field.key] ?? ''} placeholder={field.placeholder || 'Leave blank to use global default'} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))} />
-                                                {/* Per-provider help text for auth_code */}
-                                                {field.key === 'auth_code' && (() => {
-                                                    const providerField = configTool.config_schema?.fields?.find((f: any) => f.key === 'email_provider');
-                                                    const selectedProvider = configData['email_provider'] || providerField?.default || '';
-                                                    const providerOption = providerField?.options?.find((o: any) => o.value === selectedProvider);
-                                                    if (!providerOption?.help_text) return null;
-                                                    return (
-                                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px', lineHeight: '1.5' }}>
-                                                            {providerOption.help_text}
-                                                            {providerOption.help_url && (
-                                                                <> &middot; <a href={providerOption.help_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-primary)', textDecoration: 'none' }}>Setup guide</a></>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })()}
-                                                </>
-                                            ) : field.type === 'select' ? (
-                                                <select className="form-input" value={configData[field.key] ?? field.default ?? ''} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))}>
-                                                    {(field.options || []).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                                                </select>
-                                            ) : field.type === 'number' ? (
-                                                <input type="number" className="form-input" value={configData[field.key] ?? field.default ?? ''} placeholder={field.placeholder || ''} min={field.min} max={field.max} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value ? Number(e.target.value) : '' }))} />
-                                            ) : (
-                                                <input type="text" className="form-input" value={configData[field.key] ?? ''} placeholder={field.placeholder || 'Leave blank to use global default'} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))} />
-                                            )}
+                                    .map((field: any) => {
+                                        // Get user role from store directly in the map function
+                                        const userFromStore = useAuthStore.getState().user;
+                                        const currentUserRole = userFromStore?.role;
+                                        const isReadOnly = field.read_only_for_roles?.includes(currentUserRole);
+                                        return (
+                                                <div key={field.key}>
+                                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>
+                                                        {field.label}
+                                                        {isReadOnly && <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: '4px' }}>(Admin only)</span>}
+                                                        {configTool?.global_config?.[field.key] && (
+                                                            <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: '4px' }}>
+                                                                (global: {String(configTool.global_config[field.key]).slice(0, 20)}{String(configTool.global_config[field.key]).length > 20 ? '…' : ''})
+                                                            </span>
+                                                        )}
+                                                    </label>
+                                                    {field.type === 'checkbox' ? (
+                                                        <label style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px', cursor: isReadOnly ? 'not-allowed' : 'pointer' }}>
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={configData[field.key] ?? field.default ?? false}
+                                                                disabled={isReadOnly}
+                                                                onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.checked }))}
+                                                                style={{ opacity: 0, width: 0, height: 0 }}
+                                                            />
+                                                            <span style={{
+                                                                position: 'absolute', inset: 0,
+                                                                background: (configData[field.key] ?? field.default) ? '#22c55e' : 'var(--bg-tertiary)',
+                                                                borderRadius: '11px', transition: 'background 0.2s', opacity: isReadOnly ? 0.6 : 1,
+                                                            }}>
+                                                                <span style={{
+                                                                    position: 'absolute', left: (configData[field.key] ?? field.default) ? '20px' : '2px', top: '2px',
+                                                                    width: '18px', height: '18px', background: '#fff',
+                                                                    borderRadius: '50%', transition: 'left 0.2s',
+                                                                }} />
+                                                            </span>
+                                                        </label>
+                                                    ) : field.type === 'password' ? (
+                                                        <>
+                                                        <input type="password" autoComplete="new-password" className="form-input" value={configData[field.key] ?? ''} placeholder={field.placeholder || 'Leave blank to use global default'} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))} />
+                                                        {/* Per-provider help text for auth_code */}
+                                                        {field.key === 'auth_code' && (() => {
+                                                            const providerField = configTool?.config_schema?.fields?.find((f: any) => f.key === 'email_provider');
+                                                            const selectedProvider = configData['email_provider'] || providerField?.default || '';
+                                                            const providerOption = providerField?.options?.find((o: any) => o.value === selectedProvider);
+                                                            if (!providerOption?.help_text) return null;
+                                                            return (
+                                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px', lineHeight: '1.5' }}>
+                                                                    {providerOption.help_text}
+                                                                    {providerOption.help_url && (
+                                                                        <> &middot; <a href={providerOption.help_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-primary)', textDecoration: 'none' }}>Setup guide</a></>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                        </>
+                                                    ) : field.type === 'select' ? (
+                                                        <select className="form-input" value={configData[field.key] ?? field.default ?? ''} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))}>
+                                                            {(field.options || []).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                                        </select>
+                                                    ) : field.type === 'number' ? (
+                                                        <input type="number" className="form-input" value={configData[field.key] ?? field.default ?? ''} placeholder={field.placeholder || ''} min={field.min} max={field.max} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value ? Number(e.target.value) : '' }))} />
+                                                    ) : (
+                                                        <input type="text" className="form-input" value={configData[field.key] ?? ''} placeholder={field.placeholder || 'Leave blank to use global default'} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))} />
+                                                    )}
+                                                </div>
+                                            );})}
+                                        {/* Email tool: test connection button + help text */}
+                                        {configTool?.category === 'email' && (
+                                            <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                <button
+                                                    className="btn btn-secondary"
+                                                    style={{ alignSelf: 'flex-start' }}
+                                                    onClick={async () => {
+                                                        const btn = document.getElementById('email-test-btn');
+                                                        const status = document.getElementById('email-test-status');
+                                                        if (btn) btn.textContent = 'Testing...';
+                                                        if (btn) (btn as HTMLButtonElement).disabled = true;
+                                                        try {
+                                                            const token = localStorage.getItem('token');
+                                                            const res = await fetch('/api/tools/test-email', {
+                                                                method: 'POST',
+                                                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                                                body: JSON.stringify({ config: configData }),
+                                                            });
+                                                            const data = await res.json();
+                                                            if (status) {
+                                                                status.textContent = data.ok
+                                                                    ? `${data.imap}\n${data.smtp}`
+                                                                    : `${data.imap || ''}\n${data.smtp || ''}\n${data.error || ''}`;
+                                                                status.style.color = data.ok ? 'var(--success)' : 'var(--error)';
+                                                            }
+                                                        } catch (e: any) {
+                                                            if (status) { status.textContent = `Error: ${e.message}`; status.style.color = 'var(--error)'; }
+                                                        } finally {
+                                                            if (btn) { btn.textContent = 'Test Connection'; (btn as HTMLButtonElement).disabled = false; }
+                                                        }
+                                                    }}
+                                                    id="email-test-btn"
+                                                >Test Connection</button>
+                                                <div id="email-test-status" style={{ fontSize: '11px', whiteSpace: 'pre-line', minHeight: '16px' }}></div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>Config JSON (Agent Override)</label>
+                                        <textarea
+                                            className="form-input"
+                                            value={configJson}
+                                            onChange={e => setConfigJson(e.target.value)}
+                                            style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', minHeight: '120px', resize: 'vertical' }}
+                                            placeholder='{}'
+                                        />
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                                            Global default: <code style={{ fontSize: '10px' }}>{JSON.stringify(configTool?.global_config || {}).slice(0, 80)}</code>
                                         </div>
-                                    ))}
-                                {/* Email tool: test connection button + help text */}
-                                {configTool.category === 'email' && (
-                                    <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        <button
-                                            className="btn btn-secondary"
-                                            style={{ alignSelf: 'flex-start' }}
-                                            onClick={async () => {
-                                                const btn = document.getElementById('email-test-btn');
-                                                const status = document.getElementById('email-test-status');
-                                                if (btn) btn.textContent = 'Testing...';
-                                                if (btn) (btn as HTMLButtonElement).disabled = true;
-                                                try {
-                                                    const token = localStorage.getItem('token');
-                                                    const res = await fetch('/api/tools/test-email', {
-                                                        method: 'POST',
-                                                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                        body: JSON.stringify({ config: configData }),
-                                                    });
-                                                    const data = await res.json();
-                                                    if (status) {
-                                                        status.textContent = data.ok
-                                                            ? `${data.imap}\n${data.smtp}`
-                                                            : `${data.imap || ''}\n${data.smtp || ''}\n${data.error || ''}`;
-                                                        status.style.color = data.ok ? 'var(--success)' : 'var(--error)';
-                                                    }
-                                                } catch (e: any) {
-                                                    if (status) { status.textContent = `Error: ${e.message}`; status.style.color = 'var(--error)'; }
-                                                } finally {
-                                                    if (btn) { btn.textContent = 'Test Connection'; (btn as HTMLButtonElement).disabled = false; }
-                                                }
-                                            }}
-                                            id="email-test-btn"
-                                        >Test Connection</button>
-                                        <div id="email-test-status" style={{ fontSize: '11px', whiteSpace: 'pre-line', minHeight: '16px' }}></div>
                                     </div>
                                 )}
-                            </div>
-                        ) : (
-                            <div>
-                                <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>Config JSON (Agent Override)</label>
-                                <textarea
-                                    className="form-input"
-                                    value={configJson}
-                                    onChange={e => setConfigJson(e.target.value)}
-                                    style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', minHeight: '120px', resize: 'vertical' }}
-                                    placeholder='{}'
-                                />
-                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                                    Global default: <code style={{ fontSize: '10px' }}>{JSON.stringify(configTool.global_config || {}).slice(0, 80)}</code>
+
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'flex-end' }}>
+                                    {configTool && configTool.agent_config && Object.keys(configTool.agent_config || {}).length > 0 && (
+                                        <button className="btn btn-ghost" style={{ color: 'var(--error)', marginRight: 'auto' }} onClick={async () => {
+                                            const token = localStorage.getItem('token');
+                                            await fetch(`/api/tools/agents/${agentId}/tool-config/${configTool.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ config: {} }) });
+                                            setConfigTool(null); loadTools();
+                                        }}>Reset to Global</button>
+                                    )}
+                                    {isCat && (
+                                        <button
+                                            className="btn btn-secondary"
+                                            style={{ marginRight: 'auto' }}
+                                            onClick={async () => {
+                                                const btn = document.getElementById('cat-test-btn');
+                                                if (btn) btn.textContent = 'Testing...';
+                                                try {
+                                                    const token = localStorage.getItem('token');
+                                                    const res = await fetch(`/api/tools/agents/${agentId}/category-config/${configCategory}/test`, {
+                                                        method: 'POST',
+                                                        headers: { Authorization: `Bearer ${token}` }
+                                                    });
+                                                    const data = await res.json();
+                                                    alert(data.message || (data.ok ? '✅ Test successful' : '❌ Test failed: ' + data.error));
+                                                } catch (e: any) { alert('Test failed: ' + e.message); }
+                                                finally { if (btn) btn.textContent = 'Test Connection'; }
+                                            }}
+                                            id="cat-test-btn"
+                                        >Test Connection</button>
+                                    )}
+                                    <button className="btn btn-secondary" onClick={() => { setConfigTool(null); setConfigCategory(null); }}>Cancel</button>
+                                    <button className="btn btn-primary" onClick={saveConfig} disabled={configSaving}>{configSaving ? t('common.saving', 'Saving…') : t('common.save', 'Save')}</button>
                                 </div>
                             </div>
-                        )}
-
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'flex-end' }}>
-                            {Object.keys(configTool.agent_config || {}).length > 0 && (
-                                <button className="btn btn-ghost" style={{ color: 'var(--error)', marginRight: 'auto' }} onClick={async () => {
-                                    const token = localStorage.getItem('token');
-                                    await fetch(`/api/tools/agents/${agentId}/tool-config/${configTool.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ config: {} }) });
-                                    setConfigTool(null); loadTools();
-                                }}>Reset to Global</button>
-                            )}
-                            <button className="btn btn-secondary" onClick={() => setConfigTool(null)}>Cancel</button>
-                            <button className="btn btn-primary" onClick={saveConfig} disabled={configSaving}>{configSaving ? 'Saving…' : 'Save'}</button>
                         </div>
-                    </div>
-                </div>
-            )}
+                );
+            })()}
         </>
     );
 }
@@ -406,22 +515,49 @@ function schedToCron(sched: { freq: string; interval: number; time: string; week
 }
 
 const getRelationOptions = (t: any) => [
-    { value: 'direct_leader', label: t('agent.detail.supervisor') },
-    { value: 'collaborator', label: t('agent.detail.collaborator') },
-    { value: 'stakeholder', label: 'Stakeholder' },
-    { value: 'team_member', label: 'Team Member' },
+    { value: 'supervisor', label: t('agent.detail.supervisor') },
     { value: 'subordinate', label: t('agent.detail.subordinate') },
-    { value: 'mentor', label: 'Mentor' },
-    { value: 'other', label: 'Other' },
+    { value: 'collaborator', label: t('agent.detail.collaborator') },
+    { value: 'peer', label: t('agent.detail.peer') },
+    { value: 'mentor', label: t('agent.detail.mentor') },
+    { value: 'stakeholder', label: t('agent.detail.stakeholder') },
+    { value: 'other', label: t('agent.detail.other') },
 ];
 
-const getAgentRelationOptions = (t: any) => [
-    { value: 'peer', label: t('agent.detail.colleague') },
-    { value: 'supervisor', label: t('agent.detail.supervisor') },
-    { value: 'assistant', label: 'Assistant' },
-    { value: 'collaborator', label: t('agent.detail.collaborator') },
-    { value: 'other', label: 'Other' },
-];
+const getAgentRelationOptions = getRelationOptions;
+
+/** Tiny copy button shown on hover at the bottom of message bubbles */
+function CopyMessageButton({ text }: { text: string }) {
+    const [copied, setCopied] = React.useState(false);
+    const handleCopy = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(text).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        });
+    };
+    return (
+        <button
+            onClick={handleCopy}
+            title="Copy"
+            style={{
+                background: 'none', border: 'none', cursor: 'pointer', padding: '2px',
+                color: copied ? 'var(--accent-text)' : 'var(--text-tertiary)',
+                opacity: copied ? 1 : 0.5, transition: 'opacity .15s, color .15s',
+                display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle',
+                marginLeft: '6px', flexShrink: 0,
+            }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+            onMouseLeave={e => (e.currentTarget.style.opacity = copied ? '1' : '0.5')}
+        >
+            {copied ? (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            ) : (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+            )}
+        </button>
+    );
+}
 
 function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
     const token = localStorage.getItem('token');
@@ -651,11 +787,11 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
                 {!readOnly && addingAgent && (
                     <div style={{ border: '1px solid rgba(16,185,129,0.5)', borderRadius: '8px', padding: '12px', background: 'var(--bg-elevated)' }}>
                         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                            <select className="input" value={selectedAgentId} onChange={e => setSelectedAgentId(e.target.value)} style={{ flex: 1, fontSize: '12px' }}>
-                                <option value="">— Select —</option>
+                            <select className="input" value={selectedAgentId} onChange={e => setSelectedAgentId(e.target.value)} style={{ flex: 1, minWidth: 0, fontSize: '12px' }}>
+                                <option value="">— Select Agent —</option>
                                 {availableAgents.map((a: any) => <option key={a.id} value={a.id}>{a.name} — {a.role_description || 'Agent'}</option>)}
                             </select>
-                            <select className="input" value={agentRelation} onChange={e => setAgentRelation(e.target.value)} style={{ width: '140px', fontSize: '12px' }}>
+                            <select className="input" value={agentRelation} onChange={e => setAgentRelation(e.target.value)} style={{ width: '150px', flexShrink: 0, fontSize: '12px' }}>
                                 {getAgentRelationOptions(t).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
                             </select>
                         </div>
@@ -788,33 +924,151 @@ function AgentDetailInner() {
     const [allUserFilter, setAllUserFilter] = useState<string>('');  // filter by username in All Users
     const [historyMsgs, setHistoryMsgs] = useState<any[]>([]);
     const [sessionsLoading, setSessionsLoading] = useState(false);
+    const [allSessionsLoading, setAllSessionsLoading] = useState(false);
     const [agentExpired, setAgentExpired] = useState(false);
+    // Websocket chat state (for 'me' conversation)
+    const token = useAuthStore((s) => s.token);
+    const currentUser = useAuthStore((s) => s.user);
+    const isAdmin = currentUser?.role === 'platform_admin' || currentUser?.role === 'org_admin';
+    type SessionRuntimeKey = string;
+    const wsMapRef = useRef<Record<SessionRuntimeKey, WebSocket>>({});
+    const reconnectTimerRef = useRef<Record<SessionRuntimeKey, ReturnType<typeof setTimeout> | null>>({});
+    const reconnectDisabledRef = useRef<Record<SessionRuntimeKey, boolean>>({});
+    const sessionUiStateRef = useRef<Record<SessionRuntimeKey, { isWaiting: boolean; isStreaming: boolean }>>({});
+    const activeSessionIdRef = useRef<string | null>(null);
+    const currentAgentIdRef = useRef<string | undefined>(id);
+    const sessionMsgAbortRef = useRef<AbortController | null>(null);
+    const sessionLoadSeqRef = useRef(0);
 
-    const fetchMySessions = async (silent = false) => {
-        if (!id) return;
-        if (!silent) setSessionsLoading(true);
+    const buildSessionRuntimeKey = (agentId: string, sessionId: string) => `${agentId}:${sessionId}`;
+
+    const clearReconnectTimer = (key: SessionRuntimeKey) => {
+        const timer = reconnectTimerRef.current[key];
+        if (timer) {
+            clearTimeout(timer);
+            reconnectTimerRef.current[key] = null;
+        }
+    };
+
+    const closeSessionSocket = (key: SessionRuntimeKey, disableReconnect = true) => {
+        if (disableReconnect) reconnectDisabledRef.current[key] = true;
+        clearReconnectTimer(key);
+        const ws = wsMapRef.current[key];
+        if (ws && ws.readyState !== WebSocket.CLOSED) ws.close();
+        delete wsMapRef.current[key];
+        delete sessionUiStateRef.current[key];
+    };
+
+    const setSessionUiState = (key: SessionRuntimeKey, next: Partial<{ isWaiting: boolean; isStreaming: boolean }>) => {
+        const prev = sessionUiStateRef.current[key] || { isWaiting: false, isStreaming: false };
+        sessionUiStateRef.current[key] = { ...prev, ...next };
+    };
+
+    const isWritableSession = (sess: any) => {
+        if (!sess) return false;
+        const isAgentSession = sess.source_channel === 'agent' || sess.participant_type === 'agent';
+        if (isAgentSession) return false;
+        if (sess.user_id && currentUser && sess.user_id !== String(currentUser.id)) return false;
+        return true;
+    };
+
+    const syncActiveSocketState = (sess: any | null = activeSession, agentId: string | undefined = id) => {
+        if (!sess || !agentId) {
+            wsRef.current = null;
+            setWsConnected(false);
+            return;
+        }
+        const key = buildSessionRuntimeKey(agentId, sess.id);
+        const ws = wsMapRef.current[key];
+        wsRef.current = ws ?? null;
+        setWsConnected(!!ws && ws.readyState === WebSocket.OPEN);
+    };
+
+    const fetchMySessions = async (silent = false, agentId: string | undefined = id) => {
+        if (!agentId) return [];
+        if (!silent && currentAgentIdRef.current === agentId) setSessionsLoading(true);
         try {
             const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/agents/${id}/sessions?scope=mine`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (res.ok) { const data = await res.json(); setSessions(data); return data; }
+            const res = await fetch(`/api/agents/${agentId}/sessions?scope=mine`, { headers: { Authorization: `Bearer ${tkn}` } });
+            if (res.ok) {
+                const data = await res.json();
+                if (currentAgentIdRef.current === agentId) setSessions(data);
+                if (!silent && currentAgentIdRef.current === agentId) setSessionsLoading(false);
+                return data;
+            }
         } catch { }
-        if (!silent) setSessionsLoading(false);
+        if (!silent && currentAgentIdRef.current === agentId) setSessionsLoading(false);
         return [];
     };
 
     const fetchAllSessions = async () => {
         if (!id) return;
+        setAllSessionsLoading(true);
         try {
             const tkn = localStorage.getItem('token');
             const res = await fetch(`/api/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
             if (res.ok) {
                 const all = await res.json();
-                setAllSessions(all.filter((s: any) => s.source_channel !== 'trigger'));
+                if (currentAgentIdRef.current === id) {
+                    setAllSessions(all.filter((s: any) => s.source_channel !== 'trigger'));
+                }
             }
         } catch { }
+        setAllSessionsLoading(false);
+    };
+
+    const selectSession = async (sess: any) => {
+        const targetAgentId = id;
+        if (!targetAgentId) return;
+        const runtimeKey = buildSessionRuntimeKey(targetAgentId, String(sess.id));
+        const runtimeState = sessionUiStateRef.current[runtimeKey] || { isWaiting: false, isStreaming: false };
+        activeSessionIdRef.current = sess.id;
+        setChatMessages([]);
+        setHistoryMsgs([]);
+        setIsStreaming(runtimeState.isStreaming);
+        setIsWaiting(runtimeState.isWaiting);
+        setActiveSession(sess);
+        setAgentExpired(false);
+        syncActiveSocketState(sess, targetAgentId);
+
+        // Abort any pending message load and increment sequence
+        sessionMsgAbortRef.current?.abort();
+        const controller = new AbortController();
+        sessionMsgAbortRef.current = controller;
+        const loadSeq = ++sessionLoadSeqRef.current;
+        try {
+            const tkn = localStorage.getItem('token');
+            const res = await fetch(`/api/agents/${targetAgentId}/sessions/${sess.id}/messages`, {
+                headers: { Authorization: `Bearer ${tkn}` },
+                signal: controller.signal,
+            });
+            if (!res.ok) return;
+            const msgs = await res.json();
+            if (controller.signal.aborted || loadSeq !== sessionLoadSeqRef.current) return;
+            if (currentAgentIdRef.current !== targetAgentId) return;
+            if (activeSessionIdRef.current !== sess.id) return;
+            const isAgentSession = sess.source_channel === 'agent' || sess.participant_type === 'agent';
+            const preParsed = msgs.map((m: any) => parseChatMsg({
+                role: m.role, content: m.content || '',
+                ...(m.toolName && { toolName: m.toolName, toolArgs: m.toolArgs, toolStatus: m.toolStatus, toolResult: m.toolResult }),
+                ...(m.thinking && { thinking: m.thinking }),
+                ...(m.created_at && { timestamp: m.created_at }),
+                ...(m.id && { id: m.id }),
+            }));
+            
+            if (!isAgentSession && sess.user_id === String(currentUser?.id)) {
+                setChatMessages(preParsed);
+            } else {
+                setHistoryMsgs(preParsed);
+            }
+        } catch (err: any) {
+            if (err?.name === 'AbortError') return;
+            console.error('Failed to load session messages:', err);
+        }
     };
 
     const createNewSession = async () => {
+        if (!id) return;
         try {
             const tkn = localStorage.getItem('token');
             const res = await fetch(`/api/agents/${id}/sessions`, {
@@ -824,9 +1078,9 @@ function AgentDetailInner() {
             if (res.ok) {
                 const newSess = await res.json();
                 setSessions(prev => [newSess, ...prev]);
-                setChatMessages([]);
-                setHistoryMsgs([]);
-                setActiveSession(newSess);
+                setIsStreaming(false);
+                setIsWaiting(false);
+                await selectSession(newSess);
             } else {
                 const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
                 console.error('Failed to create session:', err);
@@ -843,55 +1097,23 @@ function AgentDetailInner() {
         const tkn = localStorage.getItem('token');
         try {
             await fetch(`/api/agents/${id}/sessions/${sessionId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${tkn}` } });
+            if (id) closeSessionSocket(buildSessionRuntimeKey(id, sessionId), true);
             // If deleted the active session, clear it
             if (activeSession?.id === sessionId) {
+                activeSessionIdRef.current = null;
                 setActiveSession(null);
                 setChatMessages([]);
                 setHistoryMsgs([]);
+                setWsConnected(false);
+                setIsStreaming(false);
+                setIsWaiting(false);
             }
-            // Refresh session lists
-            const r1 = await fetch(`/api/agents/${id}/sessions?scope=mine`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (r1.ok) setSessions(await r1.json());
-            const r2 = await fetch(`/api/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (r2.ok) {
-                const all2 = await r2.json();
-                setAllSessions(all2.filter((s: any) => s.source_channel !== 'trigger'));
-            }
+            await fetchMySessions(false, id);
+            await fetchAllSessions();
         } catch (e: any) {
             alert(e.message || 'Delete failed');
         }
     };
-
-    const selectSession = async (sess: any) => {
-        setChatMessages([]);
-        setHistoryMsgs([]);
-        setActiveSession(sess);
-        // Always load stored messages for the selected session
-        const tkn = localStorage.getItem('token');
-        const res = await fetch(`/api/agents/${id}/sessions/${sess.id}/messages`, { headers: { Authorization: `Bearer ${tkn}` } });
-        if (res.ok) {
-            const msgs = await res.json();
-            // Agent-to-agent sessions are always read-only
-            const isAgentSession = sess.source_channel === 'agent' || sess.participant_type === 'agent';
-            if (!isAgentSession && sess.user_id === String(currentUser?.id)) {
-                // Own session: load into chatMessages so WS can append new replies seamlessly
-                setChatMessages(msgs.map((m: any) => parseChatMsg({
-                    role: m.role, content: m.content,
-                    ...(m.toolName && { toolName: m.toolName, toolArgs: m.toolArgs, toolStatus: m.toolStatus, toolResult: m.toolResult }),
-                    ...(m.thinking && { thinking: m.thinking }),
-                    ...(m.created_at && { timestamp: m.created_at }),
-                })));
-            } else {
-                // Other user's session or agent-to-agent: read-only view
-                setHistoryMsgs(msgs);
-            }
-        }
-    };
-
-    // Websocket chat state (for 'me' conversation)
-    const token = useAuthStore((s) => s.token);
-    const currentUser = useAuthStore((s) => s.user);
-    const isAdmin = currentUser?.role === 'platform_admin' || currentUser?.role === 'org_admin';
 
     // Expiry editor modal state
     const [showExpiryModal, setShowExpiryModal] = useState(false);
@@ -1031,11 +1253,22 @@ function AgentDetailInner() {
     };
 
 
-    // Reset state whenever the viewed agent changes
     useEffect(() => {
+        currentAgentIdRef.current = id;
+    }, [id]);
+
+    // Reset visible state whenever the viewed agent changes.
+    // Existing background sockets keep running and will be cleaned up on unmount.
+    useEffect(() => {
+        sessionMsgAbortRef.current?.abort();
+        activeSessionIdRef.current = null;
         setActiveSession(null);
         setChatMessages([]);
         setHistoryMsgs([]);
+        setIsStreaming(false);
+        setIsWaiting(false);
+        setWsConnected(false);
+        wsRef.current = null;
         setChatScope('mine');
         setAgentExpired(false);
         settingsInitRef.current = false;
@@ -1043,105 +1276,173 @@ function AgentDetailInner() {
 
     useEffect(() => {
         if (!id || !token || activeTab !== 'chat') return;
-        // Load sessions when entering chat tab; auto-select first and load its history
-        fetchMySessions().then((data: any) => {
+        fetchMySessions(false, id).then((data: any) => {
+            if (currentAgentIdRef.current !== id) return;
             setSessionsLoading(false);
             if (data && data.length > 0) selectSession(data[0]);
         });
-    }, [id, activeTab]);
+    }, [id, token, activeTab]);
+
+    const ensureSessionSocket = (sess: any, agentId: string, authToken: string) => {
+        const sessionId = String(sess.id);
+        const key = buildSessionRuntimeKey(agentId, sessionId);
+        const existing = wsMapRef.current[key];
+        if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) return;
+        reconnectDisabledRef.current[key] = false;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const sessionParam = `&session_id=${sessionId}`;
+
+        const scheduleReconnect = () => {
+            if (reconnectDisabledRef.current[key]) return;
+            clearReconnectTimer(key);
+            reconnectTimerRef.current[key] = setTimeout(() => {
+                reconnectTimerRef.current[key] = null;
+                if (!reconnectDisabledRef.current[key]) ensureSessionSocket(sess, agentId, authToken);
+            }, 2000);
+        };
+
+        const ws = new WebSocket(`${protocol}//${window.location.host}/ws/chat/${agentId}?token=${authToken}${sessionParam}`);
+        wsMapRef.current[key] = ws;
+        ws.onopen = () => {
+            if (reconnectDisabledRef.current[key]) {
+                ws.close();
+                return;
+            }
+            if (currentAgentIdRef.current === agentId && activeSessionIdRef.current === sessionId) {
+                wsRef.current = ws;
+                setWsConnected(true);
+            }
+        };
+        ws.onclose = (e) => {
+            if (wsMapRef.current[key] === ws) delete wsMapRef.current[key];
+            setSessionUiState(key, { isWaiting: false, isStreaming: false });
+            const isActiveRuntime = currentAgentIdRef.current === agentId && activeSessionIdRef.current === sessionId;
+            if (isActiveRuntime) {
+                wsRef.current = null;
+                setWsConnected(false);
+                setIsWaiting(false);
+                setIsStreaming(false);
+            }
+            if (e.code === 4003 || e.code === 4002) {
+                reconnectDisabledRef.current[key] = true;
+                clearReconnectTimer(key);
+                if (isActiveRuntime && e.code === 4003) setAgentExpired(true);
+                return;
+            }
+            scheduleReconnect();
+        };
+        ws.onerror = (error) => {
+            const isActiveRuntime = currentAgentIdRef.current === agentId && activeSessionIdRef.current === sessionId;
+            if (isActiveRuntime) setWsConnected(false);
+            console.warn(`WebSocket error for session ${sessionId}:`, error);
+            // Error automatically triggers onclose with abnormal code, which handles reconnect
+        };
+        ws.onmessage = (e) => {
+            const d = JSON.parse(e.data);
+            const isActiveRuntime = currentAgentIdRef.current === agentId && activeSessionIdRef.current === sessionId;
+            if (['thinking', 'chunk', 'tool_call', 'done', 'error', 'quota_exceeded'].includes(d.type)) {
+                const nextStreaming = ['thinking', 'chunk', 'tool_call'].includes(d.type);
+                const endStreaming = ['done', 'error', 'quota_exceeded'].includes(d.type);
+                setSessionUiState(key, {
+                    isWaiting: false,
+                    isStreaming: endStreaming ? false : nextStreaming,
+                });
+            }
+            if (!isActiveRuntime) {
+                if (['done', 'error', 'quota_exceeded', 'trigger_notification'].includes(d.type)) {
+                    fetchMySessions(true, agentId);
+                }
+                if (['done', 'error', 'quota_exceeded'].includes(d.type)) {
+                    closeSessionSocket(key, true);
+                }
+                return;
+            }
+
+            if (['thinking', 'chunk', 'tool_call', 'done', 'error', 'quota_exceeded'].includes(d.type)) {
+                setIsWaiting(false);
+                if (['thinking', 'chunk', 'tool_call'].includes(d.type)) setIsStreaming(true);
+                if (['done', 'error', 'quota_exceeded'].includes(d.type)) setIsStreaming(false);
+            }
+
+            if (d.type === 'thinking') {
+                setChatMessages(prev => {
+                    const last = prev[prev.length - 1];
+                    if (last && last.role === 'assistant' && (last as any)._streaming) {
+                        return [...prev.slice(0, -1), { ...last, thinking: (last.thinking || '') + d.content } as any];
+                    }
+                    return [...prev, { role: 'assistant', content: '', thinking: d.content, _streaming: true } as any];
+                });
+            } else if (d.type === 'tool_call') {
+                setChatMessages(prev => {
+                    const toolMsg: ChatMsg = { role: 'tool_call', content: '', toolName: d.name, toolArgs: d.args, toolStatus: d.status, toolResult: d.result };
+                    if (d.status === 'done') {
+                        const lastIdx = prev.length - 1;
+                        const last = prev[lastIdx];
+                        if (last && last.role === 'tool_call' && last.toolName === d.name && last.toolStatus === 'running') return [...prev.slice(0, lastIdx), toolMsg];
+                    }
+                    return [...prev, toolMsg];
+                });
+            } else if (d.type === 'chunk') {
+                setChatMessages(prev => {
+                    const last = prev[prev.length - 1];
+                    if (last && last.role === 'assistant' && (last as any)._streaming) return [...prev.slice(0, -1), { ...last, content: last.content + d.content } as any];
+                    return [...prev, { role: 'assistant', content: d.content, _streaming: true } as any];
+                });
+            } else if (d.type === 'done') {
+                setChatMessages(prev => {
+                    const last = prev[prev.length - 1];
+                    const thinking = (last && last.role === 'assistant' && (last as any)._streaming) ? last.thinking : undefined;
+                    if (last && last.role === 'assistant' && (last as any)._streaming) return [...prev.slice(0, -1), parseChatMsg({ role: 'assistant', content: d.content, thinking, timestamp: new Date().toISOString() })];
+                    return [...prev, parseChatMsg({ role: d.role, content: d.content, timestamp: new Date().toISOString() })];
+                });
+                fetchMySessions(true, agentId);
+            } else if (d.type === 'error' || d.type === 'quota_exceeded') {
+                const msg = d.content || d.detail || d.message || 'Request denied';
+                setChatMessages(prev => {
+                    const last = prev[prev.length - 1];
+                    if (last && last.role === 'assistant' && last.content === `⚠️ ${msg}`) return prev;
+                    return [...prev, parseChatMsg({ role: 'assistant', content: `⚠️ ${msg}` })];
+                });
+                if (msg.includes('expired') || msg.includes('Setup failed') || msg.includes('no LLM model') || msg.includes('No model')) {
+                    reconnectDisabledRef.current[key] = true;
+                    if (msg.includes('expired')) setAgentExpired(true);
+                }
+            } else if (d.type === 'trigger_notification') {
+                setChatMessages(prev => [...prev, parseChatMsg({ role: 'assistant', content: d.content })]);
+                fetchMySessions(true, agentId);
+            } else {
+                setChatMessages(prev => [...prev, parseChatMsg({ role: d.role, content: d.content })]);
+            }
+        };
+    };
 
     useEffect(() => {
         if (!id || !token || activeTab !== 'chat') return;
-        if (!activeSession) return;  // wait for session to be set
-        // Only connect WS for own sessions (not other users' and not agent-to-agent)
-        const isAgentSession = activeSession.source_channel === 'agent' || activeSession.participant_type === 'agent';
-        if (isAgentSession) return;
-        if (activeSession.user_id && currentUser && activeSession.user_id !== String(currentUser.id)) return;
-        let cancelled = false;
-        const sessionParam = activeSession?.id ? `&session_id=${activeSession.id}` : '';
-        const connect = () => {
-            if (cancelled) return;
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const ws = new WebSocket(`${protocol}//${window.location.host}/ws/chat/${id}?token=${token}${sessionParam}`);
-            ws.onopen = () => { if (cancelled) { ws.close(); return; } setWsConnected(true); wsRef.current = ws; };
-            ws.onclose = (e) => {
-                if (e.code === 4003 || e.code === 4002) {
-                    // 4003 = Agent expired, 4002 = Config error (no model, setup failed)
-                    if (e.code === 4003) setAgentExpired(true);
-                    setWsConnected(false);
-                    setIsWaiting(false);
-                    setIsStreaming(false);
-                    return;
-                }
-                if (!cancelled) { setWsConnected(false); setIsWaiting(false); setIsStreaming(false); setTimeout(connect, 2000); }
-            };
-            ws.onerror = () => { if (!cancelled) setWsConnected(false); };
-            ws.onmessage = (e) => {
-                const d = JSON.parse(e.data);
-                if (['thinking', 'chunk', 'tool_call', 'done', 'error', 'quota_exceeded'].includes(d.type)) {
-                    setIsWaiting(false);
-                    if (['thinking', 'chunk', 'tool_call'].includes(d.type)) setIsStreaming(true);
-                    if (['done', 'error', 'quota_exceeded'].includes(d.type)) setIsStreaming(false);
-                }
-
-                if (d.type === 'thinking') {
-                    setChatMessages(prev => {
-                        const last = prev[prev.length - 1];
-                        if (last && last.role === 'assistant' && (last as any)._streaming) {
-                            return [...prev.slice(0, -1), { ...last, thinking: (last.thinking || '') + d.content } as any];
-                        }
-                        return [...prev, { role: 'assistant', content: '', thinking: d.content, _streaming: true } as any];
-                    });
-                } else if (d.type === 'tool_call') {
-                    setChatMessages(prev => {
-                        const toolMsg: ChatMsg = { role: 'tool_call', content: '', toolName: d.name, toolArgs: d.args, toolStatus: d.status, toolResult: d.result };
-                        if (d.status === 'done') {
-                            const lastIdx = prev.length - 1;
-                            const last = prev[lastIdx];
-                            if (last && last.role === 'tool_call' && last.toolName === d.name && last.toolStatus === 'running') return [...prev.slice(0, lastIdx), toolMsg];
-                        }
-                        return [...prev, toolMsg];
-                    });
-                } else if (d.type === 'chunk') {
-                    setChatMessages(prev => {
-                        const last = prev[prev.length - 1];
-                        if (last && last.role === 'assistant' && (last as any)._streaming) return [...prev.slice(0, -1), { ...last, content: last.content + d.content } as any];
-                        return [...prev, { role: 'assistant', content: d.content, _streaming: true } as any];
-                    });
-                } else if (d.type === 'done') {
-                    setChatMessages(prev => {
-                        const last = prev[prev.length - 1];
-                        const thinking = (last && last.role === 'assistant' && (last as any)._streaming) ? last.thinking : undefined;
-                        if (last && last.role === 'assistant' && (last as any)._streaming) return [...prev.slice(0, -1), { role: 'assistant', content: d.content, thinking, timestamp: new Date().toISOString() }];
-                        return [...prev, { role: d.role, content: d.content, timestamp: new Date().toISOString() }];
-                    });
-                    // Silently refresh session list to update last_message_at (no loading spinner)
-                    fetchMySessions(true);
-                } else if (d.type === 'error' || d.type === 'quota_exceeded') {
-                    const msg = d.content || d.detail || d.message || 'Request denied';
-                    // Only add message if not a duplicate of the last one
-                    setChatMessages(prev => {
-                        const last = prev[prev.length - 1];
-                        if (last && last.role === 'assistant' && last.content === `⚠️ ${msg}`) return prev;
-                        return [...prev, { role: 'assistant', content: `⚠️ ${msg}` }];
-                    });
-                    // Permanent errors — stop reconnecting
-                    if (msg.includes('expired') || msg.includes('Setup failed') || msg.includes('no LLM model') || msg.includes('No model')) {
-                        cancelled = true;
-                        if (msg.includes('expired')) setAgentExpired(true);
-                    }
-                } else if (d.type === 'trigger_notification') {
-                    // Trigger fired — show the result as a new assistant message
-                    setChatMessages(prev => [...prev, { role: 'assistant', content: d.content }]);
-                    fetchMySessions(true);
-                } else {
-                    setChatMessages(prev => [...prev, { role: d.role, content: d.content }]);
-                }
-            };
-        };
-        connect();
-        return () => { cancelled = true; wsRef.current?.close(); wsRef.current = null; setWsConnected(false); };
+        if (!activeSession) {
+            syncActiveSocketState(null, id);
+            return;
+        }
+        activeSessionIdRef.current = String(activeSession.id);
+        if (!isWritableSession(activeSession)) {
+            syncActiveSocketState(activeSession, id);
+            return;
+        }
+        ensureSessionSocket(activeSession, id, token);
+        syncActiveSocketState(activeSession, id);
     }, [id, token, activeTab, activeSession?.id]);
+
+    useEffect(() => {
+        return () => {
+            sessionMsgAbortRef.current?.abort();
+            Object.keys(reconnectDisabledRef.current).forEach((key) => { reconnectDisabledRef.current[key] = true; });
+            Object.keys(reconnectTimerRef.current).forEach((key) => clearReconnectTimer(key));
+            Object.values(wsMapRef.current).forEach((ws) => {
+                if (ws.readyState !== WebSocket.CLOSED) ws.close();
+            });
+            wsMapRef.current = {};
+            wsRef.current = null;
+        };
+    }, []);
 
     // Smart scroll: only auto-scroll if user is at the bottom
     const isNearBottom = useRef(true);
@@ -1172,6 +1473,64 @@ function AgentDetailInner() {
         }, 100);
         return () => clearTimeout(timer);
     }, [historyMsgs, activeSession?.id]);
+    // Memoized component for each chat message to avoid re-renders while typing
+    const ChatMessageItem = React.useMemo(() => React.memo(({ msg, i, isLeft, t }: { msg: any, i: number, isLeft: boolean, t: any }) => {
+        const fe = msg.fileName?.split('.').pop()?.toLowerCase() ?? '';
+        const fi = fe === 'pdf' ? '📄' : (fe === 'csv' || fe === 'xlsx' || fe === 'xls') ? '📊' : (fe === 'docx' || fe === 'doc') ? '📝' : '📎';
+        const isImage = msg.imageUrl && ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(fe);
+        
+        const timestampHtml = msg.timestamp ? (() => {
+            const d = new Date(msg.timestamp);
+            const now = new Date();
+            const diffMs = now.getTime() - d.getTime();
+            const isToday = d.toDateString() === now.toDateString();
+            let timeStr = '';
+            if (isToday) timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            else if (diffMs < 7 * 86400000) timeStr = d.toLocaleDateString([], { weekday: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            else timeStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return (
+                <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px', opacity: 0.6, display: 'flex', alignItems: 'center', justifyContent: isLeft ? 'flex-start' : 'flex-end' }}>
+                    {timeStr}
+                    {msg.content && <CopyMessageButton text={msg.content} />}
+                </div>
+            );
+        })() : null;
+
+        return (
+            <div key={i} style={{ display: 'flex', flexDirection: isLeft ? 'row' : 'row-reverse', gap: '8px', marginBottom: '8px' }}>
+                <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: isLeft ? 'var(--bg-elevated)' : 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', flexShrink: 0, color: 'var(--text-secondary)', fontWeight: 600 }}>{isLeft ? (msg.sender_name ? msg.sender_name[0] : 'A') : 'U'}</div>
+                <div style={{ maxWidth: '75%', padding: '8px 12px', borderRadius: '12px', background: isLeft ? 'var(--bg-secondary)' : 'rgba(16,185,129,0.1)', fontSize: '13px', lineHeight: '1.5', wordBreak: 'break-word' }}>
+                    {isLeft && msg.sender_name && <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginBottom: '2px', fontWeight: 600 }}>🤖 {msg.sender_name}</div>}
+                    {isImage ? (
+                        <div style={{ marginBottom: '4px' }}>
+                            <img src={msg.imageUrl} alt={msg.fileName} style={{ maxWidth: '200px', maxHeight: '150px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }} loading="lazy" />
+                        </div>
+                    ) : (msg.fileName && (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: isLeft ? 'rgba(0,0,0,0.05)' : 'rgba(0,0,0,0.08)', borderRadius: '6px', padding: '4px 8px', marginBottom: msg.content ? '4px' : '0', fontSize: '11px', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>
+                            <span>{fi}</span>
+                            <span style={{ fontWeight: 500, color: 'var(--text-primary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.fileName}</span>
+                        </div>
+                    ))}
+                    {msg.thinking && (
+                        <details style={{ marginBottom: '8px', fontSize: '12px', background: 'rgba(147, 130, 220, 0.08)', borderRadius: '6px', border: '1px solid rgba(147, 130, 220, 0.15)' }}>
+                            <summary style={{ padding: '6px 10px', cursor: 'pointer', color: 'rgba(147, 130, 220, 0.9)', fontWeight: 500, userSelect: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>💭 Thinking</summary>
+                            <div style={{ padding: '4px 10px 8px', fontSize: '12px', lineHeight: '1.6', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '300px', overflow: 'auto' }}>{msg.thinking}</div>
+                        </details>
+                    )}
+                    {msg.role === 'assistant' ? (
+                        (msg as any)._streaming && !msg.content ? (
+                            <div className="thinking-indicator">
+                                <div className="thinking-dots"><span /><span /><span /></div>
+                                <span style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{t('agent.chat.thinking', 'Thinking...')}</span>
+                            </div>
+                        ) : <MarkdownRenderer content={msg.content} />
+                    ) : <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>}
+                    {timestampHtml}
+                </div>
+            </div>
+        );
+    }), [t]);
+
     const handleChatScroll = () => {
         const el = chatContainerRef.current;
         if (!el) return;
@@ -1206,7 +1565,10 @@ function AgentDetailInner() {
     }, [activeSession?.id, activeTab]);
 
     const sendChatMsg = () => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+        if (!id || !activeSession?.id) return;
+        const activeRuntimeKey = buildSessionRuntimeKey(id, String(activeSession.id));
+        const activeSocket = wsMapRef.current[activeRuntimeKey];
+        if (!activeSocket || activeSocket.readyState !== WebSocket.OPEN) return;
         if (!chatInput.trim() && attachedFiles.length === 0) return;
         
         let userMsg = chatInput.trim();
@@ -1243,14 +1605,15 @@ function AgentDetailInner() {
 
         setIsWaiting(true);
         setIsStreaming(false);
-        setChatMessages(prev => [...prev, { 
+        setSessionUiState(activeRuntimeKey, { isWaiting: true, isStreaming: false });
+        setChatMessages(prev => [...prev, parseChatMsg({ 
             role: 'user', 
             content: userMsg, 
             fileName: attachedFiles.map(f => f.name).join(', '), 
             imageUrl: attachedFiles.length === 1 ? attachedFiles[0].imageUrl : undefined, 
             timestamp: new Date().toISOString() 
-        }]);
-        wsRef.current.send(JSON.stringify({ 
+        })]);
+        activeSocket.send(JSON.stringify({
             content: contentForLLM, 
             display_content: userMsg, 
             file_name: attachedFiles.map(f => f.name).join(', ') 
@@ -1703,49 +2066,49 @@ function AgentDetailInner() {
                             {/* Metric cards */}
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '24px' }}>
                                 <div className="card">
-                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>{t('agent.tabs.status')}</div>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>📋 {t('agent.tabs.status')}</div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <span className={`status-dot ${statusKey}`} />
                                         <span style={{ fontSize: '16px', fontWeight: 500 }}>{t(`agent.status.${statusKey}`)}</span>
                                     </div>
                                 </div>
                                 <div className="card">
-                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>{t('agent.settings.today')} Token</div>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>🗓️ {t('agent.settings.today')} Token</div>
                                     <div style={{ fontSize: '22px', fontWeight: 600 }}>{formatTokens(agent.tokens_used_today)}</div>
                                     {agent.max_tokens_per_day && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{t('agent.settings.noLimit')} {formatTokens(agent.max_tokens_per_day)}</div>}
                                 </div>
                                 <div className="card">
-                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>{t('agent.settings.month')} Token</div>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>📅 {t('agent.settings.month')} Token</div>
                                     <div style={{ fontSize: '22px', fontWeight: 600 }}>{formatTokens(agent.tokens_used_month)}</div>
                                     {agent.max_tokens_per_month && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{t('agent.settings.noLimit')} {formatTokens(agent.max_tokens_per_month)}</div>}
                                 </div>
                                 {/* Native agent metrics */}
                                 {(agent as any)?.agent_type !== 'openclaw' && (<>
                                 <div className="card">
-                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>LLM Calls Today</div>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>{t('agent.status.llmCallsToday')}</div>
                                     <div style={{ fontSize: '22px', fontWeight: 600 }}>{((agent as any).llm_calls_today || 0).toLocaleString()}</div>
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>Max: {((agent as any).max_llm_calls_per_day || 100).toLocaleString()}</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{t('agent.status.max')}: {((agent as any).max_llm_calls_per_day || 100).toLocaleString()}</div>
                                 </div>
                                 <div className="card">
-                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>Total Token</div>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>{t('agent.status.totalToken')}</div>
                                     <div style={{ fontSize: '22px', fontWeight: 600 }}>{formatTokens((agent as any).tokens_used_total || 0)}</div>
                                 </div>
                                 {metrics && (
                                     <>
                                         <div className="card">
-                                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>{t('agent.tasks.done')}</div>
+                                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>✅ {t('agent.tasks.done')}</div>
                                             <div style={{ fontSize: '22px', fontWeight: 600 }}>{metrics.tasks?.done || 0}/{metrics.tasks?.total || 0}</div>
                                             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}> {metrics.tasks?.completion_rate || 0}%</div>
                                         </div>
                                         <div className="card">
-                                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>Pending</div>
+                                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>{t('agent.status.pending')}</div>
                                             <div style={{ fontSize: '22px', fontWeight: 600, color: metrics.approvals?.pending > 0 ? 'var(--warning)' : 'inherit' }}>{metrics.approvals?.pending || 0}</div>
                                         </div>
                                         <div className="card" style={{ position: 'relative' }}>
                                             <div className="metric-tooltip-trigger" style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px', cursor: 'help', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                                {i18n.language?.startsWith('zh') ? '24h 活动' : '24h Actions'}
+                                                {t('agent.status.24hActions')}
                                                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="6.5" /><path d="M8 7v4M8 5.5v0" /></svg>
-                                                <span className="metric-tooltip">{i18n.language?.startsWith('zh') ? '过去 24 小时内该 Agent 的所有操作记录，包括对话、工具调用、任务执行等' : 'Total recorded operations in the past 24 hours, including chats, tool calls, task executions, etc.'}</span>
+                                                <span className="metric-tooltip">{t('agent.status.24hActionsTooltip')}</span>
                                             </div>
                                             <div style={{ fontSize: '22px', fontWeight: 600 }}>{metrics.activity?.actions_last_24h || 0}</div>
                                         </div>
@@ -1756,12 +2119,12 @@ function AgentDetailInner() {
                                 {(agent as any)?.agent_type === 'openclaw' && (
                                     <div className="card">
                                         <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>
-                                            {i18n.language?.startsWith('zh') ? '最近连接' : 'Last Seen'}
+                                            {t('agent.openclaw.lastSeen')}
                                         </div>
                                         <div style={{ fontSize: '16px', fontWeight: 500 }}>
                                             {(agent as any).openclaw_last_seen
                                                 ? new Date((agent as any).openclaw_last_seen).toLocaleString()
-                                                : (i18n.language?.startsWith('zh') ? '尚未连接' : 'Not connected')}
+                                                : t('agent.openclaw.notConnected')}
                                         </div>
                                     </div>
                                 )}
@@ -1770,14 +2133,14 @@ function AgentDetailInner() {
                             {/* Agent Profile & Model Info */}
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
                                 <div className="card">
-                                    <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>📋 Agent Profile</h3>
+                                    <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>{t('agent.profile.title')}</h3>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', gap: '12px' }}>
                                             <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>{t('agent.fields.role')}</span>
                                             <span title={agent.role_description || ''} style={{ textAlign: 'right', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>{agent.role_description || '—'}</span>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                            <span style={{ color: 'var(--text-tertiary)' }}>Created</span>
+                                            <span style={{ color: 'var(--text-tertiary)' }}>{t('agent.profile.created')}</span>
                                             <span>{agent.created_at ? formatDate(agent.created_at) : '—'}</span>
                                         </div>
                                         {(agent as any).creator_username && (
@@ -1787,29 +2150,29 @@ function AgentDetailInner() {
                                             </div>
                                         )}
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                            <span style={{ color: 'var(--text-tertiary)' }}>Last Active</span>
+                                            <span style={{ color: 'var(--text-tertiary)' }}>{t('agent.profile.lastActive')}</span>
                                             <span>{agent.last_active_at ? formatDate(agent.last_active_at) : '—'}</span>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                            <span style={{ color: 'var(--text-tertiary)' }}>🌐 Timezone</span>
+                                            <span style={{ color: 'var(--text-tertiary)' }}>{t('agent.profile.timezone')}</span>
                                             <span>{(agent as any).effective_timezone || agent.timezone || 'UTC'}</span>
                                         </div>
                                     </div>
                                 </div>
                                 {(agent as any)?.agent_type !== 'openclaw' ? (
                                 <div className="card">
-                                    <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>Model Config</h3>
+                                    <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>{t('agent.modelConfig.title')}</h3>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                            <span style={{ color: 'var(--text-tertiary)' }}>Model</span>
+                                            <span style={{ color: 'var(--text-tertiary)' }}>{t('agent.modelConfig.model')}</span>
                                             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}>{modelLabel}</span>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                            <span style={{ color: 'var(--text-tertiary)' }}>Provider</span>
+                                            <span style={{ color: 'var(--text-tertiary)' }}>{t('agent.modelConfig.provider')}</span>
                                             <span style={{ textTransform: 'capitalize' }}>{modelProvider}</span>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                            <span style={{ color: 'var(--text-tertiary)' }}>Context Rounds</span>
+                                            <span style={{ color: 'var(--text-tertiary)' }}>{t('agent.modelConfig.contextRounds')}</span>
                                             <span>{(agent as any).context_window_size || 100}</span>
                                         </div>
                                     </div>
@@ -1817,11 +2180,11 @@ function AgentDetailInner() {
                                 ) : (
                                 <div className="card">
                                     <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>
-                                        {i18n.language?.startsWith('zh') ? 'OpenClaw 连接' : 'OpenClaw Connection'}
+                                        {t('agent.openclaw.connection')}
                                     </h3>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                            <span style={{ color: 'var(--text-tertiary)' }}>{i18n.language?.startsWith('zh') ? '类型' : 'Type'}</span>
+                                            <span style={{ color: 'var(--text-tertiary)' }}>{t('agent.openclaw.type')}</span>
                                             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                 <span style={{
                                                     fontSize: '10px', padding: '2px 6px', borderRadius: '4px',
@@ -1831,15 +2194,15 @@ function AgentDetailInner() {
                                             </span>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                            <span style={{ color: 'var(--text-tertiary)' }}>{i18n.language?.startsWith('zh') ? '最近连接' : 'Last Seen'}</span>
+                                            <span style={{ color: 'var(--text-tertiary)' }}>{t('agent.openclaw.lastSeen')}</span>
                                             <span>{(agent as any).openclaw_last_seen
                                                 ? new Date((agent as any).openclaw_last_seen).toLocaleString()
-                                                : (i18n.language?.startsWith('zh') ? '尚未连接' : 'Never')}
+                                                : t('agent.openclaw.never')}
                                             </span>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                            <span style={{ color: 'var(--text-tertiary)' }}>{i18n.language?.startsWith('zh') ? '模型' : 'Model'}</span>
-                                            <span style={{ color: 'var(--text-secondary)' }}>{i18n.language?.startsWith('zh') ? '由 OpenClaw 实例管理' : 'Managed by OpenClaw'}</span>
+                                            <span style={{ color: 'var(--text-tertiary)' }}>{t('agent.openclaw.model')}</span>
+                                            <span style={{ color: 'var(--text-secondary)' }}>{t('agent.openclaw.managedBy')}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -1869,7 +2232,7 @@ function AgentDetailInner() {
                             {/* Quick Actions */}
                             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
                                 <button className="btn btn-secondary" onClick={() => setActiveTab('chat')}>{t('agent.actions.chat')}</button>
-                                {(agent as any)?.agent_type !== 'openclaw' && <button className="btn btn-secondary" onClick={() => setActiveTab('aware')}>Aware</button>}
+                                {(agent as any)?.agent_type !== 'openclaw' && <button className="btn btn-secondary" onClick={() => setActiveTab('aware')}>{t('agent.tabs.aware')}</button>}
                                 <button className="btn btn-secondary" onClick={() => setActiveTab('settings')}>{t('agent.tabs.settings')}</button>
                             </div>
                         </div>
@@ -2184,7 +2547,7 @@ function AgentDetailInner() {
                                         className="btn btn-ghost"
                                         style={{ width: '100%', fontSize: '12px', color: 'var(--text-tertiary)', padding: '8px', marginTop: '4px' }}
                                     >
-                                        {i18n.language?.startsWith('zh') ? `显示更多 ${hiddenActiveCount} 项...` : `Show ${hiddenActiveCount} more...`}
+                                        {t('agent.aware.showMore', { count: hiddenActiveCount })}
                                     </button>
                                 )}
                                 {showAllFocus && activeFocusItems.length > SECTION_PAGE_SIZE && (
@@ -2193,7 +2556,7 @@ function AgentDetailInner() {
                                         className="btn btn-ghost"
                                         style={{ width: '100%', fontSize: '12px', color: 'var(--text-tertiary)', padding: '8px', marginTop: '4px' }}
                                     >
-                                        {i18n.language?.startsWith('zh') ? '收起' : 'Show less'}
+                                        {t('agent.aware.showLess')}
                                     </button>
                                 )}
 
@@ -2211,8 +2574,8 @@ function AgentDetailInner() {
                                             }}
                                         >
                                             {showCompletedFocus
-                                                ? (i18n.language?.startsWith('zh') ? '隐藏已完成' : 'Hide completed')
-                                                : (i18n.language?.startsWith('zh') ? `显示 ${completedFocusItems.length} 项已完成` : `Show ${completedFocusItems.length} completed`)
+                                                ? t('agent.aware.hideCompleted')
+                                                : t('agent.aware.showCompleted', { count: completedFocusItems.length })
                                             }
                                         </button>
                                         {showCompletedFocus && completedFocusItems.map(renderFocusItem)}
@@ -2700,8 +3063,12 @@ function AgentDetailInner() {
                                                 {agentClawhubResults.map((r: any) => (
                                                     <div key={r.slug} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: '8px', marginBottom: '6px', border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)' }}>
                                                         <div style={{ flex: 1 }}>
-                                                            <div style={{ fontWeight: 600, fontSize: '13px' }}>{r.displayName || r.slug}</div>
-                                                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{r.summary?.substring(0, 100)}</div>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                <span style={{ fontWeight: 600, fontSize: '13px' }}>{r.displayName || r.slug}</span>
+                                                                {r.version && <span style={{ fontSize: '10px', color: 'var(--accent-text)', background: 'var(--accent-subtle)', padding: '1px 5px', borderRadius: '4px' }}>v{r.version}</span>}
+                                                            </div>
+                                                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{r.summary?.substring(0, 100)}{r.summary?.length > 100 ? '...' : ''}</div>
+                                                            {r.updatedAt && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px', opacity: 0.7 }}>Updated {new Date(r.updatedAt).toLocaleDateString()}</div>}
                                                         </div>
                                                         <button
                                                             className="btn btn-secondary"
@@ -2878,12 +3245,12 @@ function AgentDetailInner() {
                                 <div style={{ display: 'flex', alignItems: 'center', padding: '10px 12px 0', gap: '4px', borderBottom: '1px solid var(--border-subtle)' }}>
                                     <button onClick={() => setChatScope('mine')}
                                         style={{ flex: 1, padding: '5px 0', background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: chatScope === 'mine' ? 600 : 400, color: chatScope === 'mine' ? 'var(--text-primary)' : 'var(--text-tertiary)', borderBottom: chatScope === 'mine' ? '2px solid var(--accent-primary)' : '2px solid transparent', paddingBottom: '8px' }}>
-                                        My Sessions
+                                        {t('agent.chat.mySessions')}
                                     </button>
                                     {isAdmin && (
                                         <button onClick={() => { setChatScope('all'); fetchAllSessions(); }}
                                             style={{ flex: 1, padding: '5px 0', background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: chatScope === 'all' ? 600 : 400, color: chatScope === 'all' ? 'var(--text-primary)' : 'var(--text-tertiary)', borderBottom: chatScope === 'all' ? '2px solid var(--accent-primary)' : '2px solid transparent', paddingBottom: '8px' }}>
-                                            All Users
+                                            {t('agent.chat.allUsers')}
                                         </button>
                                     )}
                                 </div>
@@ -2895,7 +3262,7 @@ function AgentDetailInner() {
                                             style={{ width: '100%', padding: '5px 8px', background: 'none', border: '1px solid var(--border-subtle)', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '6px' }}
                                             onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
                                             onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-secondary)'; }}>
-                                            + New Session
+                                            + {t('agent.chat.newSession')}
                                         </button>
                                     </div>
                                 )}
@@ -2906,7 +3273,7 @@ function AgentDetailInner() {
                                         sessionsLoading ? (
                                             <div style={{ padding: '20px 12px', fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>
                                         ) : sessions.length === 0 ? (
-                                            <div style={{ padding: '20px 12px', fontSize: '12px', color: 'var(--text-tertiary)' }}>No sessions yet.<br />Click "+ New Session" to start.</div>
+                                            <div style={{ padding: '20px 12px', fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('agent.chat.noSessionsYet')}<br />{t('agent.chat.clickToStart')}</div>
                                         ) : sessions.map((s: any) => {
                                             const isActive = activeSession?.id === s.id;
                                             const isOwn = s.user_id === String(currentUser?.id);
@@ -2959,8 +3326,21 @@ function AgentDetailInner() {
                                                     ))}
                                                 </select>
                                             </div>
+                                            {/* Loading skeleton */}
+                                            {allSessionsLoading ? (
+                                                <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                    {[...Array(6)].map((_, i) => (
+                                                        <div key={i} style={{ padding: '6px 0', animation: 'pulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.1}s` }}>
+                                                            <div style={{ height: '12px', width: `${70 + (i % 3) * 10}%`, background: 'var(--bg-tertiary)', borderRadius: '4px', marginBottom: '6px' }} />
+                                                            <div style={{ height: '10px', width: `${40 + (i % 4) * 8}%`, background: 'var(--bg-tertiary)', borderRadius: '3px', opacity: 0.6 }} />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : allSessions.length === 0 ? (
+                                                <div style={{ padding: '20px 12px', fontSize: '12px', color: 'var(--text-tertiary)', textAlign: 'center' }}>{t('agent.chat.noSessionsYet')}</div>
+                                            ) : null}
                                             {/* Filtered session list */}
-                                            {allSessions
+                                            {!allSessionsLoading && allSessions
                                                 .filter((s: any) => !allUserFilter || (s.username || s.user_id) === allUserFilter)
                                                 .map((s: any) => {
                                                     const isActive = activeSession?.id === s.id;
@@ -3011,8 +3391,8 @@ function AgentDetailInner() {
                             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', minWidth: 0, overflow: 'hidden' }}>
                                 {!activeSession ? (
                                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: '13px', flexDirection: 'column', gap: '8px' }}>
-                                        <div>No session selected</div>
-                                        <button className="btn btn-secondary" onClick={createNewSession} style={{ fontSize: '12px' }}>Start a new session</button>
+                                        <div>{t('agent.chat.noSessionSelected')}</div>
+                                        <button className="btn btn-secondary" onClick={createNewSession} style={{ fontSize: '12px' }}>{t('agent.chat.startNewSession')}</button>
                                     </div>
                                 ) : (activeSession.user_id && currentUser && activeSession.user_id !== String(currentUser.id)) || activeSession.source_channel === 'agent' || activeSession.participant_type === 'agent' ? (
                                     /* ── Read-only history view (other user's session or agent-to-agent) ── */
@@ -3021,8 +3401,22 @@ function AgentDetailInner() {
                                             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '12px', padding: '4px 8px', background: 'var(--bg-secondary)', borderRadius: '4px', display: 'inline-block' }}>
                                                 {activeSession.source_channel === 'agent' ? `🤖 Agent Conversation · ${activeSession.username || 'Agents'}` : `Read-only · ${activeSession.username || 'User'}`}
                                             </div>
-                                            {historyMsgs.map((m: any, i: number) => {
-                                                if (m.role === 'tool_call') {
+                                            {(() => {
+                                                // For A2A sessions, determine which participant is "this agent" (left side)
+                                                // Use agent.name matching against sender_name from messages
+                                                const isA2A = activeSession.source_channel === 'agent' || activeSession.participant_type === 'agent';
+                                                const thisAgentName = (agent as any)?.name;
+                                                // Find this agent's participant_id from loaded messages
+                                                const thisAgentPid = isA2A && thisAgentName
+                                                    ? historyMsgs.find((m: any) => m.sender_name === thisAgentName)?.participant_id
+                                                    : null;
+                                                return historyMsgs.map((m: any, i: number) => {
+                                                // Determine if this message is from "this agent" (left) or peer (right)
+                                                // Actually, "this agent" should be on the RIGHT (like 'me'), and peer on the LEFT
+                                                const isLeft = isA2A && thisAgentPid
+                                                    ? m.participant_id !== thisAgentPid
+                                                    : m.role === 'assistant';
+                                            if (m.role === 'tool_call') {
                                                     const tName = m.toolName || (() => { try { return JSON.parse(m.content || '{}').name; } catch { return 'tool'; } })();
                                                     const tArgs = m.toolArgs || (() => { try { return JSON.parse(m.content || '{}').args; } catch { return {}; } })();
                                                     const tResult = m.toolResult ?? (() => { try { return JSON.parse(m.content || '{}').result; } catch { return ''; } })();
@@ -3069,55 +3463,10 @@ function AgentDetailInner() {
                                                     return null;
                                                 }
                                                 return (
-                                                    <div key={i} style={{ display: 'flex', flexDirection: m.role === 'assistant' ? 'row' : 'row-reverse', gap: '8px', marginBottom: '8px' }}>
-                                                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: m.role === 'assistant' ? 'var(--bg-elevated)' : 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', flexShrink: 0, color: 'var(--text-secondary)', fontWeight: 600 }}>{m.sender_name ? m.sender_name[0] : (m.role === 'assistant' ? 'A' : 'U')}</div>
-                                                        <div style={{ maxWidth: '70%', padding: '8px 12px', borderRadius: '12px', background: m.role === 'assistant' ? 'var(--bg-secondary)' : 'rgba(16,185,129,0.1)', fontSize: '13px', lineHeight: '1.5', wordBreak: 'break-word' }}>
-                                                            {m.sender_name && <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginBottom: '2px', fontWeight: 600 }}>🤖 {m.sender_name}</div>}
-                                                            {(() => {
-                                                                const pm = parseChatMsg({ role: m.role as ChatMsg['role'], content: m.content || '' });
-                                                                const fe = pm.fileName?.split('.').pop()?.toLowerCase() ?? '';
-                                                                const fi = fe === 'pdf' ? '📄' : (fe === 'csv' || fe === 'xlsx' || fe === 'xls') ? '📊' : (fe === 'docx' || fe === 'doc') ? '📝' : '📎';
-                                                                return (
-                                                                    <>
-                                                                        {m.thinking && (
-                                                                            <details style={{
-                                                                                marginBottom: '8px', fontSize: '12px',
-                                                                                background: 'rgba(147, 130, 220, 0.08)', borderRadius: '6px',
-                                                                                border: '1px solid rgba(147, 130, 220, 0.15)',
-                                                                            }}>
-                                                                                <summary style={{
-                                                                                    padding: '6px 10px', cursor: 'pointer',
-                                                                                    color: 'rgba(147, 130, 220, 0.9)', fontWeight: 500,
-                                                                                    userSelect: 'none', display: 'flex', alignItems: 'center', gap: '4px',
-                                                                                }}>
-                                                                                    💭 Thinking
-                                                                                </summary>
-                                                                                <div style={{
-                                                                                    padding: '4px 10px 8px',
-                                                                                    fontSize: '12px', lineHeight: '1.6',
-                                                                                    color: 'var(--text-secondary)',
-                                                                                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                                                                                    maxHeight: '300px', overflow: 'auto',
-                                                                                }}>
-                                                                                    {m.thinking}
-                                                                                </div>
-                                                                            </details>
-                                                                        )}
-                                                                        {pm.fileName && (
-                                                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: 'var(--bg-elevated)', borderRadius: '6px', padding: '4px 8px', marginBottom: pm.content ? '4px' : '0', fontSize: '11px', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>
-                                                                                <span>{fi}</span>
-                                                                                <span style={{ fontWeight: 500, color: 'var(--text-primary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pm.fileName}</span>
-                                                                            </div>
-                                                                        )}
-                                                                        {pm.content ? (m.role === 'assistant' ? <MarkdownRenderer content={pm.content} /> : <div style={{ whiteSpace: 'pre-wrap' }}>{pm.content}</div>) : null}
-                                                                    </>
-                                                                );
-                                                            })()}
-                                                            {m.created_at && <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px', opacity: 0.6 }}>{(() => { const d = new Date(m.created_at); const now = new Date(); const diffMs = now.getTime() - d.getTime(); const isToday = d.toDateString() === now.toDateString(); if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); if (diffMs < 7 * 86400000) return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); })()}</div>}
-                                                        </div>
-                                                    </div>
+                                                    <ChatMessageItem key={i} msg={m} i={i} isLeft={isLeft} t={t} />
                                                 );
-                                            })}
+                                            });
+                                            })()}
                                         </div>
                                         {showHistoryScrollBtn && (
                                             <button onClick={scrollHistoryToBottom} style={{ position: 'absolute', bottom: '20px', right: '20px', width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', zIndex: 10 }} title="Scroll to bottom">↓</button>
@@ -3179,57 +3528,7 @@ function AgentDetailInner() {
                                                     return null;
                                                 }
                                                 return (
-                                                    <div key={i} style={{ display: 'flex', flexDirection: msg.role === 'assistant' ? 'row' : 'row-reverse', gap: '8px', marginBottom: '8px' }}>
-                                                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: msg.role === 'assistant' ? 'var(--bg-elevated)' : 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', flexShrink: 0, color: 'var(--text-secondary)', fontWeight: 600 }}>{msg.role === 'user' ? 'U' : 'A'}</div>
-                                                        <div style={{ maxWidth: '70%', padding: '8px 12px', borderRadius: '12px', background: msg.role === 'assistant' ? 'var(--bg-secondary)' : 'rgba(16,185,129,0.1)', fontSize: '13px', lineHeight: '1.5', wordBreak: 'break-word' }}>
-                                                            {msg.fileName && (() => {
-                                                                const fe = msg.fileName!.split('.').pop()?.toLowerCase() ?? '';
-                                                                const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(fe);
-                                                                if (isImage && msg.imageUrl) {
-                                                                    return (<div style={{ marginBottom: '4px' }}>
-                                                                        <img src={msg.imageUrl} alt={msg.fileName} style={{ maxWidth: '200px', maxHeight: '150px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }} />
-                                                                    </div>);
-                                                                }
-                                                                const fi = fe === 'pdf' ? '📄' : (fe === 'csv' || fe === 'xlsx' || fe === 'xls') ? '📊' : (fe === 'docx' || fe === 'doc') ? '📝' : '📎';
-                                                                return (<div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: 'rgba(0,0,0,0.08)', borderRadius: '6px', padding: '4px 8px', marginBottom: msg.content ? '4px' : '0', fontSize: '11px', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}><span>{fi}</span><span style={{ fontWeight: 500, color: 'var(--text-primary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.fileName}</span></div>);
-                                                            })()}
-                                                            {msg.thinking && (
-                                                                <details style={{
-                                                                    marginBottom: '8px', fontSize: '12px',
-                                                                    background: 'rgba(147, 130, 220, 0.08)', borderRadius: '6px',
-                                                                    border: '1px solid rgba(147, 130, 220, 0.15)',
-                                                                }}>
-                                                                    <summary style={{
-                                                                        padding: '6px 10px', cursor: 'pointer',
-                                                                        color: 'rgba(147, 130, 220, 0.9)', fontWeight: 500,
-                                                                        userSelect: 'none', display: 'flex', alignItems: 'center', gap: '4px',
-                                                                    }}>
-                                                                        💭 Thinking
-                                                                    </summary>
-                                                                    <div style={{
-                                                                        padding: '4px 10px 8px',
-                                                                        fontSize: '12px', lineHeight: '1.6',
-                                                                        color: 'var(--text-secondary)',
-                                                                        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                                                                        maxHeight: '300px', overflow: 'auto',
-                                                                    }}>
-                                                                        {msg.thinking}
-                                                                    </div>
-                                                                </details>
-                                                            )}
-                                                            {msg.role === 'assistant' ? (
-                                                                (msg as any)._streaming && !msg.content ? (
-                                                                    <div className="thinking-indicator">
-                                                                        <div className="thinking-dots">
-                                                                            <span /><span /><span />
-                                                                        </div>
-                                                                        <span style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{t('agent.chat.thinking', 'Thinking...')}</span>
-                                                                    </div>
-                                                                ) : <MarkdownRenderer content={msg.content} />
-                                                            ) : msg.content ? <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div> : null}
-                                                            {msg.timestamp && <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px', opacity: 0.6, textAlign: msg.role === 'user' ? 'right' : 'left' }}>{(() => { const d = new Date(msg.timestamp); const now = new Date(); const diffMs = now.getTime() - d.getTime(); const isToday = d.toDateString() === now.toDateString(); if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); if (diffMs < 7 * 86400000) return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); })()}</div>}
-                                                        </div>
-                                                    </div>
+                                                    <ChatMessageItem key={i} msg={msg} i={i} isLeft={msg.role === 'assistant'} t={t} />
                                                 );
                                             })}
                                             {isWaiting && (
@@ -3300,12 +3599,22 @@ function AgentDetailInner() {
                                                 </div>
                                             )}
                                             <input ref={chatInputRef} className="chat-input" value={chatInput} onChange={e => setChatInput(e.target.value)}
-                                                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); sendChatMsg(); } }}
+                                                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !isWaiting && !isStreaming) { e.preventDefault(); sendChatMsg(); } }}
                                                 onPaste={handlePaste}
                                                 placeholder={!wsConnected && (!activeSession?.user_id || !currentUser || activeSession.user_id === String(currentUser?.id)) ? 'Connecting...' : attachedFiles.length > 0 ? t('agent.chat.askAboutFile', { name: attachedFiles.length === 1 ? attachedFiles[0].name : `${attachedFiles.length} files` }) : t('chat.placeholder')}
-                                                disabled={!wsConnected || isWaiting || isStreaming} style={{ flex: 1 }} autoFocus />
+                                                disabled={!wsConnected} style={{ flex: 1 }} autoFocus />
                                             {(isStreaming || isWaiting) ? (
-                                                <button className="btn btn-stop-generation" onClick={() => { if (wsRef.current?.readyState === WebSocket.OPEN) { wsRef.current.send(JSON.stringify({ type: 'abort' })); setIsStreaming(false); setIsWaiting(false); } }} style={{ padding: '6px 16px' }} title={t('chat.stop', 'Stop')}>
+                                                <button className="btn btn-stop-generation" onClick={() => {
+                                                    if (!id || !activeSession?.id) return;
+                                                    const activeRuntimeKey = buildSessionRuntimeKey(id, String(activeSession.id));
+                                                    const activeSocket = wsMapRef.current[activeRuntimeKey];
+                                                    if (activeSocket?.readyState === WebSocket.OPEN) {
+                                                        activeSocket.send(JSON.stringify({ type: 'abort' }));
+                                                        setIsStreaming(false);
+                                                        setIsWaiting(false);
+                                                        setSessionUiState(activeRuntimeKey, { isWaiting: false, isStreaming: false });
+                                                    }
+                                                }} style={{ padding: '6px 16px' }} title={t('chat.stop', 'Stop')}>
                                                     <span className="stop-icon" />
                                                 </button>
                                             ) : (
@@ -3373,9 +3682,9 @@ function AgentDetailInner() {
                                     {(logFilter === 'backend' || logFilter === 'heartbeat' || logFilter === 'schedule' || logFilter === 'messages') && (
                                         <>
                                             <span style={{ color: 'var(--text-tertiary)', fontSize: '11px' }}>│</span>
-                                            {filterBtn('heartbeat', '💓 Heartbeat', true)}
-                                            {filterBtn('schedule', '⏰ Schedule/Cron', true)}
-                                            {filterBtn('messages', '📨 Messages', true)}
+                                            {filterBtn('heartbeat', '💓 ' + t('agent.mind.heartbeatTitle'))}
+                                            {filterBtn('schedule', '⏰ ' + t('agent.activityLog.scheduleCron'), true)}
+                                            {filterBtn('messages', '📨 ' + t('agent.activityLog.messages'), true)}
                                         </>
                                     )}
                                     </>)}
@@ -3556,7 +3865,12 @@ function AgentDetailInner() {
 
                 {/* ── Settings Tab ── */}
                 {
-                    activeTab === 'settings' && (() => {
+                    activeTab === 'settings' && (agent as any)?.agent_type === 'openclaw' && (
+                        <OpenClawSettings agent={agent} agentId={id!} />
+                    )
+                }
+                {
+                    activeTab === 'settings' && (agent as any)?.agent_type !== 'openclaw' && (() => {
                         // Check if form has unsaved changes
                         const hasChanges = (
                             settingsForm.primary_model_id !== (agent?.primary_model_id || '') ||
@@ -3904,8 +4218,8 @@ function AgentDetailInner() {
                                 {/* Permission Management */}
                                 {(() => {
                                     const scopeLabels: Record<string, string> = {
-                                        company: '🏢 ' + t('agent.settings.perm.company', 'Company-wide'),
-                                        user: '👤 ' + t('agent.settings.perm.selfOnly', 'Only Me'),
+                                        company: '🏢 ' + t('agent.settings.perm.companyWide', 'Company-wide'),
+                                        user: '👤 ' + t('agent.settings.perm.onlyMe', 'Only Me'),
                                     };
 
                                     const handleScopeChange = async (newScope: string) => {
@@ -3980,8 +4294,8 @@ function AgentDetailInner() {
                                                         <div>
                                                             <div style={{ fontWeight: 500, fontSize: '13px' }}>{scopeLabels[scope]}</div>
                                                             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-                                                                {scope === 'company' && t('agent.settings.perm.companyDesc', 'All users in the organization can use this agent')}
-                                                                {scope === 'user' && t('agent.settings.perm.selfDesc', 'Only the creator can use this agent')}
+                                                                {scope === 'company' && t('agent.settings.perm.companyWideDesc', 'All users in the organization can use this agent')}
+                                                                {scope === 'user' && t('agent.settings.perm.onlyMeDesc', 'Only the creator can use this agent')}
                                                             </div>
                                                         </div>
                                                     </label>
@@ -3992,11 +4306,11 @@ function AgentDetailInner() {
                                             {currentScope === 'company' && isOwner && (
                                                 <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
                                                     <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '8px' }}>
-                                                        {t('agent.settings.perm.accessLevel', 'Default Access Level')}
+                                                        {t('agent.settings.perm.defaultAccess', 'Default Access Level')}
                                                     </label>
                                                     <div style={{ display: 'flex', gap: '8px' }}>
-                                                        {[{ val: 'use', label: '👁️ ' + t('agent.settings.perm.useLevel', 'Use'), desc: t('agent.settings.perm.useDesc', 'Task, Chat, Tools, Skills, Workspace') },
-                                                        { val: 'manage', label: '⚙️ ' + t('agent.settings.perm.manageLevel', 'Manage'), desc: t('agent.settings.perm.manageDesc', 'Full access including Settings, Mind, Relationships') }].map(opt => (
+                                                        {[{ val: 'use', label: '👁️ ' + t('agent.settings.perm.useAccess', 'Use'), desc: t('agent.settings.perm.useAccessDesc', 'Task, Chat, Tools, Skills, Workspace') },
+                                                        { val: 'manage', label: '⚙️ ' + t('agent.settings.perm.manageAccess', 'Manage'), desc: t('agent.settings.perm.manageAccessDesc', 'Full access including Settings, Mind, Relationships') }].map(opt => (
                                                             <label key={opt.val}
                                                                 style={{
                                                                     flex: 1,
