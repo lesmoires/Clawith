@@ -6011,7 +6011,7 @@ async def _install_skill(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
         return "❌ Missing required argument 'source'. Provide a ClawHub slug (e.g. 'market-research') or a GitHub URL."
 
     is_url = source.startswith("http://") or source.startswith("https://")
-    base = ws.parent  # agent data dir
+    base = ws  # agent workspace dir (skills/ lives under workspace/)
 
     try:
         if is_url:
