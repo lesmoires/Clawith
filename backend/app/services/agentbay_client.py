@@ -124,7 +124,9 @@ class AgentBayClient:
         await self._ensure_browser_initialized()
 
         from agentbay import ActOptions
-        await asyncio.to_thread(self._session.browser.operator.act, ActOptions(action=f"type '{text}' in {selector}"))
+        # Explicitly instruct the agent to click and use keyboard, to correctly trigger React/Vue events.
+        action_msg = f"Click on the element matching '{selector}' to focus it, then use the keyboard to type the text '{text}' character by character. This ensures modern web frameworks like React register the input."
+        await asyncio.to_thread(self._session.browser.operator.act, ActOptions(action=action_msg))
         return {"success": True, "selector": selector, "text": text}
 
     # ─── Code Operations ──────────────────────────
