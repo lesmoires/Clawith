@@ -437,12 +437,8 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
             await db.flush()
             session_id = session.id
 
-            # Build system prompt
-            system_prompt = await build_agent_context(agent_id, agent.name, agent.role_description or "")
-
-            # Messages: system + trigger context
+            # Messages: trigger context only (call_llm builds system prompt internally)
             messages = [
-                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": trigger_context},
             ]
 
