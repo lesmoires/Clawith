@@ -1568,10 +1568,33 @@ export default function EnterpriseSettings() {
                                                 </div>
                                             </div>
                                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                <span className={`badge ${m.enabled ? 'badge-success' : 'badge-warning'}`}>
-                                                    {m.enabled ? t('enterprise.llm.enabled') : t('enterprise.llm.disabled')}
-                                                </span>
-                                                {m.supports_vision && <span className="badge" style={{ background: 'rgba(99,102,241,0.15)', color: 'rgb(99,102,241)', fontSize: '10px' }}>👁 Vision</span>}
+                                                {/* Toggle switch for enabled/disabled */}
+                                                <button
+                                                    onClick={async () => {
+                                                        try {
+                                                            const token = localStorage.getItem('token');
+                                                            await fetch(`/api/enterprise/llm-models/${m.id}`, {
+                                                                method: 'PUT',
+                                                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                                                body: JSON.stringify({ enabled: !m.enabled }),
+                                                            });
+                                                            qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] });
+                                                        } catch (e) { console.error(e); }
+                                                    }}
+                                                    title={m.enabled ? t('enterprise.llm.clickToDisable', 'Click to disable') : t('enterprise.llm.clickToEnable', 'Click to enable')}
+                                                    style={{
+                                                        position: 'relative', width: '36px', height: '20px', borderRadius: '10px', border: 'none', cursor: 'pointer', transition: 'background 0.2s',
+                                                        background: m.enabled ? 'var(--success, #00b478)' : 'var(--bg-tertiary, #444)',
+                                                        padding: 0, flexShrink: 0,
+                                                    }}
+                                                >
+                                                    <span style={{
+                                                        position: 'absolute', left: m.enabled ? '18px' : '2px', top: '2px',
+                                                        width: '16px', height: '16px', borderRadius: '50%', background: '#fff',
+                                                        transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                                    }} />
+                                                </button>
+                                                {m.supports_vision && <span className="badge" style={{ background: 'rgba(99,102,241,0.15)', color: 'rgb(99,102,241)', fontSize: '10px' }}>Vision</span>}
                                                 <button className="btn btn-ghost" onClick={() => {
                                                     setEditingModelId(m.id);
                                                     setModelForm({ provider: m.provider, model: m.model, label: m.label, base_url: m.base_url || '', api_key: m.api_key_masked || '', supports_vision: m.supports_vision || false, max_output_tokens: m.max_output_tokens ? String(m.max_output_tokens) : '', temperature: m.temperature !== null && m.temperature !== undefined ? String(m.temperature) : '' });
