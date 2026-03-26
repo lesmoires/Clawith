@@ -47,6 +47,7 @@ class UserOut(BaseModel):
 
 class UserUpdate(BaseModel):
     username: str | None = None
+    email: EmailStr | None = None
     display_name: str | None = None
     avatar_url: str | None = None
     title: str | None = None

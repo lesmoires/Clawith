@@ -159,8 +159,14 @@ async def update_me(
     # Validate username uniqueness if changing
     if "username" in update_data and update_data["username"] != current_user.username:
         existing = await db.execute(select(User).where(User.username == update_data["username"]))
-        if existing.scalar_one_or_none():
+        if existing.scalars().first():
             raise HTTPException(status_code=409, detail="Username already taken")
+
+    # Validate email uniqueness if changing
+    if "email" in update_data and update_data["email"] != current_user.email:
+        dup = await db.execute(select(User).where(User.email == update_data["email"]))
+        if dup.scalars().first():
+            raise HTTPException(status_code=409, detail="Email already in use")
 
     for field, value in update_data.items():
         setattr(current_user, field, value)
