@@ -148,11 +148,18 @@ def _apply_skill_scope(query, current_user: User):
 
 
 def _ensure_skill_write_access(skill: Skill, current_user: User):
-    """Allow platform admins to edit everything; tenant admins can edit only tenant-owned custom skills."""
+    """Allow platform admins to edit everything; tenant admins can edit
+    tenant-owned skills AND builtin (preset) skills visible to their tenant.
+    Builtin skills are treated as presets -- placed during company init,
+    but fully manageable by org_admin afterwards.
+    """
     if current_user.role == "platform_admin":
         return
-    if not current_user.tenant_id or skill.tenant_id != current_user.tenant_id:
-        raise HTTPException(403, "Cannot modify builtin or other-tenant skills")
+    if not current_user.tenant_id:
+        raise HTTPException(403, "Cannot modify skills without a tenant")
+    # Allow org_admin to manage: their own tenant skills OR builtin (preset) skills
+    if skill.tenant_id is not None and skill.tenant_id != current_user.tenant_id:
+        raise HTTPException(403, "Cannot modify other-tenant skills")
 
 
 async def _fetch_github_directory(
@@ -634,8 +641,6 @@ async def delete_skill(skill_id: str, current_user: User = Depends(get_current_a
         skill = result.scalar_one_or_none()
         if not skill:
             raise HTTPException(404, "Skill not found")
-        if skill.is_builtin:
-            raise HTTPException(400, "Cannot delete builtin skill")
         _ensure_skill_write_access(skill, current_user)
         await db.delete(skill)
         await db.commit()
@@ -858,8 +863,6 @@ async def browse_delete(path: str, current_user: User = Depends(get_current_admi
         skill = result.scalar_one_or_none()
         if not skill:
             raise HTTPException(404, "Skill not found")
-        if skill.is_builtin and len(parts) == 1:
-            raise HTTPException(400, "Cannot delete builtin skill")
         _ensure_skill_write_access(skill, current_user)
 
         if len(parts) == 1:
