@@ -386,6 +386,10 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
             model = result.scalar_one_or_none()
             if not model:
                 return
+            # Skip invocation if model is disabled by admin
+            if not model.enabled:
+                logger.warning(f"Agent {agent.name}'s model {model.model} is disabled, skipping trigger invocation")
+                return
 
             # Build trigger context
             context_parts = []

@@ -358,6 +358,10 @@ async def _send_to_agent_background(
             model = result.scalar_one_or_none()
             if not model:
                 return
+            # Skip if model is disabled by admin
+            if not model.enabled:
+                logger.warning(f"Target agent {target_agent_name}'s model {model.model} is disabled, skipping")
+                return
 
             # Create or find a ChatSession for this agent pair
             # Use deterministic UUID so the same pair always gets the same session

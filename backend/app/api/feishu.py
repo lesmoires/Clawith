@@ -1039,17 +1039,23 @@ async def _call_agent_llm(db: AsyncSession, agent_id: uuid.UUID, user_text: str,
     if is_agent_expired(agent):
         return "This Agent has expired and is off duty. Please contact your admin to extend its service."
 
-    # Load primary model
+    # Load primary model (skip if disabled by admin)
     model = None
     if agent.primary_model_id:
         model_result = await db.execute(select(LLMModel).where(LLMModel.id == agent.primary_model_id))
         model = model_result.scalar_one_or_none()
+        if model and not model.enabled:
+            logger.info(f"[Channel] Primary model {model.model} is disabled, skipping")
+            model = None
 
-    # Load fallback model
+    # Load fallback model (skip if disabled by admin)
     fallback_model = None
     if agent.fallback_model_id:
         fb_result = await db.execute(select(LLMModel).where(LLMModel.id == agent.fallback_model_id))
         fallback_model = fb_result.scalar_one_or_none()
+        if fallback_model and not fallback_model.enabled:
+            logger.info(f"[Channel] Fallback model {fallback_model.model} is disabled, skipping")
+            fallback_model = None
 
     # Config-level fallback: primary missing -> use fallback
     if not model and fallback_model:
