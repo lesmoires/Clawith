@@ -1015,6 +1015,17 @@ AGENTBAY_TOOLS = [
                     "default": "",
                     "placeholder": "从阿里云 AgentBay 控制台获取",
                 },
+                {
+                    "key": "os_type",
+                    "label": "Cloud Computer OS",
+                    "type": "select",
+                    "default": "linux",
+                    "options": [
+                        {"value": "linux", "label": "Linux"},
+                        {"value": "windows", "label": "Windows"},
+                    ],
+                    "description": "Operating system for AgentBay cloud desktop (computer tools only)",
+                },
             ],
         },
     },

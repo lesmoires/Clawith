@@ -55,7 +55,8 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
         agentbay: {
             title: 'AgentBay Settings',
             fields: [
-                { key: 'api_key', label: 'API Key (from AgentBay)', type: 'password', placeholder: 'Enter your AgentBay API key' }
+                { key: 'api_key', label: 'API Key (from AgentBay)', type: 'password', placeholder: 'Enter your AgentBay API key' },
+                { key: 'os_type', label: 'Cloud Computer OS', type: 'select', default: 'linux', options: [{ value: 'linux', label: 'Linux' }, { value: 'windows', label: 'Windows' }] },
             ]
         },
         atlassian: {

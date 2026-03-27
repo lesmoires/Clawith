@@ -47,6 +47,7 @@ class AgentBayClient:
             "browser_latest": "browser_latest",
             "code_latest": "linux_latest",
             "linux_latest": "linux_latest",
+            "windows_latest": "windows_latest",
         }
         image_id = image_id_map.get(image, image)
         self._image_type = image
@@ -290,8 +291,8 @@ class AgentBayClient:
     # ─── Computer Operations ──────────────────────────
 
     async def _ensure_computer_session(self):
-        """Ensure a computer (linux desktop) session is active."""
-        if not self._session or self._image_type not in ("computer", "linux_latest"):
+        """Ensure a computer (linux or windows desktop) session is active."""
+        if not self._session or self._image_type not in ("computer", "linux_latest", "windows_latest"):
             await self.create_session("linux_latest")
 
     async def computer_screenshot(self) -> dict:
@@ -567,7 +568,11 @@ async def get_agentbay_client_for_agent(agent_id: uuid.UUID, image_type: str) ->
     if image_type == "browser":
         await client.create_session("browser_latest")
     elif image_type == "computer":
-        await client.create_session("linux_latest")
+        # Read OS preference from tool config (default: linux)
+        os_type = (tool_config or {}).get("os_type", "linux")
+        computer_image = "windows_latest" if os_type == "windows" else "linux_latest"
+        logger.info(f"[AgentBay] Creating computer session with OS: {os_type} (image: {computer_image})")
+        await client.create_session(computer_image)
     else:
         await client.create_session("code_latest")
 
