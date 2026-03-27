@@ -37,6 +37,7 @@ dependencies = [
     "discord.py>=2.3.0",
     "wuying-agentbay-sdk>=0.18.0",
     "pypinyin>=0.52.0",
+    "Pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]

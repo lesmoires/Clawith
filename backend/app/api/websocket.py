@@ -367,10 +367,28 @@ async def call_llm(
                 except Exception:
                     pass
 
+            # ── Vision injection for screenshot tools ──
+            # If the model supports vision, try to inject the actual screenshot
+            # image into the tool result so the LLM can SEE what's on screen.
+            # Without this, the LLM only gets text like "Screenshot saved to ..."
+            # and blindly guesses the page content.
+            tool_content: str | list = str(result)
+            if supports_vision and agent_id:
+                try:
+                    from app.services.vision_inject import try_inject_screenshot_vision
+                    from app.services.agent_tools import WORKSPACE_ROOT
+                    ws_path = WORKSPACE_ROOT / str(agent_id)
+                    vision_content = try_inject_screenshot_vision(tool_name, str(result), ws_path)
+                    if vision_content:
+                        tool_content = vision_content
+                        logger.info(f"[LLM] Injected screenshot vision for {tool_name}")
+                except Exception as e:
+                    logger.warning(f"[LLM] Vision injection failed for {tool_name}: {e}")
+
             api_messages.append(LLMMessage(
                 role="tool",
                 tool_call_id=tc["id"],
-                content=str(result),
+                content=tool_content,
             ))
 
     # Record tokens even on "too many rounds" exit
