@@ -1020,7 +1020,7 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "agentbay_browser_navigate",
-            "description": "使用 AgentBay 浏览器环境访问指定 URL。可用于网页抓取、截图等。需要先配置 AgentBay 通道。",
+            "description": "使用 AgentBay 浏览器环境访问指定 URL。可用于网页抓取、截图等。需要先配置 AgentBay 通道。Tip: after navigating, use browser_observe to identify interactive elements, then use browser_type/browser_click to interact.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1036,11 +1036,11 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "agentbay_browser_click",
-            "description": "在 AgentBay 浏览器中点击指定元素。需要先使用 browser_navigate 打开页面。",
+            "description": "在 AgentBay 浏览器中点击指定元素。selector 可以是 CSS 选择器（如 #btn）或自然语言描述（如 'the Send button' 或 '发送验证码按钮'）。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "selector": {"type": "string", "description": "CSS 选择器，如 #button 或 .class"},
+                    "selector": {"type": "string", "description": "CSS selector (e.g. #button) or natural language description of the element (e.g. 'the blue Submit button')"},
                 },
                 "required": ["selector"],
             },
@@ -1050,11 +1050,11 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "agentbay_browser_type",
-            "description": "在 AgentBay 浏览器的输入框中输入文本。需要先使用 browser_navigate 打开页面。",
+            "description": "在 AgentBay 浏览器的输入框中输入文本。selector 可以是 CSS 选择器或自然语言描述（如 'phone number input' 或 '手机号输入框'）。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "selector": {"type": "string", "description": "输入框的 CSS 选择器"},
+                    "selector": {"type": "string", "description": "CSS selector or natural language description of the input field (e.g. 'the phone number input' or 'input[type=tel]')"},
                     "text": {"type": "string", "description": "要输入的文本"},
                 },
                 "required": ["selector", "text"],

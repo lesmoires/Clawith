@@ -992,7 +992,7 @@ AGENTBAY_TOOLS = [
     {
         "name": "agentbay_browser_navigate",
         "display_name": "AgentBay: 浏览器访问",
-        "description": "使用 AgentBay 浏览器环境访问指定 URL，可获取页面内容或截图。需要先配置 AgentBay 通道。",
+        "description": "使用 AgentBay 浏览器环境访问指定 URL，可获取页面内容或截图。需要先配置 AgentBay 通道。Tip: after navigating, use browser_observe to identify interactive elements, then use browser_type/browser_click to interact.",
         "category": "agentbay",
         "icon": "🌐",
         "is_default": False,
@@ -1021,14 +1021,14 @@ AGENTBAY_TOOLS = [
     {
         "name": "agentbay_browser_click",
         "display_name": "AgentBay: 浏览器点击",
-        "description": "在 AgentBay 浏览器环境中点击指定元素。需要先使用浏览器访问工具打开页面。",
+        "description": "在 AgentBay 浏览器环境中点击指定元素。selector 可以是 CSS 选择器（如 #btn）或自然语言描述（如 'the Send button' 或 '发送验证码按钮'）。",
         "category": "agentbay",
         "icon": "🖱️",
         "is_default": False,
         "parameters_schema": {
             "type": "object",
             "properties": {
-                "selector": {"type": "string", "description": "CSS 选择器，如 #button 或 .class"},
+                "selector": {"type": "string", "description": "CSS selector (e.g. #button) or natural language description of the element (e.g. 'the blue Submit button')"},
             },
             "required": ["selector"],
         },
@@ -1038,14 +1038,14 @@ AGENTBAY_TOOLS = [
     {
         "name": "agentbay_browser_type",
         "display_name": "AgentBay: 浏览器输入",
-        "description": "在 AgentBay 浏览器环境的指定元素中输入文本。需要先使用浏览器访问工具打开页面。",
+        "description": "在 AgentBay 浏览器环境的指定元素中输入文本。selector 可以是 CSS 选择器或自然语言描述（如 'phone number input' 或 '手机号输入框'）。",
         "category": "agentbay",
         "icon": "⌨️",
         "is_default": False,
         "parameters_schema": {
             "type": "object",
             "properties": {
-                "selector": {"type": "string", "description": "输入框的 CSS 选择器"},
+                "selector": {"type": "string", "description": "CSS selector or natural language description of the input field (e.g. 'the phone number input' or 'input[type=tel]')"},
                 "text": {"type": "string", "description": "要输入的文本"},
             },
             "required": ["selector", "text"],
