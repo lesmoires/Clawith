@@ -23,15 +23,16 @@ SCREENSHOT_TOOL_NAMES = frozenset({
 
 # Regex to find screenshot paths in tool result text
 # Matches patterns like: workspace/screenshot_1234567890.png
-#                    or: workspace/desktop_screenshot_1234567890.png
+#                    or: workspace/desktop-screenshot-1234567890.png
 _SCREENSHOT_PATH_RE = re.compile(
-    r"(?:workspace/(?:desktop_)?screenshot_\d+\.png)"
+    r"(?:workspace/(?:desktop[_-])?screenshot[_-]\d+\.png)"
 )
 
 # Max dimension (width) for compressed screenshots sent to the LLM
-_MAX_WIDTH = 1024
-# JPEG quality for compressed screenshots (lower = smaller tokens, less detail)
-_JPEG_QUALITY = 55
+# Use full desktop width to preserve icon/text detail for cloud desktops
+_MAX_WIDTH = 1920
+# JPEG quality for compressed screenshots (higher = more detail for icons/text)
+_JPEG_QUALITY = 80
 
 
 def compress_screenshot_to_base64(file_path: Path) -> Optional[str]:
