@@ -1,13 +1,13 @@
 """Add password_reset_tokens table.
 
 Revision ID: add_password_reset_tokens
-Revises: multi_tenant_registration
+Revises: add_daily_token_usage
 """
 
 from alembic import op
 
 revision = "add_password_reset_tokens"
-down_revision = "multi_tenant_registration"
+down_revision = "add_daily_token_usage"
 branch_labels = None
 depends_on = None
 
