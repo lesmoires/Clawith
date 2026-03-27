@@ -455,6 +455,52 @@ class AgentBayClient:
             logger.warning(f"[AgentBay] Failed to get live URL: {e}")
             return None
 
+    async def get_desktop_snapshot_base64(self) -> str | None:
+        """Take a quick desktop screenshot and return compressed base64 JPEG.
+
+        Used for live preview panel. Calls the same screenshot API as
+        computer_screenshot() but without the sleep delay, and compresses
+        the result for efficient WebSocket transfer.
+        Returns data:image/jpeg;base64,... or None on failure.
+        """
+        if not self._session:
+            return None
+        try:
+            # Use the same screenshot logic as computer_screenshot()
+            try:
+                result = await asyncio.to_thread(self._session.computer.screenshot)
+                if not result.success and "beta_take_screenshot" in (result.error_message or ""):
+                    result = await asyncio.to_thread(self._session.computer.beta_take_screenshot)
+            except Exception as e:
+                if "beta_take_screenshot" in str(e):
+                    result = await asyncio.to_thread(self._session.computer.beta_take_screenshot)
+                else:
+                    raise
+
+            screenshot_data = getattr(result, "data", None)
+            if not screenshot_data:
+                return None
+
+            # Compress to JPEG base64 for live preview
+            import base64
+            from io import BytesIO
+            from PIL import Image
+
+            img = Image.open(BytesIO(screenshot_data))
+            # Resize to max 1280px wide for live preview
+            if img.width > 1280:
+                ratio = 1280 / img.width
+                img = img.resize((int(img.width * ratio), int(img.height * ratio)), Image.LANCZOS)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            buffer = BytesIO()
+            img.save(buffer, format="JPEG", quality=60, optimize=True)
+            b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+            return f"data:image/jpeg;base64,{b64}"
+        except Exception as e:
+            logger.warning(f"[AgentBay] Desktop snapshot failed: {e}")
+            return None
+
     async def get_browser_snapshot_base64(self) -> str | None:
         """Take a quick browser screenshot and return compressed base64 JPEG.
 

@@ -177,8 +177,8 @@ export default function Chat() {
                 if (data.type === 'agentbay_live') {
                     setLiveState(prev => {
                         const next = { ...prev };
-                        if (data.env === 'desktop' && data.url) {
-                            next.desktop = { url: data.url };
+                        if (data.env === 'desktop' && data.screenshot) {
+                            next.desktop = { screenshot: data.screenshot };
                         } else if (data.env === 'browser' && data.screenshot) {
                             next.browser = { screenshot: data.screenshot };
                         } else if (data.env === 'code' && data.output) {

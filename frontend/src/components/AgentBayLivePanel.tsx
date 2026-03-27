@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 /* ── Types ── */
 export interface LivePreviewState {
-    desktop?: { url: string };
+    desktop?: { screenshot: string };
     browser?: { screenshot: string };
     code?: { output: string };
 }
@@ -122,13 +122,17 @@ export default function AgentBayLivePanel({ liveState, visible, onToggle }: Prop
             {/* Content area */}
             <div className="live-panel-content">
                 {activeTab === 'desktop' && liveState.desktop && (
-                    <iframe
-                        src={liveState.desktop.url}
-                        className="live-panel-iframe"
-                        title="Cloud Desktop"
-                        sandbox="allow-scripts allow-same-origin allow-popups"
-                        allow="clipboard-read; clipboard-write"
-                    />
+                    <div className="live-panel-browser">
+                        <img
+                            src={liveState.desktop.screenshot}
+                            alt="Desktop preview"
+                            className="live-panel-screenshot"
+                        />
+                        <div className="live-panel-badge">
+                            <span className="live-dot" />
+                            Live
+                        </div>
+                    </div>
                 )}
 
                 {activeTab === 'browser' && liveState.browser && (

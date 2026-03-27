@@ -746,23 +746,23 @@ async def websocket_chat(
                                 logger.warning(f"[WS] Failed to save tool_call: {_tc_err}")
 
                             # ── AgentBay live preview push ──
-                            # Push real-time preview data when AgentBay tools are used
+                            # Push real-time screenshots when AgentBay tools are used.
+                            # Note: get_link() (VNC) requires premium; we use screenshots instead.
                             try:
-                                from app.services.agentbay_live import detect_agentbay_env, get_desktop_live_url, get_browser_snapshot
+                                from app.services.agentbay_live import detect_agentbay_env, get_desktop_screenshot, get_browser_snapshot
                                 tool_name = data.get("name", "")
                                 env = detect_agentbay_env(tool_name)
                                 if env:
-                                    if env == "desktop" and "desktop" not in _sent_live_envs:
-                                        # Send desktop VNC URL once (it stays valid for the session)
-                                        live_url = await get_desktop_live_url(agent_id)
-                                        if live_url:
+                                    if env == "desktop":
+                                        # Send desktop screenshot after each computer action
+                                        snapshot = await get_desktop_screenshot(agent_id)
+                                        if snapshot:
                                             await websocket.send_json({
                                                 "type": "agentbay_live",
                                                 "env": "desktop",
-                                                "url": live_url,
+                                                "screenshot": snapshot,
                                             })
                                             _sent_live_envs.add("desktop")
-                                            logger.info(f"[WS] Pushed desktop live URL")
 
                                     elif env == "browser":
                                         # Send browser screenshot after each browser action
