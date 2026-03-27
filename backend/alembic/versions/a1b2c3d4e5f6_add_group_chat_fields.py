@@ -18,16 +18,22 @@ depends_on = None
 
 
 def upgrade():
-    # Add is_group boolean column (default false)
-    op.add_column(
-        "chat_sessions",
-        sa.Column("is_group", sa.Boolean(), server_default="false", nullable=False),
-    )
-    # Add group_name column for display purposes
-    op.add_column(
-        "chat_sessions",
-        sa.Column("group_name", sa.String(200), nullable=True),
-    )
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    existing_cols = [c["name"] for c in inspector.get_columns("chat_sessions")]
+
+    # Add is_group boolean column (default false) — skip if already exists
+    if "is_group" not in existing_cols:
+        op.add_column(
+            "chat_sessions",
+            sa.Column("is_group", sa.Boolean(), server_default="false", nullable=False),
+        )
+    # Add group_name column for display purposes — skip if already exists
+    if "group_name" not in existing_cols:
+        op.add_column(
+            "chat_sessions",
+            sa.Column("group_name", sa.String(200), nullable=True),
+        )
 
 
 def downgrade():
