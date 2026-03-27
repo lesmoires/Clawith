@@ -364,8 +364,8 @@ async def call_llm(
                         "result": result,
                         "reasoning_content": full_reasoning_content
                     })
-                except Exception:
-                    pass
+                except Exception as _cb_err:
+                    logger.warning(f"[LLM] on_tool_call callback error: {_cb_err}")
 
             # ── Vision injection for screenshot tools ──
             # If the model supports vision, try to inject the actual screenshot
