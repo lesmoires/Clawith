@@ -1019,7 +1019,7 @@ AGENTBAY_TOOLS = [
                     "key": "os_type",
                     "label": "Cloud Computer OS",
                     "type": "select",
-                    "default": "linux",
+                    "default": "windows",
                     "options": [
                         {"value": "linux", "label": "Linux"},
                         {"value": "windows", "label": "Windows"},

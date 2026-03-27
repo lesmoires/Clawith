@@ -309,10 +309,15 @@ class AgentBayClient:
 
         try:
             result = await asyncio.to_thread(self._session.computer.screenshot)
+            # Some cloud environments return success=False with a message
+            # telling us to use beta_take_screenshot() instead of throwing.
+            if not result.success and "beta_take_screenshot" in (result.error_message or ""):
+                logger.info("[AgentBay] screenshot() unsupported, falling back to beta_take_screenshot()")
+                result = await asyncio.to_thread(self._session.computer.beta_take_screenshot)
         except Exception as e:
-            # Some cloud environments only support beta_take_screenshot()
+            # Also handle the case where it raises an exception
             if "beta_take_screenshot" in str(e):
-                logger.info("[AgentBay] Falling back to beta_take_screenshot()")
+                logger.info("[AgentBay] Falling back to beta_take_screenshot() after exception")
                 result = await asyncio.to_thread(self._session.computer.beta_take_screenshot)
             else:
                 raise
@@ -568,8 +573,8 @@ async def get_agentbay_client_for_agent(agent_id: uuid.UUID, image_type: str) ->
     if image_type == "browser":
         await client.create_session("browser_latest")
     elif image_type == "computer":
-        # Read OS preference from tool config (default: linux)
-        os_type = (tool_config or {}).get("os_type", "linux")
+        # Read OS preference from tool config (default: windows)
+        os_type = (tool_config or {}).get("os_type", "windows")
         computer_image = "windows_latest" if os_type == "windows" else "linux_latest"
         logger.info(f"[AgentBay] Creating computer session with OS: {os_type} (image: {computer_image})")
         await client.create_session(computer_image)
