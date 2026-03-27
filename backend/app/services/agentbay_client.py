@@ -111,6 +111,19 @@ class AgentBayClient:
 
         return result
 
+    async def browser_screenshot(self) -> dict:
+        """Take a screenshot of the current browser page without navigating.
+
+        Use this after actions (click, type, form submit) to verify results
+        without refreshing the page. Never call browser_navigate just to screenshot.
+        """
+        await self._ensure_browser_initialized()
+        screenshot_data = await asyncio.to_thread(
+            self._session.browser.operator.screenshot, full_page=False
+        )
+        return {"success": True, "screenshot": screenshot_data}
+
+
     async def browser_click(self, selector: str) -> dict:
         """Click element by CSS selector using SDK."""
         await self._ensure_browser_initialized()

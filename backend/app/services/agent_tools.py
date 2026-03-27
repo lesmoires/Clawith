@@ -1020,7 +1020,7 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "agentbay_browser_navigate",
-            "description": "使用 AgentBay 浏览器环境访问指定 URL。可用于网页抓取、截图等。需要先配置 AgentBay 通道。Tip: after navigating, use browser_observe to identify interactive elements, then use browser_type/browser_click to interact.",
+            "description": "使用 AgentBay 浏览器环境访问指定 URL。可用于网页抓取、截图等。需要先配置 AgentBay 通道。Tip: after navigating, use browser_observe to identify elements, then browser_type/browser_click to interact. IMPORTANT: Do NOT call navigate again after clicking or typing just to take a screenshot — that will refresh the page and lose all your progress. Use agentbay_browser_screenshot instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1029,6 +1029,17 @@ AGENT_TOOLS = [
                     "screenshot": {"type": "boolean", "description": "是否截图并返回图片", "default": False},
                 },
                 "required": ["url"],
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentbay_browser_screenshot",
+            "description": "Take a screenshot of the CURRENT browser page without navigating anywhere. Use this after clicking, typing, or submitting a form to verify the result — it preserves the current page state. Never call browser_navigate just to take a screenshot.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
             }
         }
     },
@@ -1476,6 +1487,8 @@ async def execute_tool(
         # ── AgentBay Tools ──
         elif tool_name == "agentbay_browser_navigate":
             result = await _agentbay_browser_navigate(agent_id, ws, arguments)
+        elif tool_name == "agentbay_browser_screenshot":
+            result = await _agentbay_browser_screenshot(agent_id, ws, arguments)
         elif tool_name == "agentbay_browser_click":
             result = await _agentbay_browser_click(agent_id, ws, arguments)
         elif tool_name == "agentbay_browser_type":
@@ -5829,6 +5842,49 @@ async def _agentbay_browser_navigate(agent_id: Optional[uuid.UUID], ws: Path, ar
     except Exception as e:
         logger.exception(f"[AgentBay] Browser navigate failed for agent {agent_id}")
         return f"❌ AgentBay 浏览器访问失败: {str(e)[:200]}"
+
+
+async def _agentbay_browser_screenshot(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Take a screenshot of the current browser page without navigating.
+
+    This is the correct way to verify the result of a click, type, or form submit.
+    Do NOT call browser_navigate again just to take a screenshot — that refreshes the page.
+    """
+    if not agent_id:
+        return "❌ AgentBay 工具需要 agent 上下文"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "browser")
+        result = await client.browser_screenshot()
+
+        screenshot_data = result.get("screenshot")
+        if not screenshot_data:
+            return "❌ 截图失败：未返回图像数据"
+
+        import time, base64
+        rel_path = f"workspace/screenshot_{int(time.time())}.png"
+        screenshot_path = ws / rel_path
+        screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if isinstance(screenshot_data, str):
+            if screenshot_data.startswith("data:image"):
+                screenshot_data = screenshot_data.split(",", 1)[1]
+            screenshot_data = base64.b64decode(screenshot_data)
+        screenshot_path.write_bytes(screenshot_data)
+
+        return (
+            f"✅ 当前页面截图已保存至 `{rel_path}`。\n\n"
+            f"⚠️ 要在聊天框里向用户展示该截图，请必须在回复中包含以下原样 Markdown 语法：\n"
+            f"![浏览器截图](/api/agents/{agent_id}/files/download?path={rel_path})"
+        )
+
+    except RuntimeError as e:
+        return f"❌ {str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Browser screenshot failed for agent {agent_id}")
+        return f"❌ 截图失败: {str(e)[:200]}"
 
 
 async def _agentbay_browser_click(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:

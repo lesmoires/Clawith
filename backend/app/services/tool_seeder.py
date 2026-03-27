@@ -1019,6 +1019,17 @@ AGENTBAY_TOOLS = [
         },
     },
     {
+        "name": "agentbay_browser_screenshot",
+        "display_name": "AgentBay: 浏览器截图",
+        "description": "Take a screenshot of the current browser page without navigating anywhere. Use this after clicking, typing, or submitting a form to verify the result — it preserves the current page state. Never call browser_navigate just to take a screenshot.",
+        "category": "agentbay",
+        "icon": "📸",
+        "is_default": False,
+        "parameters_schema": {"type": "object", "properties": {}},
+        "config": {},
+        "config_schema": {},
+    },
+    {
         "name": "agentbay_browser_click",
         "display_name": "AgentBay: 浏览器点击",
         "description": "在 AgentBay 浏览器环境中点击指定元素。selector 可以是 CSS 选择器（如 #btn）或自然语言描述（如 'the Send button' 或 '发送验证码按钮'）。",
