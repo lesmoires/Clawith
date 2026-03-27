@@ -433,6 +433,64 @@ class AgentBayClient:
             "error_message": result.error_message or "",
         }
 
+    # ─── Live Preview Support ──────────────────────────
+
+    async def get_live_url(self) -> str | None:
+        """Get the VNC/viewer URL for the current computer session.
+
+        Calls session.get_link() which returns a shareable viewer URL
+        for the cloud desktop. Returns None if no session is active
+        or the API call fails.
+        """
+        if not self._session:
+            return None
+        try:
+            result = await asyncio.to_thread(self._session.get_link)
+            if result.success and result.data:
+                logger.info(f"[AgentBay] Got live URL: {str(result.data)[:80]}...")
+                return result.data
+            logger.warning(f"[AgentBay] get_link() failed: {result.error_message}")
+            return None
+        except Exception as e:
+            logger.warning(f"[AgentBay] Failed to get live URL: {e}")
+            return None
+
+    async def get_browser_snapshot_base64(self) -> str | None:
+        """Take a quick browser screenshot and return compressed base64 JPEG.
+
+        Used for live preview panel — no wait/sleep since we want
+        the snapshot to reflect the current state immediately.
+        Returns data:image/jpeg;base64,... or None on failure.
+        """
+        if not self._session or not getattr(self, "_browser_initialized", False):
+            return None
+        try:
+            screenshot_data = await asyncio.to_thread(
+                self._session.browser.operator.screenshot, full_page=False
+            )
+            if not screenshot_data:
+                return None
+
+            # Compress screenshot to JPEG base64 for efficient transfer
+            import base64
+            from io import BytesIO
+            from PIL import Image
+
+            img = Image.open(BytesIO(screenshot_data))
+            # Resize to max 1280px wide for live preview
+            if img.width > 1280:
+                ratio = 1280 / img.width
+                img = img.resize((int(img.width * ratio), int(img.height * ratio)), Image.LANCZOS)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            buffer = BytesIO()
+            img.save(buffer, format="JPEG", quality=60, optimize=True)
+            b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+            return f"data:image/jpeg;base64,{b64}"
+        except Exception as e:
+            logger.warning(f"[AgentBay] Browser snapshot failed: {e}")
+            return None
+
     async def __aenter__(self):
         return self
 

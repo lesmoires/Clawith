@@ -716,6 +716,9 @@ async def websocket_chat(
                         partial_chunks.append(text)
                         await websocket.send_json({"type": "chunk", "content": text})
                     
+                    # Track which agentbay live URLs have been sent to avoid redundant pushes
+                    _sent_live_envs: set[str] = set()
+
                     async def tool_call_to_ws(data: dict):
                         """Send tool call info to client and persist completed ones."""
                         await websocket.send_json({"type": "tool_call", **data})
@@ -741,6 +744,49 @@ async def websocket_chat(
                                     await _tc_db.commit()
                             except Exception as _tc_err:
                                 logger.warning(f"[WS] Failed to save tool_call: {_tc_err}")
+
+                            # ── AgentBay live preview push ──
+                            # Push real-time preview data when AgentBay tools are used
+                            try:
+                                from app.services.agentbay_live import detect_agentbay_env, get_desktop_live_url, get_browser_snapshot
+                                tool_name = data.get("name", "")
+                                env = detect_agentbay_env(tool_name)
+                                if env:
+                                    if env == "desktop" and "desktop" not in _sent_live_envs:
+                                        # Send desktop VNC URL once (it stays valid for the session)
+                                        live_url = await get_desktop_live_url(agent_id)
+                                        if live_url:
+                                            await websocket.send_json({
+                                                "type": "agentbay_live",
+                                                "env": "desktop",
+                                                "url": live_url,
+                                            })
+                                            _sent_live_envs.add("desktop")
+                                            logger.info(f"[WS] Pushed desktop live URL")
+
+                                    elif env == "browser":
+                                        # Send browser screenshot after each browser action
+                                        snapshot = await get_browser_snapshot(agent_id)
+                                        if snapshot:
+                                            await websocket.send_json({
+                                                "type": "agentbay_live",
+                                                "env": "browser",
+                                                "screenshot": snapshot,
+                                            })
+                                            _sent_live_envs.add("browser")
+
+                                    elif env == "code":
+                                        # Send code output (already in tool result)
+                                        result_text = data.get("result", "")
+                                        if result_text:
+                                            await websocket.send_json({
+                                                "type": "agentbay_live",
+                                                "env": "code",
+                                                "output": result_text[:5000],
+                                            })
+                                            _sent_live_envs.add("code")
+                            except Exception as _live_err:
+                                logger.warning(f"[WS] Live preview push failed: {_live_err}")
                     
                     # Track thinking content for storage
                     thinking_content = []
