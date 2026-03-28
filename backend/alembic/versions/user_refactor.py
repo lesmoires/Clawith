@@ -1,7 +1,7 @@
 """User system refactor - unified migration.
 
 Revision ID: user_refactor_v1
-Revises: add_notification_agent_id
+Revises: be48e94fa052
 Create Date: 2026-03-27
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = 'user_refactor_v1'
-down_revision: Union[str, None] = 'add_agentbay_enum_value'
+down_revision: Union[str, None] = 'be48e94fa052'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
