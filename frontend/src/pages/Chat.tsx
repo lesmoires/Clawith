@@ -221,6 +221,8 @@ export default function Chat() {
                         return [...prev, { role: 'assistant', content: streamContent.current, timestamp: new Date().toISOString() }];
                     });
                 } else if (data.type === 'tool_call') {
+                    // Debug: log all tool_call events to verify frontend code is current
+                    console.log('[ToolCall]', data.name, data.status, 'keys:', Object.keys(data).join(','));
                     if (data.status === 'done') {
                         pendingToolCalls.current.push({ name: data.name, args: data.args, result: data.result });
 
