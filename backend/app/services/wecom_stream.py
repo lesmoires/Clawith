@@ -83,12 +83,14 @@ class WeComStreamManager:
                     sender = body.get("from", {})
                     sender_id = sender.get("user_id", "") or sender.get("userid", "")
                     chat_id = body.get("chatid", "")
-                    chat_type = body.get("chat_type", "single")
+                    # WeCom SDK's 'chattype' is unreliable (always 'single').
+                    # The real group indicator is the PRESENCE of 'chatid' field.
+                    is_group_msg = bool(chat_id)
 
-                    # Debug: log full body to understand the data structure for group vs P2P
+                    # Debug: log full body to understand the data structure
                     logger.info(
                         f"[WeCom Stream] Text from {sender_id}, "
-                        f"chat_type={chat_type}, chat_id={chat_id or 'N/A'}, "
+                        f"is_group={is_group_msg}, chat_id={chat_id or 'N/A'}, "
                         f"body_keys={list(body.keys())}: {user_text[:80]}"
                     )
 
@@ -98,7 +100,7 @@ class WeComStreamManager:
                         sender_id=sender_id,
                         user_text=user_text,
                         chat_id=chat_id,
-                        chat_type=chat_type,
+                        is_group=is_group_msg,
                     )
 
                     # Reply via streaming
@@ -266,7 +268,7 @@ async def _process_wecom_stream_message(
     sender_id: str,
     user_text: str,
     chat_id: str = "",
-    chat_type: str = "single",
+    is_group: bool = False,
 ) -> str:
     """Process a WeCom message through the LLM pipeline and return the reply text."""
     from datetime import datetime, timezone
@@ -290,7 +292,8 @@ async def _process_wecom_stream_message(
         ctx_size = agent_obj.context_window_size or 20
 
         # Conversation ID: differentiate single chat vs group chat
-        if chat_type == "group" and chat_id:
+        # Group detection is based on chatid presence, not chattype (SDK bug)
+        if is_group and chat_id:
             conv_id = f"wecom_group_{chat_id}"
         else:
             conv_id = f"wecom_p2p_{sender_id}"
@@ -314,7 +317,7 @@ async def _process_wecom_stream_message(
         platform_user_id = platform_user.id
 
         # Find or create session
-        _is_group = (chat_type == "group" and bool(chat_id))
+        _is_group = (is_group and bool(chat_id))
         sess = await find_or_create_channel_session(
             db=db,
             agent_id=agent_id,
