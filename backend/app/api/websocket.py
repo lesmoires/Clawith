@@ -746,50 +746,45 @@ async def websocket_chat(
                                 logger.warning(f"[WS] Failed to save tool_call: {_tc_err}")
 
                             # ── AgentBay live preview push ──
-                            # Push real-time screenshots when AgentBay tools are used.
-                            # Note: get_link() (VNC) requires premium; we use screenshots instead.
+                            # Send lightweight URL references (not large base64 blobs)
+                            # so nginx proxy doesn't drop the WebSocket frame.
                             try:
-                                from app.services.agentbay_live import detect_agentbay_env, get_desktop_screenshot, get_browser_snapshot
-                                tool_name = data.get("name", "")
-                                logger.info(f"[WS][LivePreview] Checking tool: {tool_name}")
-                                env = detect_agentbay_env(tool_name)
-                                logger.info(f"[WS][LivePreview] Detected env: {env}")
-                                if env:
-                                    if env == "desktop":
-                                        # Send desktop screenshot after each computer action
-                                        logger.info(f"[WS][LivePreview] Getting desktop screenshot for agent {agent_id}")
-                                        snapshot = await get_desktop_screenshot(agent_id)
-                                        logger.info(f"[WS][LivePreview] Desktop snapshot result: {'got data (' + str(len(snapshot)) + ' chars)' if snapshot else 'None'}")
-                                        if snapshot:
-                                            await websocket.send_json({
-                                                "type": "agentbay_live",
-                                                "env": "desktop",
-                                                "screenshot": snapshot,
-                                            })
-                                            _sent_live_envs.add("desktop")
-                                            logger.info("[WS][LivePreview] Desktop screenshot sent!")
+                                from app.services.agentbay_live import detect_agentbay_env
+                                import re as _re_live
 
-                                    elif env == "browser":
-                                        # Send browser screenshot after each browser action
-                                        logger.info(f"[WS][LivePreview] Getting browser snapshot for agent {agent_id}")
-                                        snapshot = await get_browser_snapshot(agent_id)
-                                        logger.info(f"[WS][LivePreview] Browser snapshot result: {'got data' if snapshot else 'None'}")
-                                        if snapshot:
+                                tool_name = data.get("name", "")
+                                env = detect_agentbay_env(tool_name)
+                                if env:
+                                    logger.info(f"[WS][LivePreview] Tool={tool_name} env={env}")
+                                    tool_result = data.get("result", "") or ""
+
+                                    if env in ("desktop", "browser"):
+                                        # Extract the screenshot download URL from the tool result text.
+                                        # Tools save screenshots and include markdown like:
+                                        #   ![...](/api/agents/{id}/files/download?path=workspace/desktop-screenshot-xxx.png)
+                                        url_match = _re_live.search(
+                                            r'/api/agents/[^)]+/files/download\?path=workspace/[^)\s]+\.png',
+                                            tool_result,
+                                        )
+                                        if url_match:
+                                            screenshot_url = url_match.group(0)
                                             await websocket.send_json({
                                                 "type": "agentbay_live",
-                                                "env": "browser",
-                                                "screenshot": snapshot,
+                                                "env": env,
+                                                "screenshot_url": screenshot_url,
                                             })
-                                            _sent_live_envs.add("browser")
+                                            _sent_live_envs.add(env)
+                                            logger.info(f"[WS][LivePreview] Sent {env} URL: {screenshot_url[:80]}")
+                                        else:
+                                            logger.info(f"[WS][LivePreview] No screenshot URL found in result for {env}")
 
                                     elif env == "code":
-                                        # Send code output (already in tool result)
-                                        result_text = data.get("result", "")
-                                        if result_text:
+                                        # Send code output directly (it's small text)
+                                        if tool_result:
                                             await websocket.send_json({
                                                 "type": "agentbay_live",
                                                 "env": "code",
-                                                "output": result_text[:5000],
+                                                "output": tool_result[:5000],
                                             })
                                             _sent_live_envs.add("code")
                             except Exception as _live_err:

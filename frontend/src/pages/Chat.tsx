@@ -175,13 +175,14 @@ export default function Chat() {
 
                 // ── AgentBay live preview events ──
                 if (data.type === 'agentbay_live') {
-                    console.log('[LivePreview] Received:', data.env, 'screenshot:', !!data.screenshot, 'len:', data.screenshot?.length || 0);
+                    console.log('[LivePreview] Received:', data.env, 'url:', data.screenshot_url?.substring(0, 60));
                     setLiveState(prev => {
                         const next = { ...prev };
-                        if (data.env === 'desktop' && data.screenshot) {
-                            next.desktop = { screenshot: data.screenshot };
-                        } else if (data.env === 'browser' && data.screenshot) {
-                            next.browser = { screenshot: data.screenshot };
+                        if ((data.env === 'desktop' || data.env === 'browser') && data.screenshot_url) {
+                            // Use URL-based approach: append cache-busting timestamp
+                            const imgUrl = data.screenshot_url + '&_t=' + Date.now();
+                            if (data.env === 'desktop') next.desktop = { screenshotUrl: imgUrl };
+                            else next.browser = { screenshotUrl: imgUrl };
                         } else if (data.env === 'code' && data.output) {
                             // Append code output
                             const existing = prev.code?.output || '';
