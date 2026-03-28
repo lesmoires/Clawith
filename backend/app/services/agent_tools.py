@@ -1333,6 +1333,18 @@ async def execute_tool(
             result = await _discover_resources(arguments)
         elif tool_name == "import_mcp_server":
             result = await _import_mcp_server(agent_id, arguments)
+        # ── LiteLLM MCP AgentMail Tools ──
+        elif tool_name == "agentmail_send_lite":
+            result = await _agentmail_send_lite(agent_id, arguments)
+        elif tool_name == "agentmail_inbox_lite":
+            result = await _agentmail_inbox_lite(agent_id, arguments)
+        elif tool_name == "agentmail_read_lite":
+            result = await _agentmail_read_lite(agent_id, arguments)
+        elif tool_name == "agentmail_get_lite":
+            result = await _agentmail_get_lite(agent_id, arguments)
+        elif tool_name == "agentmail_inboxes_lite":
+            result = await _agentmail_inboxes_lite(agent_id, arguments)
+
         # ── Infisical Tools ──
         elif tool_name == "infisical_get_secret":
             result = await _infisical_get_secret(agent_id, arguments)
@@ -5597,3 +5609,90 @@ async def _handle_email_tool(tool_name: str, agent_id: uuid.UUID, ws: Path, argu
             return f"❌ Unknown email tool: {tool_name}"
     except Exception as e:
         return f"❌ Email tool error: {str(e)[:200]}"
+
+
+# ── LiteLLM MCP AgentMail Tools ──
+async def _litellm_mcp_call(agent_id: uuid.UUID, mcp_server: str, mcp_method: str, arguments: dict) -> str:
+    """Generic LiteLLM MCP tool executor via REST API."""
+    import httpx
+    import json
+    
+    litellm_url = os.getenv('LITELLM_URL', 'https://litellm.moiria.com')
+    litellm_key = os.getenv('LITELLM_API_KEY', 'sk-drT2rTT5MKPeB8jNkTm41w')
+    
+    # Map server name to server_id
+    server_ids = {
+        'agentmail': 'bd449f3a3bc174b60a8bed88488e525f',
+        'hetzner_cloud': '41691dfc7ebb2a7fc9e6b533a6417807'
+    }
+    server_id = server_ids.get(mcp_server, mcp_server)
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Use LiteLLM MCP REST endpoint
+            response = await client.post(
+                f'{litellm_url}/mcp-rest/tools/call',
+                headers={
+                    'Authorization': f'Bearer {litellm_key}',
+                    'Content-Type': 'application/json'
+                },
+                json={
+                    'server_id': server_id,
+                    'name': mcp_method,
+                    'arguments': arguments
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            logger.info(f"[LiteLLM MCP] Raw response: {result}")
+            
+            # Extract text content from response (MCP returns nested JSON)
+            if 'content' in result and isinstance(result['content'], list):
+                for item in result['content']:
+                    if isinstance(item, dict) and 'text' in item:
+                        text_content = item['text']
+                        logger.info(f"[LiteLLM MCP] Text content: {text_content[:200]}")
+                        # Parse nested JSON if it's a string
+                        try:
+                            parsed = json.loads(text_content)
+                            logger.info(f"[LiteLLM MCP] Parsed JSON successfully")
+                            return json.dumps(parsed, indent=2)
+                        except Exception as e:
+                            logger.error(f"[LiteLLM MCP] JSON parse error: {e}")
+                            logger.error(f"[LiteLLM MCP] Failed text: {text_content[:200]}")
+                            return f'Parse error: {str(e)} - Content: {text_content[:200]}'
+            if 'result' in result:
+                return str(result['result'])
+            logger.error(f"[LiteLLM MCP] No content or result in response")
+            return f'Error: Empty response from MCP server. Raw: {str(result)[:500]}'
+                
+    except httpx.HTTPError as e:
+        return f'Error: LiteLLM MCP call failed - {str(e)[:100]}'
+    except Exception as e:
+        return f'Error: {str(e)[:100]}'
+
+
+async def _agentmail_send_lite(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Send email via LiteLLM AgentMail MCP."""
+    return await _litellm_mcp_call(agent_id, 'agentmail', 'send_message', arguments)
+
+
+async def _agentmail_inbox_lite(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List inbox via LiteLLM AgentMail MCP."""
+    return await _litellm_mcp_call(agent_id, 'agentmail', 'list_threads', arguments)
+
+
+async def _agentmail_read_lite(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Read email via LiteLLM AgentMail MCP."""
+    return await _litellm_mcp_call(agent_id, 'agentmail', 'get_thread', arguments)
+
+
+async def _agentmail_get_lite(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get email via LiteLLM AgentMail MCP."""
+    return await _litellm_mcp_call(agent_id, 'agentmail', 'get_thread', arguments)
+
+
+async def _agentmail_inboxes_lite(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List inboxes via LiteLLM AgentMail MCP."""
+    return await _litellm_mcp_call(agent_id, 'agentmail', 'list_inboxes', arguments)
