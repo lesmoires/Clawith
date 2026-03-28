@@ -12,6 +12,7 @@ The agent's workspace uses well-known paths:
 The agent reads/writes these files directly. No per-concept tools needed.
 """
 
+import httpx
 import json
 import os
 import uuid
@@ -878,6 +879,8 @@ AGENT_TOOLS = [
             },
         },
     },
+    {"type": "function", "function": {"name": "get_infisical_secret", "description": "Retrieve a secret from Infisical vault.", "parameters": {"type": "object", "properties": {"secret_name": {"type": "string", "description": "Secret name"}}, "required": ["secret_name"]}}},
+    {"type": "function", "function": {"name": "list_infisical_secrets", "description": "List secret names in Infisical project.", "parameters": {"type": "object", "properties": {}}}},
 ]
 
 
@@ -1138,6 +1141,96 @@ async def _execute_tool_direct(
         return f"Error executing {tool_name}: {e}"
 
 
+
+async def _get_infisical_secret(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get a single secret from Infisical using Universal Auth (same pattern as list-secrets)."""
+    secret_name = arguments.get('secret_name', '').strip()
+    environment = arguments.get('environment', 'prod')
+    
+    if not secret_name:
+        return 'Error: Missing secret_name parameter'
+    
+    infisical_host = os.getenv('INFISICAL_HOST_URL', 'https://secrets.moiria.com').rstrip('/')
+    client_id = os.getenv('INFISICAL_UNIVERSAL_AUTH_CLIENT_ID')
+    client_secret = os.getenv('INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET')
+    
+    if not client_id or not client_secret:
+        return 'Error: INFISICAL_UNIVERSAL_AUTH_CLIENT_ID or INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET not configured'
+    
+    async with async_session() as db:
+        from app.models.agent import AgentInfisicalProject
+        result = await db.execute(select(AgentInfisicalProject).where(AgentInfisicalProject.agent_id == agent_id))
+        assignment = result.scalar_one_or_none()
+    
+    if not assignment:
+        return 'Error: No Infisical project assigned to this agent'
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Step 1: Get access token via Universal Auth
+            auth_resp = await client.post(
+                f'{infisical_host}/api/v1/auth/universal-auth/login',
+                headers={'Content-Type': 'application/json'},
+                json={'clientId': client_id, 'clientSecret': client_secret}
+            )
+            auth_resp.raise_for_status()
+            access_token = auth_resp.json().get('accessToken')
+            
+            if not access_token:
+                return 'Error: Failed to get access token from Infisical'
+            
+            # Step 2: Get all secrets and find the one we need (same as list-secrets)
+            resp = await client.get(
+                f'{infisical_host}/api/v3/secrets/raw',
+                headers={'Authorization': f'Bearer {access_token}'},
+                params={'workspaceId': assignment.infisical_project_id, 'environment': environment}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            
+            secrets = data.get('secrets', [])
+            for secret in secrets:
+                if secret.get('secretKey') == secret_name:
+                    logger.info(f'[Infisical] Agent {agent_id} accessed {secret_name}')
+                    return secret.get('secretValue', '')
+            
+            # Secret not found - list available ones
+            available = [s['secretKey'] for s in secrets]
+            return f'Error: Secret "{secret_name}" not found. Available: {", ".join(available) if available else "none"}'
+            
+    except httpx.HTTPError as e:
+        return f'Error: Infisical API failed - {str(e)[:100]}'
+    except Exception as e:
+        return f'Error: {str(e)[:100]}'
+
+
+async def _list_infisical_secrets(agent_id: uuid.UUID, arguments: dict) -> str:
+    environment = arguments.get('environment', 'dev')
+    infisical_host = os.getenv('INFISICAL_HOST_URL', 'https://secrets.moiria.com').rstrip('/')
+    infisical_api_key = os.getenv('INFISICAL_API_KEY') or os.getenv('INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET')
+    if not infisical_api_key:
+        return 'INFISICAL_API_KEY not configured'
+    async with async_session() as db:
+        from app.models.agent import AgentInfisicalProject
+        result = await db.execute(select(AgentInfisicalProject).where(AgentInfisicalProject.agent_id == agent_id))
+        assignment = result.scalar_one_or_none()
+    if not assignment:
+        return 'No Infisical project assigned'
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f'{infisical_host}/api/v1/secrets', headers={'Authorization': f'Bearer {infisical_api_key}'}, params={'projectId': assignment.infisical_project_id, 'environment': environment})
+            if resp.status_code == 200:
+                data = resp.json()
+                secrets = data.get('secrets', [])
+                if not secrets:
+                    return f'No secrets ({environment})'
+                names = sorted([s.get('secretName', s.get('key')) for s in secrets])
+                return 'Secrets: ' + ', '.join(names)
+            return f'Error: {resp.status_code}'
+    except Exception as e:
+        return f'Error: {str(e)[:100]}'
+
+
 async def execute_tool(
     tool_name: str,
     arguments: dict,
@@ -1240,6 +1333,11 @@ async def execute_tool(
             result = await _discover_resources(arguments)
         elif tool_name == "import_mcp_server":
             result = await _import_mcp_server(agent_id, arguments)
+        # ── Infisical Tools ──
+        elif tool_name == "get_infisical_secret":
+            result = await _get_infisical_secret(agent_id, arguments)
+        elif tool_name == "list_infisical_secrets":
+            result = await _list_infisical_secrets(agent_id, arguments)
         # ── Feishu Document Tools ──
         elif tool_name == "feishu_wiki_list":
             result = await _feishu_wiki_list(agent_id, arguments)
