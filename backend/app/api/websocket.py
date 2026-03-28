@@ -726,20 +726,22 @@ async def websocket_chat(
                         # because separate WebSocket messages get silently dropped by nginx.
                         if data.get("status") == "done":
                             try:
-                                from app.services.agentbay_live import detect_agentbay_env
+                                from app.services.agentbay_live import detect_agentbay_env, get_desktop_screenshot, get_browser_snapshot
                                 import re as _re_live
                                 tool_name = data.get("name", "")
                                 env = detect_agentbay_env(tool_name)
                                 if env:
                                     tool_result = data.get("result", "") or ""
-                                    if env in ("desktop", "browser"):
-                                        url_match = _re_live.search(
-                                            r'/api/agents/[^)]+/files/download\?path=workspace/[^)\s]+\.png',
-                                            tool_result,
-                                        )
-                                        if url_match:
-                                            data["live_preview"] = {"env": env, "screenshot_url": url_match.group(0)}
-                                            logger.info(f"[WS][LivePreview] Embedded {env} URL in tool_call")
+                                    if env == "desktop":
+                                        b64_url = await get_desktop_screenshot(agent_id)
+                                        if b64_url:
+                                            data["live_preview"] = {"env": env, "screenshot_url": b64_url}
+                                            logger.info(f"[WS][LivePreview] Embedded {env} base64 in tool_call")
+                                    elif env == "browser":
+                                        b64_url = await get_browser_snapshot(agent_id)
+                                        if b64_url:
+                                            data["live_preview"] = {"env": env, "screenshot_url": b64_url}
+                                            logger.info(f"[WS][LivePreview] Embedded {env} base64 in tool_call")
                                     elif env == "code":
                                         data["live_preview"] = {"env": "code", "output": tool_result[:5000]}
                             except Exception as _lp_err:

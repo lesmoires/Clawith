@@ -1382,9 +1382,8 @@ function AgentDetailInner() {
                     setLiveState(prev => {
                         const next = { ...prev };
                         if ((lp.env === 'desktop' || lp.env === 'browser') && lp.screenshot_url) {
-                            const imgUrl = lp.screenshot_url + '&_t=' + Date.now();
-                            if (lp.env === 'desktop') next.desktop = { screenshotUrl: imgUrl };
-                            else next.browser = { screenshotUrl: imgUrl };
+                            if (lp.env === 'desktop') next.desktop = { screenshotUrl: lp.screenshot_url };
+                            else next.browser = { screenshotUrl: lp.screenshot_url };
                         } else if (lp.env === 'code' && lp.output) {
                             const existing = prev.code?.output || '';
                             next.code = { output: existing + (existing ? '\n---\n' : '') + lp.output };
