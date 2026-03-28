@@ -367,7 +367,7 @@ function OrgTab({ tenant }: { tenant: any }) {
             <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
                     <div className="form-group">
-                        <label className="form-label">{t('identity.name')}</label>
+                        <label className="form-label">{t('enterprise.identity.name')}</label>
                         <input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
                     </div>
                 </div>
@@ -391,7 +391,7 @@ function OrgTab({ tenant }: { tenant: any }) {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                         <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>
-                                {t('identity.providerHints.wecom')}
+                                {t('enterprise.identity.providerHints.wecom')}
                             </div>
                         </div>
                         <div className="form-group">
@@ -419,7 +419,7 @@ function OrgTab({ tenant }: { tenant: any }) {
                 ) : type === 'dingtalk' ? (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                         <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('identity.providerHints.dingtalk')}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('enterprise.identity.providerHints.dingtalk')}</div>
                         </div>
                         <div className="form-group">
                             <label className="form-label">App Key</label>
@@ -433,7 +433,7 @@ function OrgTab({ tenant }: { tenant: any }) {
                 ) : type === 'feishu' ? (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                         <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('identity.providerHints.feishu')}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('enterprise.identity.providerHints.feishu')}</div>
                         </div>
                         <div className="form-group">
                             <label className="form-label">App ID</label>
@@ -510,7 +510,7 @@ function OrgTab({ tenant }: { tenant: any }) {
             <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)' }}>
                     <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>
-                        {t('identity.title', 'Account Sync / Identity Providers')}
+                        {t('enterprise.identity.title', 'Organization & Directory Sync')}
                     </h3>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                         Configure enterprise directory synchronization and Identity Provider settings.
