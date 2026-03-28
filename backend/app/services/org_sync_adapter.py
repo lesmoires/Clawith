@@ -572,7 +572,8 @@ class FeishuOrgSyncAdapter(BaseOrgSyncAdapter):
             return data.get("tenant_access_token") or data.get("app_access_token") or ""
 
     async def fetch_departments(self) -> list[ExternalDepartment]:
-        """Fetch all departments from Feishu using paged list API to get full metadata."""
+        """Fetch all departments from Feishu using concurrent recursive calls to get parent-child relationships."""
+        import asyncio
         token = await self.get_access_token()
         all_depts: list[ExternalDepartment] = []
         # Add a virtual root for the tenant, consistent with DingTalk root behavior
@@ -585,53 +586,63 @@ class FeishuOrgSyncAdapter(BaseOrgSyncAdapter):
                 raw_data={"department_id": "0", "name": "Root"}
             )
         )
-        page_token = ""
         
         async with httpx.AsyncClient() as client:
-            while True:
-                # The departments list API with fetch_child=true is the most efficient 
-                # way to get the entire tree with full metadata (names, counts).
-                params = {
-                    "department_id_type": "open_department_id",
-                    "fetch_child": "true",
-                    "page_size": "50",
-                }
-                if page_token:
-                    params["page_token"] = page_token
+            sem = asyncio.Semaphore(15)  # Limit concurrent requests to avoid rate limits
+            
+            async def fetch_children(parent_id: str):
+                page_token = ""
+                tasks = []
+                while True:
+                    params = {
+                        "department_id_type": "open_department_id",
+                        "fetch_child": "false",
+                        "page_size": "50",
+                    }
+                    if page_token:
+                        params["page_token"] = page_token
 
-                resp = await client.get(
-                    self.FEISHU_DEPT_URL + "/0/children", 
-                    params=params, 
-                    headers={"Authorization": f"Bearer {token}"}
-                )
-                data = resp.json()
+                    async with sem:
+                        resp = await client.get(
+                            f"{self.FEISHU_DEPT_URL}/{parent_id}/children", 
+                            params=params, 
+                            headers={"Authorization": f"Bearer {token}"}
+                        )
+                    data = resp.json()
 
-                if data.get("code") != 0:
-                    logger.error(f"Feishu fetch departments list error: {data}")
-                    break
+                    if data.get("code") != 0:
+                        logger.error(f"Feishu fetch departments list error for parent {parent_id}: {data}")
+                        break
 
-                res_data = data.get("data", {})
-                items = res_data.get("items", []) or []
-                for item in items:
-                    dept_id = item.get("open_department_id")
-                    if not dept_id: continue
-                    
-                    raw_parent = item.get("parent_department_id")
-                    # Any department whose parent is 0 or null is a child of our virtual Root
-                    parent_external = raw_parent if raw_parent and raw_parent != "0" else "0"
-                    
-                    dept = ExternalDepartment(
-                        external_id=dept_id,
-                        name=item.get("name", ""),
-                        parent_external_id=parent_external,
-                        member_count=item.get("member_count", 0),
-                        raw_data=item,
-                    )
-                    all_depts.append(dept)
+                    res_data = data.get("data", {})
+                    items = res_data.get("items", []) or []
+                    for item in items:
+                        dept_id = item.get("open_department_id")
+                        if not dept_id: continue
+                        
+                        # Since we fetched using parent_id, we intrinsically know the parent!
+                        parent_external = parent_id if parent_id and parent_id != "0" else "0"
+                        
+                        dept = ExternalDepartment(
+                            external_id=dept_id,
+                            name=item.get("name", ""),
+                            parent_external_id=parent_external,
+                            member_count=item.get("member_count", 0),
+                            raw_data=item,
+                        )
+                        all_depts.append(dept)
+                        
+                        # Recursively fetch children for this department
+                        tasks.append(fetch_children(dept_id))
 
-                page_token = res_data.get("page_token", "")
-                if not page_token:
-                    break
+                    page_token = res_data.get("page_token", "")
+                    if not page_token:
+                        break
+                        
+                if tasks:
+                    await asyncio.gather(*tasks)
+
+            await fetch_children("0")
                         
         logger.info(f"Feishu fetched {len(all_depts)} departments total.")
         return all_depts
