@@ -287,7 +287,7 @@ export default function Layout() {
     }, [showAccountMenu]);
 
     return (
-        <div className="app-layout">
+        <div className={`app-layout ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
             <nav className={`sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
                 <div className="sidebar-top">
                     <div className="sidebar-logo">

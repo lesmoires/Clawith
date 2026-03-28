@@ -292,6 +292,10 @@ select:focus {
   min-height: 100vh;
 }
 
+.app-layout.sidebar-collapsed {
+  --sidebar-width: var(--sidebar-width-collapsed);
+}
+
 .sidebar {
   width: var(--sidebar-width);
   background: var(--bg-secondary);
