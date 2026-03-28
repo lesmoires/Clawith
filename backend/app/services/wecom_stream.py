@@ -85,8 +85,11 @@ class WeComStreamManager:
                     chat_id = body.get("chatid", "")
                     chat_type = body.get("chat_type", "single")
 
+                    # Debug: log full body to understand the data structure for group vs P2P
                     logger.info(
-                        f"[WeCom Stream] Text from {sender_id}: {user_text[:80]}"
+                        f"[WeCom Stream] Text from {sender_id}, "
+                        f"chat_type={chat_type}, chat_id={chat_id or 'N/A'}, "
+                        f"body_keys={list(body.keys())}: {user_text[:80]}"
                     )
 
                     # Process message and get reply
@@ -172,15 +175,27 @@ class WeComStreamManager:
             client.on("message.file", on_file)
             client.on("event.enter_chat", on_enter_chat)
 
-            # Connect and run
-            logger.info(f"[WeCom Stream] Connecting for agent {agent_id}...")
-            await client.connect_async()
+            # Connect and run (with retry on failure)
+            retry_delay = 5  # Start with 5 seconds
+            max_retry_delay = 120  # Cap at 2 minutes
+            while True:
+                try:
+                    logger.info(f"[WeCom Stream] Connecting for agent {agent_id}...")
+                    await client.connect_async()
 
-            # Keep alive
-            while client.is_connected:
-                await asyncio.sleep(1)
+                    # Keep alive
+                    retry_delay = 5  # Reset on successful connect
+                    while client.is_connected:
+                        await asyncio.sleep(1)
 
-            logger.info(f"[WeCom Stream] Client disconnected for agent {agent_id}")
+                    logger.info(f"[WeCom Stream] Client disconnected for agent {agent_id}, reconnecting in {retry_delay}s...")
+                except asyncio.CancelledError:
+                    raise  # Propagate cancellation
+                except Exception as e:
+                    logger.error(f"[WeCom Stream] Connection error for {agent_id}: {e}, retrying in {retry_delay}s...")
+
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, max_retry_delay)
 
         except asyncio.CancelledError:
             logger.info(f"[WeCom Stream] Client task cancelled for agent {agent_id}")
@@ -190,7 +205,7 @@ class WeComStreamManager:
                 except Exception:
                     pass
         except Exception as e:
-            logger.error(f"[WeCom Stream] Client error for {agent_id}: {e}")
+            logger.error(f"[WeCom Stream] Fatal client error for {agent_id}: {e}")
             import traceback
             traceback.print_exc()
         finally:
