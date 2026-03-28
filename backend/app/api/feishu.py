@@ -533,20 +533,30 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
             if platform_user_id == creator_id and sender_name:
                 from app.core.security import hash_password
                 new_username = f"feishu_{sender_user_id_feishu or sender_open_id[:16]}"
-                new_user = User(
-                    username=new_username,
-                    email=f"{new_username}@feishu.local",
-                    password_hash=hash_password(_uuid.uuid4().hex),  # random password
-                    display_name=sender_name,
-                    role="member",
-                    external_id=sender_user_id_feishu,
-                    feishu_user_id=sender_user_id_feishu or None,
-                    tenant_id=agent_obj.tenant_id if agent_obj else None,
-                )
-                db.add(new_user)
-                await db.flush()
-                platform_user_id = new_user.id
-                logger.info(f"[Feishu] Auto-created user: {sender_name} -> {new_username}")
+                
+                # Check if a user with this username already exists
+                existing_user_query = select(User).where(User.username == new_username)
+                existing_user_result = await db.execute(existing_user_query)
+                existing_user = existing_user_result.scalars().first()
+                
+                if existing_user:
+                    platform_user_id = existing_user.id
+                    logger.info(f"[Feishu] Found existing user by username: {new_username}")
+                else:
+                    new_user = User(
+                        username=new_username,
+                        email=f"{new_username}@feishu.local",
+                        password_hash=hash_password(_uuid.uuid4().hex),  # random password
+                        display_name=sender_name,
+                        role="member",
+                        external_id=sender_user_id_feishu,
+                        feishu_user_id=sender_user_id_feishu or None,
+                        tenant_id=agent_obj.tenant_id if agent_obj else None,
+                    )
+                    db.add(new_user)
+                    await db.flush()
+                    platform_user_id = new_user.id
+                    logger.info(f"[Feishu] Auto-created user: {sender_name} -> {new_username}")
             # Ensure OrgMember exists and is linked
             member_check = await db.execute(
                 select(OrgMember).where(
