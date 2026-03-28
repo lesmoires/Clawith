@@ -98,123 +98,111 @@ function OrgTab({ tenant }: { tenant: any }) {
     const qc = useQueryClient();
 
     const SsoStatus = () => {
-        const [editing, setEditing] = useState(false);
+        const [isExpanded, setIsExpanded] = useState(!!tenant?.sso_enabled);
         const [ssoEnabled, setSsoEnabled] = useState(!!tenant?.sso_enabled);
         const [ssoDomain, setSsoDomain] = useState(tenant?.sso_domain || '');
         const [saving, setSaving] = useState(false);
         const [error, setError] = useState('');
 
         useEffect(() => {
-            if (!editing) {
-                setSsoEnabled(!!tenant?.sso_enabled);
-                setSsoDomain(tenant?.sso_domain || '');
-            }
-        }, [tenant, editing]);
+            setSsoEnabled(!!tenant?.sso_enabled);
+            setSsoDomain(tenant?.sso_domain || '');
+            setIsExpanded(!!tenant?.sso_enabled);
+        }, [tenant]);
 
-        const handleSave = async () => {
+        const handleSave = async (forceEnabled?: boolean) => {
             if (!tenant?.id) return;
+            const targetEnabled = forceEnabled !== undefined ? forceEnabled : ssoEnabled;
             setSaving(true);
             setError('');
             try {
                 await fetchJson(`/tenants/${tenant.id}`, {
                     method: 'PUT',
                     body: JSON.stringify({
-                        sso_enabled: ssoEnabled,
-                        sso_domain: ssoDomain.trim() || null,
+                        sso_enabled: targetEnabled,
+                        sso_domain: targetEnabled ? (ssoDomain.trim() || null) : null,
                     }),
                 });
                 qc.invalidateQueries({ queryKey: ['tenant', tenant.id] });
-                setEditing(false);
             } catch (e: any) {
                 setError(e.message || 'Failed to update SSO configuration');
             }
             setSaving(false);
         };
 
-        if (editing) {
-            return (
-                <div className="card" style={{ marginBottom: '24px', padding: '16px', border: '1px solid var(--accent-primary)' }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>
-                        {t('enterprise.identity.editSsoTitle', 'Edit SSO Configuration')}
-                    </h3>
-
-                    <div style={{ marginBottom: '12px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}>
-                            <input
-                                type="checkbox"
-                                checked={ssoEnabled}
-                                onChange={e => setSsoEnabled(e.target.checked)}
-                                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                            />
-                            {t('enterprise.identity.enableSso', 'Enable Enterprise SSO')}
-                        </label>
-                    </div>
-
-                    <div style={{ marginBottom: '16px' }}>
-                        <label className="form-label" style={{ fontSize: '12px', marginBottom: '4px' }}>
-                            {t('enterprise.identity.ssoDomain', 'Custom Access Domain')}
-                        </label>
-                        <input
-                            className="form-input"
-                            value={ssoDomain}
-                            onChange={e => setSsoDomain(e.target.value)}
-                            placeholder={t('enterprise.identity.ssoDomainPlaceholder', 'e.g. acme.clawith.com')}
-                            style={{ fontSize: '13px', width: '100%', maxWidth: '400px' }}
-                        />
-                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                            {t('enterprise.identity.ssoDomainDesc', 'The custom domain users will use to log in via SSO.')}
-                        </div>
-                    </div>
-
-                    {error && <div style={{ color: 'var(--error)', fontSize: '12px', marginBottom: '12px' }}>{error}</div>}
-
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                            {saving ? t('common.loading') : t('common.save', 'Save')}
-                        </button>
-                        <button className="btn btn-secondary" onClick={() => setEditing(false)} disabled={saving}>
-                            {t('common.cancel', 'Cancel')}
-                        </button>
-                    </div>
-                </div>
-            );
-        }
+        const handleToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
+            const checked = e.target.checked;
+            setSsoEnabled(checked);
+            setIsExpanded(checked);
+            if (!checked) {
+                // auto-save when disabling
+                handleSave(false);
+            }
+        };
 
         return (
-            <div style={{
-                marginBottom: '24px', padding: '16px', borderRadius: '12px',
-                background: tenant?.sso_enabled ? 'rgba(59,130,246,0.08)' : 'var(--bg-secondary)',
-                border: tenant?.sso_enabled ? '1px solid rgba(59,130,246,0.15)' : '1px solid var(--border-subtle)',
-                display: 'flex', alignItems: 'center', gap: '16px'
-            }}>
-                <div style={{
-                    width: '40px', height: '40px', borderRadius: '8px',
-                    background: tenant?.sso_enabled ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px'
-                }}>
-                    🛡️
-                </div>
-                <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '2px' }}>
-                        {t('enterprise.identity.ssoTitle', 'Enterprise SSO')}
-                        {tenant?.sso_enabled ? (
-                            <span className="badge badge-success" style={{ marginLeft: '8px', fontSize: '10px' }}>{t('common.enabled', 'Enabled')}</span>
-                        ) : (
-                            <span className="badge badge-secondary" style={{ marginLeft: '8px', fontSize: '10px' }}>{t('common.disabled', 'Disabled')}</span>
-                        )}
+            <div className="card" style={{ marginBottom: '24px', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px' }}>
+                    <div>
+                        <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>
+                            {t('enterprise.identity.ssoTitle', 'Enterprise SSO')}
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            {t('enterprise.identity.ssoDisabledHint', 'Seamless enterprise login via Single Sign-On.')}
+                        </div>
                     </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        {tenant?.sso_enabled
-                            ? t('enterprise.identity.ssoDomainHint', 'SSO is configured for: {{domain}}', { domain: tenant.sso_domain || window.location.hostname })
-                            : t('enterprise.identity.ssoDisabledHint', 'Seamless enterprise login is currently disabled for this organization.')
-                        }
+                    <div>
+                        <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
+                            <input 
+                                type="checkbox" 
+                                checked={ssoEnabled} 
+                                onChange={handleToggle}
+                                style={{ opacity: 0, width: 0, height: 0 }} 
+                            />
+                            <span style={{
+                                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                                borderRadius: '20px', cursor: 'pointer',
+                                background: ssoEnabled ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                                transition: '0.2s'
+                            }}>
+                                <span style={{
+                                    position: 'absolute', left: ssoEnabled ? '18px' : '2px', top: '2px',
+                                    width: '16px', height: '16px', borderRadius: '50%',
+                                    background: '#fff', transition: '0.2s',
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                                }} />
+                            </span>
+                        </label>
                     </div>
                 </div>
-                <div>
-                    <button className="btn btn-ghost" style={{ fontSize: '12px' }} onClick={() => setEditing(true)}>
-                        ✏️ {t('common.edit', 'Edit')}
-                    </button>
-                </div>
+
+                {isExpanded && (
+                    <div style={{ padding: '0 16px 16px', borderTop: '1px solid var(--border-subtle)', paddingTop: '16px' }}>
+                        <div style={{ marginBottom: '16px' }}>
+                            <label className="form-label" style={{ fontSize: '12px', marginBottom: '8px' }}>
+                                {t('enterprise.identity.ssoDomain', 'Custom Access Domain')}
+                            </label>
+                            <input
+                                className="form-input"
+                                value={ssoDomain}
+                                onChange={e => setSsoDomain(e.target.value)}
+                                placeholder={t('enterprise.identity.ssoDomainPlaceholder', 'e.g. acme.clawith.com')}
+                                style={{ fontSize: '13px', width: '100%', maxWidth: '400px' }}
+                            />
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '6px' }}>
+                                {t('enterprise.identity.ssoDomainDesc', 'The custom domain users will use to log in via SSO.')}
+                            </div>
+                        </div>
+
+                        {error && <div style={{ color: 'var(--error)', fontSize: '12px', marginBottom: '12px' }}>{error}</div>}
+
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <button className="btn btn-primary btn-sm" onClick={() => handleSave()} disabled={saving || !ssoDomain.trim()}>
+                                {saving ? t('common.loading') : t('common.save', 'Save Configuration')}
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     };
@@ -223,13 +211,11 @@ function OrgTab({ tenant }: { tenant: any }) {
     const [syncResult, setSyncResult] = useState<any>(null);
     const [memberSearch, setMemberSearch] = useState('');
     const [selectedDept, setSelectedDept] = useState<string | null>(null);
-    const [expandedProviderId, setExpandedProviderId] = useState<string | null>(null);
+    const [expandedType, setExpandedType] = useState<string | null>(null);
 
     // Identity Providers state
-    const [showAdd, setShowAdd] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [useOAuth2Form, setUseOAuth2Form] = useState(false);
-    const [newProviderType, setNewProviderType] = useState<'feishu' | 'wecom' | 'dingtalk' | 'oauth2'>('feishu');
     const [form, setForm] = useState({
         provider_type: 'feishu',
         name: '',
@@ -251,27 +237,27 @@ function OrgTab({ tenant }: { tenant: any }) {
     });
 
     const { data: departmentsData = { items: [], total_member: 0 } } = useQuery({
-        queryKey: ['org-departments', currentTenantId, expandedProviderId],
+        queryKey: ['org-departments', currentTenantId, editingId],
         queryFn: () => {
             const params = new URLSearchParams();
             if (currentTenantId) params.set('tenant_id', currentTenantId);
-            if (expandedProviderId) params.set('provider_id', expandedProviderId);
+            if (editingId) params.set('provider_id', editingId);
             return fetchJson<{ items: any[]; total_member: number }>(`/enterprise/org/departments?${params}`);
         },
-        enabled: !!expandedProviderId,
+        enabled: !!editingId,
     });
 
     const { data: members = [] } = useQuery({
-        queryKey: ['org-members', selectedDept, memberSearch, currentTenantId, expandedProviderId],
+        queryKey: ['org-members', selectedDept, memberSearch, currentTenantId, editingId],
         queryFn: () => {
             const params = new URLSearchParams();
             if (selectedDept) params.set('department_id', selectedDept);
             if (memberSearch) params.set('search', memberSearch);
             if (currentTenantId) params.set('tenant_id', currentTenantId);
-            if (expandedProviderId) params.set('provider_id', expandedProviderId);
+            if (editingId) params.set('provider_id', editingId);
             return fetchJson<any[]>(`/enterprise/org/members?${params}`);
         },
-        enabled: !!expandedProviderId,
+        enabled: !!editingId,
     });
 
     // Mutations
@@ -286,7 +272,7 @@ function OrgTab({ tenant }: { tenant: any }) {
             }
             return fetchJson('/enterprise/identity-providers', { method: 'POST', body: JSON.stringify(payload) });
         },
-        onSuccess: () => { qc.invalidateQueries({ queryKey: ['identity-providers'] }); setShowAdd(false); setUseOAuth2Form(false); },
+        onSuccess: () => { qc.invalidateQueries({ queryKey: ['identity-providers'] }); setUseOAuth2Form(false); },
     });
 
     const updateProvider = useMutation({
@@ -299,7 +285,7 @@ function OrgTab({ tenant }: { tenant: any }) {
             }
             return fetchJson(`/enterprise/identity-providers/${id}`, { method: 'PUT', body: JSON.stringify(data) });
         },
-        onSuccess: () => { qc.invalidateQueries({ queryKey: ['identity-providers'] }); setEditingId(null); setShowAdd(false); setUseOAuth2Form(false); },
+        onSuccess: () => { qc.invalidateQueries({ queryKey: ['identity-providers'] }); setUseOAuth2Form(false); },
     });
 
     const deleteProvider = useMutation({
@@ -339,24 +325,180 @@ function OrgTab({ tenant }: { tenant: any }) {
         }
     };
 
-    const startAddProvider = (type: 'feishu' | 'wecom' | 'dingtalk' | 'oauth2') => {
-        setEditingId(null);
-        const isOAuth2 = type === 'oauth2';
-        setUseOAuth2Form(isOAuth2);
-        const defaults: any = {
-            feishu: { app_id: '', app_secret: '', corp_id: '' },
-            dingtalk: { app_key: '', app_secret: '', corp_id: '' },
-            wecom: { corp_id: '', secret: '', agent_id: '', bot_id: '', bot_secret: '' },
-        };
-        const nameMap: Record<string, string> = { feishu: 'Feishu', wecom: 'WeCom', dingtalk: 'DingTalk', oauth2: 'OAuth2' };
-        setForm({
-            provider_type: type,
-            name: nameMap[type] || type,
-            config: defaults[type] || {},
-            app_id: '', app_secret: '', authorize_url: '', token_url: '', user_info_url: '',
-            scope: 'openid profile email'
-        });
-        setShowAdd(true);
+    const IDP_TYPES = [
+        { type: 'feishu', name: 'Feishu', desc: 'Feishu / Lark Integration', icon: <img src="/feishu.svg" width="20" height="20" alt="Feishu"/> },
+        { type: 'wecom', name: 'WeCom', desc: 'WeChat Work Integration', icon: <img src="/wecom.png" width="20" height="20" style={{ borderRadius: '4px' }} alt="WeCom"/> },
+        { type: 'dingtalk', name: 'DingTalk', desc: 'DingTalk App Integration', icon: <img src="/dingtalk.png" width="20" height="20" style={{ borderRadius: '4px' }} alt="DingTalk"/> },
+        { type: 'oauth2', name: 'OAuth2', desc: 'Generic OIDC Provider', icon: <div style={{width: 20, height: 20, background: 'var(--accent-primary)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700}}>O</div> }
+    ];
+
+    const handleExpand = (type: string, existingProvider?: any) => {
+        if (expandedType === type) {
+            setExpandedType(null);
+            return;
+        }
+        setExpandedType(type);
+        setEditingId(existingProvider ? existingProvider.id : null);
+        setUseOAuth2Form(type === 'oauth2');
+        
+        if (existingProvider) {
+            setForm({ ...existingProvider, ...(type === 'oauth2' ? initOAuth2FromConfig(existingProvider.config) : {}) });
+        } else {
+            const defaults: any = {
+                feishu: { app_id: '', app_secret: '', corp_id: '' },
+                dingtalk: { app_key: '', app_secret: '', corp_id: '' },
+                wecom: { corp_id: '', secret: '', agent_id: '', bot_id: '', bot_secret: '' },
+            };
+            const nameMap: Record<string, string> = { feishu: 'Feishu', wecom: 'WeCom', dingtalk: 'DingTalk', oauth2: 'OAuth2' };
+            setForm({
+                provider_type: type,
+                name: nameMap[type] || type,
+                config: defaults[type] || {},
+                app_id: '', app_secret: '', authorize_url: '', token_url: '', user_info_url: '',
+                scope: 'openid profile email'
+            });
+        }
+        setSelectedDept(null);
+        setMemberSearch('');
+    };
+
+    const renderForm = (type: string, existingProvider?: any) => {
+        return (
+            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                    <div className="form-group">
+                        <label className="form-label">{t('identity.name')}</label>
+                        <input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+                    </div>
+                </div>
+
+                {type === 'oauth2' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div className="form-group">
+                            <label className="form-label">Client ID</label>
+                            <input className="form-input" value={form.app_id} onChange={e => setForm({ ...form, app_id: e.target.value })} />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Client Secret</label>
+                            <input className="form-input" type="password" value={form.app_secret} onChange={e => setForm({ ...form, app_secret: e.target.value })} />
+                        </div>
+                        <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                            <label className="form-label">Authorize URL</label>
+                            <input className="form-input" value={form.authorize_url} onChange={e => setForm({ ...form, authorize_url: e.target.value })} />
+                        </div>
+                    </div>
+                ) : type === 'wecom' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>
+                                {t('identity.providerHints.wecom')}
+                            </div>
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Corp ID</label>
+                            <input className="form-input" value={form.config.corp_id || ''} onChange={e => setForm({ ...form, config: { ...form.config, corp_id: e.target.value } })} placeholder="wwxxxxxxxxxxxx" />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Secret</label>
+                            <input className="form-input" type="password" value={form.config.secret || ''} onChange={e => setForm({ ...form, config: { ...form.config, secret: e.target.value } })} />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Agent ID (Optional)</label>
+                            <input className="form-input" value={form.config.agent_id || ''} onChange={e => setForm({ ...form, config: { ...form.config, agent_id: e.target.value } })} />
+                        </div>
+                        <div style={{ gridColumn: '1 / -1', height: '1px', background: 'var(--border-subtle)', margin: '8px 0' }} />
+                        <div className="form-group">
+                            <label className="form-label">Bot ID (Intelligent Robot)</label>
+                            <input className="form-input" value={form.config.bot_id || ''} onChange={e => setForm({ ...form, config: { ...form.config, bot_id: e.target.value } })} placeholder="aibXXXXXXXXXXXX" />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Bot Secret</label>
+                            <input className="form-input" type="password" value={form.config.bot_secret || ''} onChange={e => setForm({ ...form, config: { ...form.config, bot_secret: e.target.value } })} />
+                        </div>
+                    </div>
+                ) : type === 'dingtalk' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('identity.providerHints.dingtalk')}</div>
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">App Key</label>
+                            <input className="form-input" value={form.config.app_key || ''} onChange={e => setForm({ ...form, config: { ...form.config, app_key: e.target.value } })} placeholder="dingxxxxxxxxxxxx" />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">App Secret</label>
+                            <input className="form-input" type="password" value={form.config.app_secret || ''} onChange={e => setForm({ ...form, config: { ...form.config, app_secret: e.target.value } })} />
+                        </div>
+                    </div>
+                ) : type === 'feishu' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('identity.providerHints.feishu')}</div>
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">App ID</label>
+                            <input className="form-input" value={form.config.app_id || ''} onChange={e => setForm({ ...form, config: { ...form.config, app_id: e.target.value } })} placeholder="cli_xxxxxxxxxxxx" />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">App Secret</label>
+                            <input className="form-input" type="password" value={form.config.app_secret || ''} onChange={e => setForm({ ...form, config: { ...form.config, app_secret: e.target.value } })} />
+                        </div>
+                    </div>
+                ) : null}
+
+                <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                    <button className="btn btn-primary btn-sm" onClick={save}>{t('common.save', 'Save Configuration')}</button>
+                    {existingProvider && (
+                        <button className="btn btn-ghost btn-sm" style={{ color: 'var(--error)' }} onClick={() => confirm('Are you sure you want to delete this configuration?') && deleteProvider.mutate(existingProvider.id)}>
+                            {t('common.delete', 'Delete')}
+                        </button>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    const renderOrgBrowser = (p: any) => {
+        return (
+            <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px dashed var(--border-subtle)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <div style={{ fontWeight: 500, fontSize: '14px' }}>{t('enterprise.org.orgBrowser', 'Organization Browser')}</div>
+                    {['feishu', 'dingtalk', 'wecom'].includes(p.provider_type) && (
+                        <button className="btn btn-secondary btn-sm" style={{ fontSize: '12px' }} onClick={() => triggerSync(p.id)} disabled={!!syncing}>
+                            {syncing === p.id ? 'Syncing...' : '🔄 Sync Directory'}
+                        </button>
+                    )}
+                </div>
+                <div style={{ display: 'flex', gap: '16px' }}>
+                    <div style={{ width: '260px', borderRight: '1px solid var(--border-subtle)', paddingRight: '16px', maxHeight: '500px', overflowY: 'auto' }}>
+                        <div style={{ padding: '6px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: !selectedDept ? 'rgba(224,238,238,0.1)' : 'transparent' }} onClick={() => setSelectedDept(null)}>
+                            {t('common.all')}
+                            {departmentsData.total_member > 0 && <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>({departmentsData.total_member})</span>}
+                        </div>
+                        <DeptTree departments={departmentsData.items} parentId={null} selectedDept={selectedDept} onSelect={setSelectedDept} level={0} />
+                    </div>
+
+                    <div style={{ flex: 1 }}>
+                        <input className="form-input" placeholder={t("enterprise.org.searchMembers")} value={memberSearch} onChange={e => setMemberSearch(e.target.value)} style={{ marginBottom: '12px' }} />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '400px', overflowY: 'auto' }}>
+                            {members.map((m: any) => (
+                                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
+                                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 600 }}>{m.name?.[0]}</div>
+                                    <div>
+                                        <div style={{ fontWeight: 500, fontSize: '13px' }}>{m.name}</div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                            {m.provider_type && <span style={{ marginRight: '4px', padding: '1px 4px', borderRadius: '3px', background: 'var(--bg-secondary)', fontSize: '10px' }}>{m.provider_type}</span>}
+                                            {m.title || '-'} · {m.department_path || m.department_id || '-'}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                            {members.length === 0 && <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-tertiary)' }}>{t('enterprise.org.noMembers')}</div>}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     return (
@@ -365,232 +507,66 @@ function OrgTab({ tenant }: { tenant: any }) {
             <SsoStatus />
 
             {/* 1. Identity Providers Section */}
-            <div className="card" style={{ padding: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                    <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '18px' }}>🏢</span>
+            <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)' }}>
+                    <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>
                         {t('identity.title', 'Account Sync / Identity Providers')}
                     </h3>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <select
-                            className="form-input"
-                            style={{ width: '160px', fontSize: '12px', padding: '6px 10px' }}
-                            value={newProviderType}
-                            onChange={e => setNewProviderType(e.target.value as any)}
-                        >
-                            <option value="feishu">Feishu</option>
-                            <option value="wecom">WeCom</option>
-                            <option value="dingtalk">DingTalk</option>
-                            <option value="oauth2">OAuth2</option>
-                        </select>
-                        <button
-                            className="btn btn-primary btn-sm"
-                            onClick={() => startAddProvider(newProviderType)}
-                        >
-                            + {t('common.add', 'Add')}
-                        </button>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                        Configure enterprise directory synchronization and Identity Provider settings.
                     </div>
                 </div>
 
-                {showAdd && (
-                    <div style={{ marginBottom: '16px', padding: '16px', border: '1px solid var(--border-subtle)', borderRadius: '8px' }}>
-                        <h4 style={{ marginBottom: '12px' }}>{editingId ? t('common.edit') : t('identity.addProvider')}</h4>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                            <div className="form-group">
-                                <label className="form-label">{t('identity.type')}</label>
-                                <select className="form-input" value={form.provider_type} onChange={e => {
-                                    const newType = e.target.value;
-                                    const isOAuth2 = newType === 'oauth2';
-                                    setUseOAuth2Form(isOAuth2);
-                                    const defaults: any = { feishu: { app_id: '', app_secret: '' }, dingtalk: { app_key: '', app_secret: '' }, wecom: { corp_id: '', secret: '', agent_id: '', bot_id: '', bot_secret: '' } };
-                                    setForm({ ...form, provider_type: newType, config: defaults[newType] || {} });
-                                }}>
-                                    <option value="feishu">Feishu</option>
-                                    <option value="dingtalk">DingTalk</option>
-                                    <option value="wecom">WeCom</option>
-                                    <option value="oauth2">OAuth2</option>
-                                </select>
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">{t('identity.name')}</label>
-                                <input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-                            </div>
-                        </div>
-
-                        {useOAuth2Form ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                <div className="form-group">
-                                    <label className="form-label">Client ID</label>
-                                    <input className="form-input" value={form.app_id} onChange={e => setForm({ ...form, app_id: e.target.value })} />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Client Secret</label>
-                                    <input className="form-input" type="password" value={form.app_secret} onChange={e => setForm({ ...form, app_secret: e.target.value })} />
-                                </div>
-                                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                                    <label className="form-label">Authorize URL</label>
-                                    <input className="form-input" value={form.authorize_url} onChange={e => setForm({ ...form, authorize_url: e.target.value })} />
-                                </div>
-                            </div>
-                        ) : form.provider_type === 'wecom' ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>
-                                        {t('identity.providerHints.wecom')}
-                                    </div>
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Corp ID</label>
-                                    <input className="form-input" value={form.config.corp_id || ''} onChange={e => setForm({ ...form, config: { ...form.config, corp_id: e.target.value } })} placeholder="wwxxxxxxxxxxxx" />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Secret</label>
-                                    <input className="form-input" type="password" value={form.config.secret || ''} onChange={e => setForm({ ...form, config: { ...form.config, secret: e.target.value } })} />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Agent ID (Optional)</label>
-                                    <input className="form-input" value={form.config.agent_id || ''} onChange={e => setForm({ ...form, config: { ...form.config, agent_id: e.target.value } })} />
-                                </div>
-                                <div style={{ gridColumn: '1 / -1', height: '1px', background: 'var(--border-subtle)', margin: '8px 0' }} />
-                                <div className="form-group">
-                                    <label className="form-label">Bot ID (Intelligent Robot)</label>
-                                    <input className="form-input" value={form.config.bot_id || ''} onChange={e => setForm({ ...form, config: { ...form.config, bot_id: e.target.value } })} placeholder="aibXXXXXXXXXXXX" />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Bot Secret</label>
-                                    <input className="form-input" type="password" value={form.config.bot_secret || ''} onChange={e => setForm({ ...form, config: { ...form.config, bot_secret: e.target.value } })} />
-                                </div>
-                            </div>
-                        ) : form.provider_type === 'feishu' ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('identity.providerHints.feishu')}</div>
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">App ID</label>
-                                    <input className="form-input" value={form.config.app_id || ''} onChange={e => setForm({ ...form, config: { ...form.config, app_id: e.target.value } })} placeholder="cli_xxxxxxxxxxxx" />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">App Secret</label>
-                                    <input className="form-input" type="password" value={form.config.app_secret || ''} onChange={e => setForm({ ...form, config: { ...form.config, app_secret: e.target.value } })} />
-                                </div>
-                            </div>
-                        ) : form.provider_type === 'dingtalk' ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('identity.providerHints.dingtalk')}</div>
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">App Key</label>
-                                    <input className="form-input" value={form.config.app_key || ''} onChange={e => setForm({ ...form, config: { ...form.config, app_key: e.target.value } })} placeholder="dingxxxxxxxxxxxx" />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">App Secret</label>
-                                    <input className="form-input" type="password" value={form.config.app_secret || ''} onChange={e => setForm({ ...form, config: { ...form.config, app_secret: e.target.value } })} />
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="form-group">
-                                <label className="form-label">{t('identity.config')}</label>
-                                <textarea className="form-input" style={{ minHeight: '100px', fontSize: '12px' }} value={typeof form.config === 'string' ? form.config : JSON.stringify(form.config, null, 2)} onChange={e => {
-                                    try { setForm({ ...form, config: JSON.parse(e.target.value) }); } catch { setForm({ ...form, config: e.target.value }); }
-                                }} />
-                            </div>
-                        )}
-
-                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '12px' }}>
-                            <button className="btn btn-secondary" onClick={() => setShowAdd(false)}>{t('common.cancel')}</button>
-                            <button className="btn btn-primary" onClick={save}>{t('common.save')}</button>
-                        </div>
-                    </div>
-                )}
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {providers.map((p: any) => {
-                        const isExpanded = expandedProviderId === p.id;
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {IDP_TYPES.map((idp, index) => {
+                        const existingProvider = providers.find((p: any) => p.provider_type === idp.type);
+                        const isExpanded = expandedType === idp.type;
+                        
                         return (
-                            <div key={p.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px' }}>
-                                    <div>
-                                        <div style={{ fontWeight: 500 }}>{p.name} <span className="badge" style={{ fontSize: '10px' }}>{p.provider_type}</span></div>
-                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                            {p.is_active ? '✅ Active' : '❌ Inactive'}
-                                            {p.last_synced_at && ` · Last sync: ${new Date(p.last_synced_at).toLocaleString()}`}
+                            <div key={idp.type} style={{ borderBottom: index < IDP_TYPES.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                                <div 
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', cursor: 'pointer', background: isExpanded ? 'var(--bg-secondary)' : 'transparent', transition: 'background 0.2s' }}
+                                    onClick={() => handleExpand(idp.type, existingProvider)}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        {idp.icon}
+                                        <div>
+                                            <div style={{ fontWeight: 500, fontSize: '14px' }}>{idp.name}</div>
+                                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{idp.desc}</div>
                                         </div>
                                     </div>
-                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                        <button
-                                            className="btn btn-ghost btn-sm"
-                                            style={{ fontSize: '12px' }}
-                                            onClick={() => {
-                                                const next = isExpanded ? null : p.id;
-                                                setExpandedProviderId(next);
-                                                setSelectedDept(null);
-                                                setMemberSearch('');
-                                            }}
-                                        >
-                                            {isExpanded ? '▾' : '▸'} {t('enterprise.org.orgBrowser')}
-                                        </button>
-                                        {['feishu', 'dingtalk', 'wecom'].includes(p.provider_type) && (
-                                            <button className="btn btn-secondary btn-sm" style={{ fontSize: '12px' }} onClick={() => triggerSync(p.id)} disabled={!!syncing}>
-                                                {syncing === p.id ? 'Syncing...' : '🔄 Sync'}
-                                            </button>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                        {existingProvider ? (
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '8px' }}>
+                                                <span className="badge badge-success" style={{ fontSize: '10px' }}>Active</span>
+                                                {existingProvider.last_synced_at && (
+                                                    <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
+                                                        Synced: {new Date(existingProvider.last_synced_at).toLocaleDateString()}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <span className="badge badge-secondary" style={{ fontSize: '10px' }}>Not configured</span>
                                         )}
-                                        <button className="btn btn-ghost" onClick={() => {
-                                            setEditingId(p.id); setUseOAuth2Form(p.provider_type === 'oauth2');
-                                            setForm({ ...p, ...(p.provider_type === 'oauth2' ? initOAuth2FromConfig(p.config) : {}) });
-                                            setShowAdd(true);
-                                        }}>✏️</button>
-                                        <button className="btn btn-ghost" style={{ color: 'var(--error)' }} onClick={() => confirm('Delete?') && deleteProvider.mutate(p.id)}>🗑️</button>
+                                        <div style={{ color: 'var(--text-tertiary)', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', fontSize: '12px' }}>
+                                            ▼
+                                        </div>
                                     </div>
                                 </div>
 
                                 {isExpanded && (
-                                    <div className="card" style={{ padding: '16px', borderStyle: 'dashed' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                            <h4 style={{ margin: 0 }}>{t('enterprise.org.orgBrowser')}</h4>
-                                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                                                {p.name} · {p.provider_type}
-                                            </div>
-                                        </div>
-                                        <div style={{ display: 'flex', gap: '16px' }}>
-                                            <div style={{ width: '260px', borderRight: '1px solid var(--border-subtle)', paddingRight: '16px', maxHeight: '500px', overflowY: 'auto' }}>
-                                                <div style={{ padding: '6px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: !selectedDept ? 'rgba(224,238,238,0.1)' : 'transparent' }} onClick={() => setSelectedDept(null)}>
-                                                    {t('common.all')}
-                                                    {departmentsData.total_member > 0 && <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>({departmentsData.total_member})</span>}
-                                                </div>
-                                                <DeptTree departments={departmentsData.items} parentId={null} selectedDept={selectedDept} onSelect={setSelectedDept} level={0} />
-                                            </div>
-
-                                            <div style={{ flex: 1 }}>
-                                                <input className="form-input" placeholder={t("enterprise.org.searchMembers")} value={memberSearch} onChange={e => setMemberSearch(e.target.value)} style={{ marginBottom: '12px' }} />
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '400px', overflowY: 'auto' }}>
-                                                    {members.map((m: any) => (
-                                                        <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
-                                                            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(224,238,238,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 600 }}>{m.name?.[0]}</div>
-                                                            <div>
-                                                                <div style={{ fontWeight: 500, fontSize: '13px' }}>{m.name}</div>
-                                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                                                    {m.provider_type && <span style={{ marginRight: '4px', padding: '1px 4px', borderRadius: '3px', background: 'var(--bg-secondary)', fontSize: '10px' }}>{m.provider_type}</span>}
-                                                                    {m.title || '-'} · {m.department_path || m.department_id || '-'}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                    {members.length === 0 && <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-tertiary)' }}>{t('enterprise.org.noMembers')}</div>}
-                                                </div>
-                                            </div>
-                                        </div>
+                                    <div style={{ padding: '0 20px 20px', background: 'var(--bg-secondary)' }}>
+                                        {renderForm(idp.type, existingProvider)}
+                                        {existingProvider && renderOrgBrowser(existingProvider)}
                                     </div>
                                 )}
                             </div>
                         );
                     })}
-                    {providers.length === 0 && !showAdd && <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-tertiary)' }}>{t('common.noData')}</div>}
                 </div>
 
                 {syncResult && (
-                    <div style={{ marginTop: '12px', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', background: syncResult.error ? 'rgba(255,0,0,0.1)' : 'rgba(0,200,0,0.1)' }}>
+                    <div style={{ margin: '16px', padding: '12px', borderRadius: '6px', fontSize: '12px', background: syncResult.error ? 'rgba(255,0,0,0.1)' : 'rgba(0,200,0,0.1)' }}>
                         {syncResult.error ? `Error: ${syncResult.error}` : `Sync complete: ${syncResult.users_created || 0} users created, ${syncResult.profiles_synced || 0} profiles synced.`}
                     </div>
                 )}
