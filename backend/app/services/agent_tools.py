@@ -879,7 +879,7 @@ AGENT_TOOLS = [
             },
         },
     },
-    {"type": "function", "function": {"name": "get_infisical_secret", "description": "Retrieve a secret from Infisical vault.", "parameters": {"type": "object", "properties": {"secret_name": {"type": "string", "description": "Secret name"}}, "required": ["secret_name"]}}},
+    {"type": "function", "function": {"name": "infisical_get_secret", "description": "Retrieve a secret from Infisical vault by name. Returns the secret value directly.", "parameters": {"type": "object", "properties": {"secret_name": {"type": "string", "description": "Name of the secret (e.g., HETZNER_API_KEY, DATABASE_PASSWORD)"}}, "required": ["secret_name"]}}},
     {"type": "function", "function": {"name": "list_infisical_secrets", "description": "List secret names in Infisical project.", "parameters": {"type": "object", "properties": {}}}},
 ]
 
@@ -1142,7 +1142,7 @@ async def _execute_tool_direct(
 
 
 
-async def _get_infisical_secret(agent_id: uuid.UUID, arguments: dict) -> str:
+async def _infisical_get_secret(agent_id: uuid.UUID, arguments: dict) -> str:
     """Get a single secret from Infisical using Universal Auth (same pattern as list-secrets)."""
     secret_name = arguments.get('secret_name', '').strip()
     environment = arguments.get('environment', 'prod')
@@ -1334,8 +1334,8 @@ async def execute_tool(
         elif tool_name == "import_mcp_server":
             result = await _import_mcp_server(agent_id, arguments)
         # ── Infisical Tools ──
-        elif tool_name == "get_infisical_secret":
-            result = await _get_infisical_secret(agent_id, arguments)
+        elif tool_name == "infisical_get_secret":
+            result = await _infisical_get_secret(agent_id, arguments)
         elif tool_name == "list_infisical_secrets":
             result = await _list_infisical_secrets(agent_id, arguments)
         # ── Feishu Document Tools ──
