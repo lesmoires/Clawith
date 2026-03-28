@@ -341,9 +341,6 @@ function CompaniesTab() {
     const [createdCompanyName, setCreatedCompanyName] = useState('');
     const [codeCopied, setCodeCopied] = useState(false);
 
-    // Edit company
-    const [editingCompany, setEditingCompany] = useState<any>(null);
-
     // Toast
     const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
     const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -457,12 +454,11 @@ function CompaniesTab() {
         { key: 'agent_count', label: t('admin.agents', 'Agents'), flex: '70px' },
         { key: 'total_tokens', label: t('admin.tokens', 'Token Usage'), flex: '100px' },
         { key: 'created_at', label: t('admin.createdAt', 'Created'), flex: '100px' },
-        { key: 'is_active', label: t('admin.status', 'Status'), flex: '140px' },
+        { key: 'is_active', label: t('admin.status', 'Status'), flex: '100px' },
     ];
-    const statusColFlex = '80px';
     const actionColFlex = '80px';
 
-    const gridCols = columns.map(c => c.flex).join(' ') + ' ' + statusColFlex + ' ' + actionColFlex;
+    const gridCols = columns.map(c => c.flex).join(' ') + ' ' + actionColFlex;
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -474,14 +470,6 @@ function CompaniesTab() {
                 }}>{toast.msg}</div>
             )}
 
-            {/* Edit Company Modal */}
-            {editingCompany && (
-                <EditCompanyModal
-                    company={editingCompany}
-                    onClose={() => setEditingCompany(null)}
-                    onUpdated={loadCompanies}
-                />
-            )}
 
             {/* Invitation Code Modal */}
             {createdCode && (
@@ -715,21 +703,6 @@ function CompaniesTab() {
                             <span className={`badge ${c.is_active ? 'badge-success' : 'badge-error'}`} style={{ fontSize: '10px' }}>
                                 {c.is_active ? t('admin.active', 'Active') : t('admin.disabled', 'Disabled')}
                             </span>
-                             <button
-                                className="btn btn-secondary"
-                                style={{
-                                    padding: '4px 10px', fontSize: '11px', height: '28px',
-                                    display: 'flex', alignItems: 'center', gap: '4px'
-                                }}
-                                onClick={() => setEditingCompany(c)}
-                                title={t('admin.editCompany', 'Edit Company')}
-                            >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                </svg>
-                                {t('common.edit', 'Edit')}
-                            </button>
                         </div>
                         <div style={{ display: 'flex', gap: '4px' }}>
                             <button

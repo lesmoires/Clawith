@@ -260,8 +260,9 @@ async def update_tenant(
 
     update_data = data.model_dump(exclude_unset=True)
     
-    # Restrict SSO configuration to platform admins only
-    if current_user.role != "platform_admin":
+    # SSO configuration is managed exclusively by the company's own org_admin
+    # via the Enterprise Settings page. Platform admins should not override it here.
+    if current_user.role == "platform_admin":
         update_data.pop("sso_enabled", None)
         update_data.pop("sso_domain", None)
 
