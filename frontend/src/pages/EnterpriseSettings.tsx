@@ -250,13 +250,13 @@ function OrgTab({ tenant }: { tenant: any }) {
         queryFn: () => fetchJson<any[]>(`/enterprise/identity-providers${currentTenantId ? `?tenant_id=${currentTenantId}` : ''}`),
     });
 
-    const { data: departments = [] } = useQuery({
+    const { data: departmentsData = { items: [], total_member: 0 } } = useQuery({
         queryKey: ['org-departments', currentTenantId, expandedProviderId],
         queryFn: () => {
             const params = new URLSearchParams();
             if (currentTenantId) params.set('tenant_id', currentTenantId);
             if (expandedProviderId) params.set('provider_id', expandedProviderId);
-            return fetchJson<any[]>(`/enterprise/org/departments?${params}`);
+            return fetchJson<{ items: any[]; total_member: number }>(`/enterprise/org/departments?${params}`);
         },
         enabled: !!expandedProviderId,
     });
@@ -498,10 +498,11 @@ function OrgTab({ tenant }: { tenant: any }) {
                                         </div>
                                         <div style={{ display: 'flex', gap: '16px' }}>
                                             <div style={{ width: '260px', borderRight: '1px solid var(--border-subtle)', paddingRight: '16px', maxHeight: '500px', overflowY: 'auto' }}>
-                                                <div style={{ padding: '6px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', background: !selectedDept ? 'rgba(224,238,238,0.1)' : 'transparent' }} onClick={() => setSelectedDept(null)}>
+                                                <div style={{ padding: '6px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: !selectedDept ? 'rgba(224,238,238,0.1)' : 'transparent' }} onClick={() => setSelectedDept(null)}>
                                                     {t('common.all')}
+                                                    {departmentsData.total_member > 0 && <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>({departmentsData.total_member})</span>}
                                                 </div>
-                                                <DeptTree departments={departments} parentId={null} selectedDept={selectedDept} onSelect={setSelectedDept} level={0} />
+                                                <DeptTree departments={departmentsData.items} parentId={null} selectedDept={selectedDept} onSelect={setSelectedDept} level={0} />
                                             </div>
 
                                             <div style={{ flex: 1 }}>

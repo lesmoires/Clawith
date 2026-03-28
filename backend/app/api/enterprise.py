@@ -944,20 +944,33 @@ async def list_org_departments(
         query = query.where(OrgDepartment.provider_id == uuid.UUID(provider_id))
     result = await db.execute(query.order_by(OrgDepartment.name))
     rows = result.all()
-    return [
-        {
-            "id": str(d.id),
-            "external_id": d.external_id,
-            "provider_id": str(d.provider_id) if d.provider_id else None,
-            "provider_name": provider_name if d.provider_id else None,
-            "provider_type": provider_type if d.provider_id else None,
-            "name": d.name,
-            "parent_id": str(d.parent_id) if d.parent_id else None,
-            "path": d.path,
-            "member_count": d.member_count,
-        }
-        for d, provider_name, provider_type in rows
-    ]
+    # Calculate total members for this scope (for the "All" entry in frontend)
+    total_q = select(func.count(OrgMember.id)).where(OrgMember.status == "active")
+    if tenant_id:
+        total_q = total_q.where(OrgMember.tenant_id == uuid.UUID(tenant_id))
+    if provider_id:
+        total_q = total_q.where(OrgMember.provider_id == uuid.UUID(provider_id))
+    total_result = await db.execute(total_q)
+    total_member = total_result.scalar() or 0
+
+    return {
+        "items": [
+            {
+                "id": str(d.id),
+                "external_id": d.external_id,
+                "provider_id": str(d.provider_id) if d.provider_id else None,
+                "provider_name": provider_name if d.provider_id else None,
+                "provider_type": provider_type if d.provider_id else None,
+                "name": d.name,
+                "parent_id": str(d.parent_id) if d.parent_id else None,
+                "path": d.path,
+                "member_count": d.member_count,
+            }
+            for d, provider_name, provider_type in rows
+        ],
+        "total_member": total_member,
+    }
+
 
 
 from sqlalchemy import or_
