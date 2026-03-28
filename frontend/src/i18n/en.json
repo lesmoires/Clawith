@@ -806,7 +806,8 @@
       "preview": "Preview"
     },
     "identity": {
-      "addProvider": "Add OA Provider",
+      "title": "Organization & Directory Sync",
+      "addProvider": "Add Directory Provider",
       "type": "Type",
       "name": "Display Name",
       "config": "Configuration (JSON)",

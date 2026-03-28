@@ -1098,8 +1098,8 @@
     }
   },
   "identity": {
-    "title": "账号同步 / 身份源",
-    "addProvider": "添加 OA 账号源",
+    "title": "组织架构与账号同步",
+    "addProvider": "添加同步源",
     "type": "类型",
     "name": "显示名称",
     "config": "配置 (JSON)",
