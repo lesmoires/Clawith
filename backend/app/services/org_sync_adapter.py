@@ -218,66 +218,39 @@ class BaseOrgSyncAdapter(ABC):
         )
 
     async def _update_member_counts(self, db: AsyncSession, provider_id: uuid.UUID):
-        """Update member_count for all departments recursively for a provider."""
-        from sqlalchemy import select, func, update
-        from collections import defaultdict
+        """Update member_count for all departments. Root shows total, others show direct."""
+        from sqlalchemy import update, select, func
 
-        # 1. Fetch all active departments for this provider
-        dept_result = await db.execute(
-            select(OrgDepartment.id, OrgDepartment.parent_id)
+        # 1. Update all departments to show their DIRECT member counts
+        direct_subquery = (
+            select(func.count(OrgMember.id))
+            .where(OrgMember.department_id == OrgDepartment.id)
+            .where(OrgMember.status == "active")
+            .scalar_subquery()
+        )
+        
+        await db.execute(
+            update(OrgDepartment)
             .where(OrgDepartment.provider_id == provider_id)
             .where(OrgDepartment.status == "active")
+            .values(member_count=direct_subquery)
         )
-        depts = dept_result.all()  # List of rows (id, parent_id)
-        if not depts:
-            return
 
-        # 2. Fetch direct member counts for each department
-        member_result = await db.execute(
-            select(OrgMember.department_id, func.count(OrgMember.id))
+        # 2. Update the Root department(s) (parent_id is NULL) to show the TOTAL provider headcount
+        total_subquery = (
+            select(func.count(OrgMember.id))
             .where(OrgMember.provider_id == provider_id)
             .where(OrgMember.status == "active")
-            .where(OrgMember.department_id.is_not(None))
-            .group_by(OrgMember.department_id)
+            .scalar_subquery()
         )
-        direct_counts = {row[0]: row[1] for row in member_result.all()}
 
-        # 3. Calculate recursive totals
-        # Map: parent_id -> list of child_ids
-        children_map = defaultdict(list)
-        all_dept_ids = set()
-        for rid, rparent_id in depts:
-            all_dept_ids.add(rid)
-            if rparent_id:
-                children_map[rparent_id].append(rid)
-
-        totals = {}  # Cache: dept_id -> recursive total
-
-        def compute_total(dept_id):
-            if dept_id in totals:
-                return totals[dept_id]
-            
-            # Start with direct members of this department
-            count = direct_counts.get(dept_id, 0)
-            
-            # Add counts of all sub-departments
-            for child_id in children_map.get(dept_id, []):
-                count += compute_total(child_id)
-            
-            totals[dept_id] = count
-            return count
-
-        # Compute for all departments
-        for dept_id in all_dept_ids:
-            compute_total(dept_id)
-
-        # 4. Batch update back to DB - individual updates within the same transaction are efficient enough
-        for dept_id, total in totals.items():
-            await db.execute(
-                update(OrgDepartment)
-                .where(OrgDepartment.id == dept_id)
-                .values(member_count=total)
-            )
+        await db.execute(
+            update(OrgDepartment)
+            .where(OrgDepartment.provider_id == provider_id)
+            .where(OrgDepartment.parent_id.is_(None))
+            .where(OrgDepartment.status == "active")
+            .values(member_count=total_subquery)
+        )
 
     async def _ensure_provider(self, db: AsyncSession) -> IdentityProvider:
         """Ensure IdentityProvider record exists."""
