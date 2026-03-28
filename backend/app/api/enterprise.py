@@ -980,9 +980,30 @@ async def list_org_members(
     if tenant_id:
         query = query.where(OrgMember.tenant_id == uuid.UUID(tenant_id))
     if department_id:
-        query = query.where(OrgMember.department_id == uuid.UUID(department_id))
+        # Get the department to find its path and then include all sub-departments
+        dept_result = await db.execute(select(OrgDepartment).where(OrgDepartment.id == uuid.UUID(department_id)))
+        target_dept = dept_result.scalar_one_or_none()
+        if target_dept:
+            # Build sub-department query: the selected dept itself, plus any dept whose path
+            # starts with its path followed by a "/" (i.e., all descendants).
+            sub_dept_conditions = [OrgDepartment.id == target_dept.id]
+            if target_dept.path:
+                # Use SQL LIKE to find all descendants based on path prefix
+                sub_dept_conditions.append(OrgDepartment.path.like(f"{target_dept.path}/%"))
+            sub_depts_query = select(OrgDepartment.id).where(or_(*sub_dept_conditions))
+            sub_dept_ids_result = await db.execute(sub_depts_query)
+            sub_dept_ids = [row[0] for row in sub_dept_ids_result.all()]
+            query = query.where(OrgMember.department_id.in_(sub_dept_ids))
+        else:
+            # Fallback: exact match
+            query = query.where(OrgMember.department_id == uuid.UUID(department_id))
     if provider_id:
-        query = query.where(OrgMember.provider_id == uuid.UUID(provider_id))
+        query = query.where(
+            or_(
+                OrgMember.provider_id == uuid.UUID(provider_id),
+                OrgMember.provider_id.is_(None)
+            )
+        )
     if search:
         query = query.where(
             or_(
