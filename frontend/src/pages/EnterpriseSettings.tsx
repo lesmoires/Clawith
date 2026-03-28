@@ -73,17 +73,30 @@ function DeptTree({ departments, parentId, selectedDept, onSelect, level }: {
                 <div key={d.id}>
                     <div
                         style={{
-                            padding: '5px 8px', paddingLeft: `${8 + level * 16}px`, borderRadius: '4px',
-                            cursor: 'pointer', fontSize: '13px', marginBottom: '1px',
+                            padding: '5px 8px', 
+                            paddingLeft: `${8 + level * 16}px`, 
+                            borderRadius: '4px',
+                            cursor: 'pointer', 
+                            fontSize: '13px', 
+                            marginBottom: '1px',
                             background: selectedDept === d.id ? 'rgba(224,238,238,0.12)' : 'transparent',
+                            display: 'flex', 
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
                         }}
                         onClick={() => onSelect(d.id)}
                     >
-                        <span style={{ color: 'var(--text-tertiary)', marginRight: '4px', fontSize: '11px' }}>
-                            {departments.some((c: any) => c.parent_id === d.id) ? '▸' : '·'}
-                        </span>
-                        {d.name}
-                        {d.member_count > 0 && <span style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginLeft: '4px' }}>({d.member_count})</span>}
+                        <div>
+                            <span style={{ color: 'var(--text-tertiary)', marginRight: '4px', fontSize: '11px' }}>
+                                {departments.some((c: any) => c.parent_id === d.id) ? '▾' : '·'}
+                            </span>
+                            {d.name}
+                        </div>
+                        {d.member_count !== undefined && (
+                            <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
+                                {d.member_count}
+                            </span>
+                        )}
                     </div>
                     <DeptTree departments={departments} parentId={d.id} selectedDept={selectedDept} onSelect={onSelect} level={level + 1} />
                 </div>
@@ -484,13 +497,21 @@ function OrgTab({ tenant }: { tenant: any }) {
     const renderOrgBrowser = (p: any) => {
         return (
             <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px dashed var(--border-subtle)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                     <div style={{ fontWeight: 500, fontSize: '14px' }}>{t('enterprise.org.orgBrowser', 'Organization Browser')}</div>
-                    {['feishu', 'dingtalk', 'wecom'].includes(p.provider_type) && (
-                        <button className="btn btn-secondary btn-sm" style={{ fontSize: '12px' }} onClick={() => triggerSync(p.id)} disabled={!!syncing}>
-                            {syncing === p.id ? 'Syncing...' : '🔄 Sync Directory'}
-                        </button>
-                    )}
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+                        {['feishu', 'dingtalk', 'wecom'].includes(p.provider_type) && (
+                            <button className="btn btn-secondary btn-sm" style={{ fontSize: '12px' }} onClick={() => triggerSync(p.id)} disabled={!!syncing}>
+                                {syncing === p.id ? 'Syncing...' : 'Sync Directory'}
+                            </button>
+                        )}
+                        {syncResult && (
+                            <div style={{ padding: '6px 10px', borderRadius: '4px', fontSize: '11px', background: syncResult.error ? 'rgba(255,0,0,0.1)' : 'rgba(0,200,0,0.1)' }}>
+                                {syncResult.error ? `Error: ${syncResult.error}` : `Sync complete: ${syncResult.users_created || 0} users created, ${syncResult.profiles_synced || 0} profiles synced.`}
+                            </div>
+                        )}
+                    </div>
                 </div>
                 <div style={{ display: 'flex', gap: '16px' }}>
                     <div style={{ width: '260px', borderRight: '1px solid var(--border-subtle)', paddingRight: '16px', maxHeight: '500px', overflowY: 'auto' }}>
@@ -700,12 +721,6 @@ function OrgTab({ tenant }: { tenant: any }) {
                         );
                     })}
                 </div>
-
-                {syncResult && (
-                    <div style={{ margin: '16px', padding: '12px', borderRadius: '6px', fontSize: '12px', background: syncResult.error ? 'rgba(255,0,0,0.1)' : 'rgba(0,200,0,0.1)' }}>
-                        {syncResult.error ? `Error: ${syncResult.error}` : `Sync complete: ${syncResult.users_created || 0} users created, ${syncResult.profiles_synced || 0} profiles synced.`}
-                    </div>
-                )}
             </div>
         </div>
     );

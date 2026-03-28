@@ -224,7 +224,7 @@ class BaseOrgSyncAdapter(ABC):
         )
 
     async def _update_member_counts(self, db: AsyncSession, provider_id: uuid.UUID):
-        """Update member_count for all departments. Root shows total, others show direct."""
+        """Update member_count for all departments to include all their recursive sub-department members."""
         from sqlalchemy import update, select, func
 
         # 1. Update all departments to show their DIRECT member counts
@@ -241,6 +241,54 @@ class BaseOrgSyncAdapter(ABC):
             .where(OrgDepartment.status == "active")
             .values(member_count=direct_subquery)
         )
+
+        # 2. Fetch all active departments to compute recursive aggregated counts
+        result = await db.execute(
+            select(OrgDepartment.id, OrgDepartment.parent_id, OrgDepartment.member_count)
+            .where(OrgDepartment.provider_id == provider_id)
+            .where(OrgDepartment.status == "active")
+        )
+        rows = result.all()
+        
+        # Build tree structure and lookup
+        dept_map = {row.id: {"parent_id": row.parent_id, "direct": row.member_count, "total": 0, "children": []} for row in rows}
+        root_ids = []
+        for d_id, d_data in dept_map.items():
+            parent_id = d_data["parent_id"]
+            if parent_id and parent_id in dept_map:
+                dept_map[parent_id]["children"].append(d_id)
+            else:
+                root_ids.append(d_id)
+                
+        # Recursive function to calculate total
+        def compute_total(node_id):
+            node = dept_map[node_id]
+            total = node["direct"]
+            for child_id in node["children"]:
+                total += compute_total(child_id)
+            node["total"] = total
+            return total
+            
+        for root_id in root_ids:
+            compute_total(root_id)
+            
+        # 3. Bulk update all departments with their aggregated total counts
+        # Skip if no updates needed to avoid unnecessary writes, but usually it's fast enough
+        update_mappings = [{"id": d_id, "member_count": d_data["total"]} for d_id, d_data in dept_map.items()]
+        
+        if update_mappings:
+            from app.database import async_engine
+            # Use core update with executemany approach handled cleanly by SQLAlchemy mapping
+            # SQLAlchemy 2.0 style bulk update
+            from sqlalchemy import bindparam
+            stmt = (
+                update(OrgDepartment)
+                .where(OrgDepartment.id == bindparam("b_id"))
+                .values(member_count=bindparam("b_count"))
+            )
+            # Re-map keys for bindparams
+            bind_mappings = [{"b_id": m["id"], "b_count": m["member_count"]} for m in update_mappings]
+            await db.execute(stmt, bind_mappings)
 
     async def _ensure_provider(self, db: AsyncSession) -> IdentityProvider:
         """Ensure IdentityProvider record exists."""
