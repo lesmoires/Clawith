@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,10 +16,9 @@ class IdentityProvider(Base):
     __tablename__ = "identity_providers"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    provider_type: Mapped[str] = mapped_column(
-        Enum("feishu", "dingtalk", "wecom", "microsoft_teams", name="provider_type_enum"),
-        nullable=False
-    )
+    # Use plain String instead of PostgreSQL native Enum to stay compatible with the
+    # existing production schema (character varying(50)) and avoid type-cast errors.
+    provider_type: Mapped[str] = mapped_column(String(50), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     config: Mapped[dict] = mapped_column(JSON, default=dict)

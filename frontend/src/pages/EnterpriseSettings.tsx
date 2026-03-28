@@ -212,6 +212,8 @@ function OrgTab({ tenant }: { tenant: any }) {
     const [memberSearch, setMemberSearch] = useState('');
     const [selectedDept, setSelectedDept] = useState<string | null>(null);
     const [expandedType, setExpandedType] = useState<string | null>(null);
+    const [savingProvider, setSavingProvider] = useState(false);
+    const [saveProviderOk, setSaveProviderOk] = useState(false);
 
     // Identity Providers state
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -272,7 +274,14 @@ function OrgTab({ tenant }: { tenant: any }) {
             }
             return fetchJson('/enterprise/identity-providers', { method: 'POST', body: JSON.stringify(payload) });
         },
-        onSuccess: () => { qc.invalidateQueries({ queryKey: ['identity-providers'] }); setUseOAuth2Form(false); },
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ['identity-providers'] });
+            setUseOAuth2Form(false);
+            setSavingProvider(false);
+            setSaveProviderOk(true);
+            setTimeout(() => setSaveProviderOk(false), 2500);
+        },
+        onError: () => setSavingProvider(false),
     });
 
     const updateProvider = useMutation({
@@ -285,7 +294,14 @@ function OrgTab({ tenant }: { tenant: any }) {
             }
             return fetchJson(`/enterprise/identity-providers/${id}`, { method: 'PUT', body: JSON.stringify(data) });
         },
-        onSuccess: () => { qc.invalidateQueries({ queryKey: ['identity-providers'] }); setUseOAuth2Form(false); },
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ['identity-providers'] });
+            setUseOAuth2Form(false);
+            setSavingProvider(false);
+            setSaveProviderOk(true);
+            setTimeout(() => setSaveProviderOk(false), 2500);
+        },
+        onError: () => setSavingProvider(false),
     });
 
     const deleteProvider = useMutation({
@@ -318,6 +334,8 @@ function OrgTab({ tenant }: { tenant: any }) {
     });
 
     const save = () => {
+        setSavingProvider(true);
+        setSaveProviderOk(false);
         if (editingId) {
             updateProvider.mutate({ id: editingId, data: form });
         } else {
@@ -446,8 +464,13 @@ function OrgTab({ tenant }: { tenant: any }) {
                     </div>
                 ) : null}
 
-                <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-                    <button className="btn btn-primary btn-sm" onClick={save}>{t('common.save', 'Save Configuration')}</button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '16px' }}>
+                    <button className="btn btn-primary btn-sm" onClick={save} disabled={savingProvider}>
+                        {savingProvider ? t('common.loading') : t('common.save', 'Save')}
+                    </button>
+                    {saveProviderOk && (
+                        <span style={{ fontSize: '12px', color: 'var(--success)' }}>Saved</span>
+                    )}
                     {existingProvider && (
                         <button className="btn btn-ghost btn-sm" style={{ color: 'var(--error)' }} onClick={() => confirm('Are you sure you want to delete this configuration?') && deleteProvider.mutate(existingProvider.id)}>
                             {t('common.delete', 'Delete')}
