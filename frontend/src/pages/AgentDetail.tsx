@@ -55,7 +55,8 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
         agentbay: {
             title: 'AgentBay Settings',
             fields: [
-                { key: 'api_key', label: 'API Key (from AgentBay)', type: 'password', placeholder: 'Enter your AgentBay API key' }
+                { key: 'api_key', label: 'API Key (from AgentBay)', type: 'password', placeholder: 'Enter your AgentBay API key' },
+                { key: 'os_type', label: 'Cloud Computer OS', type: 'select', default: 'windows', options: [{ value: 'linux', label: 'Linux' }, { value: 'windows', label: 'Windows' }] },
             ]
         },
         atlassian: {
@@ -381,22 +382,23 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                                                         </label>
                                                     ) : field.type === 'password' ? (
                                                         <>
-                                                            <input type="password" className="form-input" value={configData[field.key] ?? ''} placeholder={field.placeholder || 'Leave blank to use global default'} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))} />
-                                                            {/* Per-provider help text for auth_code */}
-                                                            {field.key === 'auth_code' && (() => {
-                                                                const providerField = configTool?.config_schema?.fields?.find((f: any) => f.key === 'email_provider');
-                                                                const selectedProvider = configData['email_provider'] || providerField?.default || '';
-                                                                const providerOption = providerField?.options?.find((o: any) => o.value === selectedProvider);
-                                                                if (!providerOption?.help_text) return null;
-                                                                return (
-                                                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px', lineHeight: '1.5' }}>
-                                                                        {providerOption.help_text}
-                                                                        {providerOption.help_url && (
-                                                                            <> &middot; <a href={providerOption.help_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-primary)', textDecoration: 'none' }}>Setup guide</a></>
-                                                                        )}
-                                                                    </div>
-                                                                );
-                                                            })()}
+                                                        <input type="password" autoComplete="new-password" className="form-input" value={configData[field.key] ?? ''} placeholder={field.placeholder || t('admin.leaveBlankDefault', 'Leave blank to use global default')} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))} />
+                                                        {/* Per-provider help text for auth_code */}
+                                                        {field.key === 'auth_code' && (() => {
+                                                            const providerField = configTool?.config_schema?.fields?.find((f: any) => f.key === 'email_provider');
+                                                            const selectedProvider = configData['email_provider'] || providerField?.default || '';
+                                                            const providerOption = providerField?.options?.find((o: any) => o.value === selectedProvider);
+                                                            if (!providerOption?.help_text) return null;
+                                                            return (
+                                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px', lineHeight: '1.5' }}>
+                                                                    {providerOption.help_text}
+                                                                    {providerOption.help_url && (
+                                                                        <> &middot; <a href={providerOption.help_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-primary)', textDecoration: 'none' }}>Setup guide</a></>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()}
+
                                                         </>
                                                     ) : field.type === 'select' ? (
                                                         <select className="form-input" value={configData[field.key] ?? field.default ?? ''} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))}>
@@ -3976,10 +3978,18 @@ function AgentDetailInner() {
                                                     onChange={(e) => setSettingsForm(f => ({ ...f, primary_model_id: e.target.value }))}
                                                 >
                                                     <option value="">--</option>
-                                                    {llmModels.map((m: any) => (
-                                                        <option key={m.id} value={m.id}>{m.label} ({m.provider}/{m.model})</option>
+                                                    {llmModels.filter((m: any) => m.enabled || m.id === settingsForm.primary_model_id).map((m: any) => (
+                                                        <option key={m.id} value={m.id}>
+                                                            {m.label} ({m.provider}/{m.model}){!m.enabled ? ` [${t('enterprise.llm.disabled', 'Disabled')}]` : ''}
+                                                        </option>
                                                     ))}
                                                 </select>
+                                                {/* Warning if selected model is disabled */}
+                                                {settingsForm.primary_model_id && llmModels.some((m: any) => m.id === settingsForm.primary_model_id && !m.enabled) && (
+                                                    <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '4px' }}>
+                                                        {t('agent.settings.modelDisabledWarning', 'This model has been disabled by admin. The agent will automatically use the fallback model.')}
+                                                    </div>
+                                                )}
                                                 <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('agent.settings.primaryModel')}</div>
                                             </div>
                                             <div>
@@ -3990,10 +4000,18 @@ function AgentDetailInner() {
                                                     onChange={(e) => setSettingsForm(f => ({ ...f, fallback_model_id: e.target.value }))}
                                                 >
                                                     <option value="">--</option>
-                                                    {llmModels.map((m: any) => (
-                                                        <option key={m.id} value={m.id}>{m.label} ({m.provider}/{m.model})</option>
+                                                    {llmModels.filter((m: any) => m.enabled || m.id === settingsForm.fallback_model_id).map((m: any) => (
+                                                        <option key={m.id} value={m.id}>
+                                                            {m.label} ({m.provider}/{m.model}){!m.enabled ? ` [${t('enterprise.llm.disabled', 'Disabled')}]` : ''}
+                                                        </option>
                                                     ))}
                                                 </select>
+                                                {/* Warning if selected fallback model is disabled */}
+                                                {settingsForm.fallback_model_id && llmModels.some((m: any) => m.id === settingsForm.fallback_model_id && !m.enabled) && (
+                                                    <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '4px' }}>
+                                                        {t('agent.settings.modelDisabledWarning', 'This model has been disabled by admin. The agent will automatically use the fallback model.')}
+                                                    </div>
+                                                )}
                                                 <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('agent.settings.fallbackModel')}</div>
                                             </div>
                                         </div>

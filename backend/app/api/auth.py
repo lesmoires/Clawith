@@ -118,7 +118,7 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
             (User.email == data.email)
         )
     )
-    if existing.scalar_one_or_none():
+    if existing.scalars().first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username or email already exists")
 
     # Check if this is the first user (→ platform admin + default company org_admin)
@@ -260,7 +260,7 @@ async def update_me(
     # Validate username uniqueness if changing
     if "username" in update_data and update_data["username"] != current_user.username:
         existing = await db.execute(select(User).where(User.username == update_data["username"]))
-        if existing.scalar_one_or_none():
+        if existing.scalars().first():
             raise HTTPException(status_code=409, detail="Username already taken")
 
     # Validate email uniqueness within tenant if changing

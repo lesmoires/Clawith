@@ -270,9 +270,11 @@ async def get_agent_tools(
             continue
         tid = str(t.id)
         at = assignments.get(tid)
-        # MCP tools only show for agents that have an explicit assignment
+        # MCP tools installed by agents (no tenant_id) only show for that agent.
+        # MCP tools imported by admin in company settings (tenant_id set) show for all agents (default disabled).
         if t.type == "mcp" and not at:
-            continue
+            if not t.tenant_id:
+                continue
         # If no explicit assignment, use is_default
         enabled = at.enabled if at else t.is_default
         result.append({
@@ -488,9 +490,11 @@ async def get_agent_tools_with_config(
             continue
         tid = str(t.id)
         at = assignments.get(tid)
-        # MCP tools only show for agents that have an explicit assignment
+        # MCP tools installed by agents (no tenant_id) only show for that agent.
+        # MCP tools imported by admin in company settings (tenant_id set) show for all agents (default disabled).
         if t.type == "mcp" and not at:
-            continue
+            if not t.tenant_id:
+                continue
         enabled = at.enabled if at else t.is_default
         result.append({
             "id": tid,
@@ -569,27 +573,39 @@ async def get_category_config(
         )
     )
     config = result.scalar_one_or_none()
-    if not config:
-        return {
-            "id": None,
-            "agent_id": str(agent_id),
-            "category": category,
-            "is_configured": False,
-            "config": {}
+    
+    config_id = None
+    is_configured = False
+    decrypted_config = {}
+    
+    if config:
+        config_id = str(config.id)
+        is_configured = config.is_configured
+        
+        # If it's encrypted, decrypt it for the UI
+        full_config = {
+            "api_key": config.app_secret,
+            **(config.extra_config or {})
         }
-
-    # If it's encrypted, decrypt it for the UI
-    full_config = {
-        "api_key": config.app_secret,
-        **(config.extra_config or {})
-    }
-    decrypted_config = _decrypt_sensitive_fields(full_config)
+        decrypted_config = _decrypt_sensitive_fields(full_config)
+    else:
+        # Fallback to global Tool.config for this category (Company Settings)
+        from app.models.tool import Tool
+        tool_result = await db.execute(
+            select(Tool).where(
+                Tool.category == category,
+                Tool.enabled == True,
+            ).limit(1)
+        )
+        global_tool = tool_result.scalar_one_or_none()
+        if global_tool and global_tool.config:
+            decrypted_config = _decrypt_sensitive_fields(global_tool.config)
 
     return {
-        "id": str(config.id),
-        "agent_id": str(config.agent_id),
-        "category": config.channel_type,
-        "is_configured": config.is_configured,
+        "id": config_id,
+        "agent_id": str(agent_id),
+        "category": category,
+        "is_configured": is_configured,
         "config": decrypted_config
     }
 

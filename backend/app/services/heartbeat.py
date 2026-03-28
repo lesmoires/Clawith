@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 # Default heartbeat instruction used when HEARTBEAT.md doesn't exist
 DEFAULT_HEARTBEAT_INSTRUCTION = """[Heartbeat Check]
@@ -117,11 +117,30 @@ def _is_in_active_hours(active_hours: str, tz_name: str = "UTC") -> bool:
 
 
 async def _execute_heartbeat(agent_id: uuid.UUID):
-    """Execute a single heartbeat for an agent."""
+    """Execute a single heartbeat for an agent.
+
+    Uses three short DB transactions to avoid holding connections
+    during long-running LLM calls:
+      Phase 1: Read agent, model, context, notifications → commit
+      Phase 2: LLM tool loop (no DB connection held)
+      Phase 3: Write token usage + last_heartbeat_at → commit
+    """
     try:
         from app.database import async_session
         from app.models.agent import Agent
         from app.models.llm import LLMModel
+
+        # ── Phase 1: Read all context from DB (short transaction) ──
+        agent_name = ""
+        agent_role = ""
+        agent_creator_id = None
+        model_provider = ""
+        model_api_key = ""
+        model_model = ""
+        model_base_url = None
+        model_temperature = None
+        model_max_output_tokens = None
+        heartbeat_instruction = DEFAULT_HEARTBEAT_INSTRUCTION
 
         async with async_session() as db:
             result = await db.execute(select(Agent).where(Agent.id == agent_id))
@@ -138,31 +157,30 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             if not model:
                 return
 
-            # Capture model configurations for LLM client
+            # Cache values we need for Phase 2 (after DB session closes)
+            agent_name = agent.name
+            agent_role = agent.role_description or ""
+            agent_creator_id = agent.creator_id
             model_provider = model.provider
             model_api_key = model.api_key_encrypted
-            model_name = model.model
+            model_model = model.model
             model_base_url = model.base_url
-            model_temp = getattr(model, 'temperature', 0.7)
-            model_max_output = getattr(model, 'max_output_tokens', None)
+            model_temperature = model.temperature
+            model_max_output_tokens = getattr(model, 'max_output_tokens', None)
 
             # Read HEARTBEAT.md if it exists, otherwise use default
             from pathlib import Path
             from app.config import get_settings
             settings = get_settings()
 
-            heartbeat_instruction = DEFAULT_HEARTBEAT_INSTRUCTION
-            for ws_root in [
-                Path("/tmp/clawith_workspaces") / str(agent_id),
-                Path(settings.AGENT_DATA_DIR) / str(agent_id),
-            ]:
-                hb_file = ws_root / "HEARTBEAT.md"
-                if hb_file.exists():
-                    try:
-                        custom = hb_file.read_text(encoding="utf-8", errors="replace").strip()
-                        if custom:
-                            # Prepend privacy rules to custom heartbeat
-                            heartbeat_instruction = custom + """
+            ws_root = Path(settings.AGENT_DATA_DIR) / str(agent_id)
+            hb_file = ws_root / "HEARTBEAT.md"
+            if hb_file.exists():
+                try:
+                    custom = hb_file.read_text(encoding="utf-8", errors="replace").strip()
+                    if custom:
+                        # Prepend privacy rules to custom heartbeat
+                        heartbeat_instruction = custom + """
 
 ⚠️ PRIVACY RULES — STRICTLY FOLLOW:
 - NEVER share information from private user conversations
@@ -176,13 +194,12 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
 - Maximum 2 comments on existing posts
 - Do NOT post trivial or repetitive content
 """
-                    except Exception:
-                        pass
-                    break
+                except Exception:
+                    pass
 
             # Build context
             from app.services.agent_context import build_agent_context
-            system_prompt = await build_agent_context(agent_id, agent.name, agent.role_description or "")
+            system_prompt = await build_agent_context(agent_id, agent_name, agent_role)
 
             # Fetch recent activity to give heartbeat context for curiosity exploration
             from app.models.activity_log import AgentActivityLog
@@ -201,7 +218,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                     for act in reversed(recent_activities):  # chronological order
                         ts = act.created_at.strftime("%m-%d %H:%M") if act.created_at else ""
                         itms.append(f"- [{ts}] {act.action_type}: {act.summary[:120]}")
-                    recent_context = "\n\n---\n## Recent Activity Context\nHere are your recent interactions and work to help you identify relevant topics:\n\n" + "\n".join(itms)
+                    recent_context = "\\n\\n---\\n## Recent Activity Context\\nHere are your recent interactions and work to help you identify relevant topics:\\n\\n" + "\\n".join(itms)
             except Exception as e:
                 logger.warning(f"Failed to fetch recent activity for heartbeat context: {e}")
 
@@ -218,7 +235,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                 )
                 unread = notif_result.scalars().all()
                 if unread:
-                    notif_lines = ["\n\n---\n## Inbox (new messages for you — please review and respond if appropriate)"]
+                    notif_lines = ["\\n\\n---\\n## Inbox (new messages for you — please review and respond if appropriate)"]
                     for n in unread:
                         sender = f"from {n.sender_name}" if n.sender_name else ""
                         notif_lines.append(f"- [{n.type}] {n.title} {sender}: {(n.body or '')[:150]}")
@@ -226,17 +243,13 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             except Exception as e:
                 logger.warning(f"Failed to drain agent notifications: {e}")
             
-            inbox_context = "\n".join(notif_lines)
+            inbox_context = "\\n".join(notif_lines)
             
-            # Record creator_id before closing session
-            creator_id = agent.creator_id
-            
-            # CRITICAL: Commit and close the session here! 
-            # The LLM heartbeat loop is slow and shouldn't hold a DB transaction.
+            # Commit Phase 1: release the DB connection before LLM calls
             await db.commit()
+        # DB session is now closed — connection returned to pool
 
-        # ── LLM Reasoning Loop (No DB session held here) ──
-
+        # ── Phase 2: LLM calls (no DB connection held) ──
         full_instruction = heartbeat_instruction + recent_context + inbox_context
 
         messages = [
@@ -252,7 +265,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             client = create_llm_client(
                 provider=model_provider,
                 api_key=model_api_key,
-                model=model_name,
+                model=model_model,
                 base_url=model_base_url,
                 timeout=120.0,
             )
@@ -280,8 +293,8 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                 response = await client.complete(
                     messages=llm_messages,
                     tools=tools_for_llm,
-                    temperature=model_temp,
-                    max_tokens=get_max_tokens(model_provider, model_name, model_max_output),
+                    temperature=model_temperature,
+                    max_tokens=get_max_tokens(model_provider, model_model, model_max_output_tokens),
                 )
             except LLMError as e:
                 logger.error(f"LLM error in heartbeat: {e}")
@@ -313,7 +326,8 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                     reasoning_content=response.reasoning_content,
                 ))
 
-                # Tools that require arguments
+                # Tools that require arguments — if LLM sends empty args, skip and ask to retry
+                # (aligned with call_llm in websocket.py)
                 _TOOLS_REQUIRING_ARGS = {
                     "write_file", "read_file", "delete_file", "read_document",
                     "send_message_to_agent", "send_feishu_message", "send_email",
@@ -324,34 +338,39 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                     fn = tc["function"]
                     tool_name = fn["name"]
                     raw_args = fn.get("arguments", "{}")
+                    logger.info(f"[Heartbeat] Raw arguments for {tool_name} (len={len(raw_args) if raw_args else 0}): {repr(raw_args[:300]) if raw_args else 'None'}")
                     try:
                         args = json.loads(raw_args) if raw_args else {}
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as je:
+                        logger.warning(f"[Heartbeat] JSON parse failed for {tool_name}: {je}. Raw: {repr(raw_args[:200])}")
                         args = {}
 
+                    # Guard: if a tool that requires arguments received empty args,
+                    # return an error to LLM instead of executing
                     if not args and tool_name in _TOOLS_REQUIRING_ARGS:
+                        logger.warning(f"[Heartbeat] Empty arguments for {tool_name}, asking LLM to retry")
                         llm_messages.append(LLMMessage(
                             role="tool",
                             tool_call_id=tc["id"],
-                            content=f"Error: {tool_name} was called with empty arguments.",
+                            content=f"Error: {tool_name} was called with empty arguments. You must provide the required parameters. Please retry with the correct arguments.",
                         ))
                         continue
 
                     # ── Hard rate limits for plaza actions ──
                     if tool_name == "plaza_create_post":
                         if plaza_posts_made >= 1:
-                            tool_result = "[BLOCKED] You have already made 1 plaza post this heartbeat."
+                            tool_result = "[BLOCKED] You have already made 1 plaza post this heartbeat. Do not post again."
                         else:
-                            tool_result = await execute_tool(tool_name, args, agent_id, creator_id)
+                            tool_result = await execute_tool(tool_name, args, agent_id, agent_creator_id)
                             plaza_posts_made += 1
                     elif tool_name == "plaza_add_comment":
                         if plaza_comments_made >= 2:
-                            tool_result = "[BLOCKED] You have already made 2 comments this heartbeat."
+                            tool_result = "[BLOCKED] You have already made 2 comments this heartbeat. Do not comment again."
                         else:
-                            tool_result = await execute_tool(tool_name, args, agent_id, creator_id)
+                            tool_result = await execute_tool(tool_name, args, agent_id, agent_creator_id)
                             plaza_comments_made += 1
                     else:
-                        tool_result = await execute_tool(tool_name, args, agent_id, creator_id)
+                        tool_result = await execute_tool(tool_name, args, agent_id, agent_creator_id)
 
                     llm_messages.append(LLMMessage(
                         role="tool",
@@ -364,9 +383,20 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
 
         await client.close()
 
-        # Record accumulated heartbeat token usage
-        if _hb_accumulated_tokens > 0:
-            await record_token_usage(agent_id, _hb_accumulated_tokens)
+        # ── Phase 3: Write results back to DB (short transaction) ──
+        async with async_session() as db:
+            # Record accumulated heartbeat token usage
+            if _hb_accumulated_tokens > 0:
+                await record_token_usage(agent_id, _hb_accumulated_tokens)
+
+            # Update last_heartbeat_at
+            # Using an update statement is safer to avoid state drift if the object was updated elsewhere
+            await db.execute(
+                update(Agent)
+                .where(Agent.id == agent_id)
+                .values(last_heartbeat_at=datetime.now(timezone.utc))
+            )
+            await db.commit()
 
         # Log activity if not empty
         is_ok = "HEARTBEAT_OK" in reply.upper().replace(" ", "_") if reply else False
@@ -378,17 +408,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                 detail={"reply": reply[:500]},
             )
 
-        # ── Final Update (New session for timestamp) ──
-        async with async_session() as db:
-            from app.models.agent import Agent as AgentModel
-            await db.execute(
-                update(AgentModel)
-                .where(AgentModel.id == agent_id)
-                .values(last_heartbeat_at=datetime.now(timezone.utc))
-            )
-            await db.commit()
-
-        logger.info(f"💓 Heartbeat for {agent_id}: {'OK' if is_ok else reply[:60]}")
+        logger.info(f"💓 Heartbeat for {agent_name}: {'OK' if is_ok else reply[:60]}")
 
     except Exception as e:
         logger.error(f"Heartbeat error for agent {agent_id}: {e}", exc_info=True)

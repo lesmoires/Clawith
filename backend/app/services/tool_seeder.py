@@ -992,7 +992,7 @@ AGENTBAY_TOOLS = [
     {
         "name": "agentbay_browser_navigate",
         "display_name": "AgentBay: 浏览器访问",
-        "description": "使用 AgentBay 浏览器环境访问指定 URL，可获取页面内容或截图。需要先配置 AgentBay 通道。",
+        "description": "[ENV: Browser] Navigate to a URL in the AgentBay HEADLESS BROWSER environment. IMPORTANT: This browser runs in an ISOLATED environment — it does NOT share filesystem, processes, or downloads with the Cloud Desktop (computer_* tools) or Code Sandbox (code_execute/command_exec). Files downloaded here are NOT accessible from other environments. Tip: after navigating, use browser_observe to identify interactive elements, then use browser_type/browser_click to interact.",
         "category": "agentbay",
         "icon": "🌐",
         "is_default": False,
@@ -1015,20 +1015,42 @@ AGENTBAY_TOOLS = [
                     "default": "",
                     "placeholder": "从阿里云 AgentBay 控制台获取",
                 },
+                {
+                    "key": "os_type",
+                    "label": "Cloud Computer OS",
+                    "type": "select",
+                    "default": "windows",
+                    "options": [
+                        {"value": "linux", "label": "Linux"},
+                        {"value": "windows", "label": "Windows"},
+                    ],
+                    "description": "Operating system for AgentBay cloud desktop (computer tools only)",
+                },
             ],
         },
     },
     {
+        "name": "agentbay_browser_screenshot",
+        "display_name": "AgentBay: 浏览器截图",
+        "description": "[ENV: Browser] Take a screenshot of the current page in the headless browser. This browser is ISOLATED from the Cloud Desktop and Code Sandbox. Use this after clicking, typing, or submitting a form to verify the result — it preserves the current page state. Never call browser_navigate just to take a screenshot.",
+        "category": "agentbay",
+        "icon": "📸",
+        "is_default": False,
+        "parameters_schema": {"type": "object", "properties": {}},
+        "config": {},
+        "config_schema": {},
+    },
+    {
         "name": "agentbay_browser_click",
         "display_name": "AgentBay: 浏览器点击",
-        "description": "在 AgentBay 浏览器环境中点击指定元素。需要先使用浏览器访问工具打开页面。",
+        "description": "[ENV: Browser] Click an element in the headless browser (ISOLATED from Desktop and Code Sandbox). selector can be a CSS selector (e.g. #btn) or natural language description (e.g. 'the Send button').",
         "category": "agentbay",
         "icon": "🖱️",
         "is_default": False,
         "parameters_schema": {
             "type": "object",
             "properties": {
-                "selector": {"type": "string", "description": "CSS 选择器，如 #button 或 .class"},
+                "selector": {"type": "string", "description": "CSS selector (e.g. #button) or natural language description of the element (e.g. 'the blue Submit button')"},
             },
             "required": ["selector"],
         },
@@ -1038,14 +1060,14 @@ AGENTBAY_TOOLS = [
     {
         "name": "agentbay_browser_type",
         "display_name": "AgentBay: 浏览器输入",
-        "description": "在 AgentBay 浏览器环境的指定元素中输入文本。需要先使用浏览器访问工具打开页面。",
+        "description": "[ENV: Browser] Type text into an element in the headless browser (ISOLATED from Desktop and Code Sandbox). selector can be a CSS selector or natural language description (e.g. 'phone number input').",
         "category": "agentbay",
         "icon": "⌨️",
         "is_default": False,
         "parameters_schema": {
             "type": "object",
             "properties": {
-                "selector": {"type": "string", "description": "输入框的 CSS 选择器"},
+                "selector": {"type": "string", "description": "CSS selector or natural language description of the input field (e.g. 'the phone number input' or 'input[type=tel]')"},
                 "text": {"type": "string", "description": "要输入的文本"},
             },
             "required": ["selector", "text"],
@@ -1056,7 +1078,7 @@ AGENTBAY_TOOLS = [
     {
         "name": "agentbay_code_execute",
         "display_name": "AgentBay: 代码执行",
-        "description": "在 AgentBay 代码空间中执行代码（Python、Bash、Node.js）。需要先配置 AgentBay 通道。",
+        "description": "[ENV: Code Sandbox] Execute code (Python, Bash, Node.js) in the AgentBay Code Sandbox. IMPORTANT: This sandbox is an ISOLATED environment — it does NOT share filesystem, processes, or network with the Headless Browser (browser_* tools) or Cloud Desktop (computer_* tools). Files created here are NOT accessible from other environments.",
         "category": "agentbay",
         "icon": "💻",
         "is_default": False,
@@ -1069,6 +1091,285 @@ AGENTBAY_TOOLS = [
             },
             "required": ["language", "code"],
         },
+        "config": {},
+        "config_schema": {},
+    },
+    # ── Browser: Extract & Observe ────────────────────────────────────────
+    {
+        "name": "agentbay_browser_extract",
+        "display_name": "AgentBay: Browser Extract",
+        "description": "[ENV: Browser] Extract structured data from the current browser page using a natural language instruction. This browser is ISOLATED from the Cloud Desktop and Code Sandbox. More efficient than taking a screenshot and parsing with vision.",
+        "category": "agentbay",
+        "icon": "📊",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "instruction": {"type": "string", "description": "Natural language description of what data to extract, e.g. 'extract all product names and prices'"},
+                "selector": {"type": "string", "description": "Optional CSS selector to scope the extraction to a specific element"},
+            },
+            "required": ["instruction"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_browser_observe",
+        "display_name": "AgentBay: Browser Observe",
+        "description": "[ENV: Browser] Observe the current browser page state and return a list of interactive elements. This browser is ISOLATED from the Cloud Desktop and Code Sandbox. Helps the agent understand what can be clicked/interacted with on the page.",
+        "category": "agentbay",
+        "icon": "👁️",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "instruction": {"type": "string", "description": "Natural language description of what to observe, e.g. 'find the login button' or 'list all navigation links'"},
+                "selector": {"type": "string", "description": "Optional CSS selector to scope observation"},
+            },
+            "required": ["instruction"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_browser_login",
+        "display_name": "AgentBay: Browser Login",
+        "description": "[ENV: Browser] Use AgentBay's AI-driven login skill to automate complex login flows (CAPTCHAs, OTP, multi-step auth) in the headless browser. This browser is ISOLATED from the Cloud Desktop and Code Sandbox.",
+        "category": "agentbay",
+        "icon": "🔐",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The login page URL to navigate to"},
+                "login_config": {"type": "string", "description": "JSON string with login config"},
+            },
+            "required": ["url", "login_config"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    # ── Command (Shell) ───────────────────────────────────────────────────
+    {
+        "name": "agentbay_command_exec",
+        "display_name": "AgentBay: Shell Command",
+        "description": "[ENV: Code Sandbox] Execute a shell command in the AgentBay Code Sandbox. IMPORTANT: This sandbox is ISOLATED from the Headless Browser (browser_* tools) and Cloud Desktop (computer_* tools). Files and processes are NOT shared between environments. Returns stdout, stderr, and exit code.",
+        "category": "agentbay",
+        "icon": "🖥️",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "Shell command to execute, e.g. 'ls -la' or 'pip install pandas'"},
+                "timeout_ms": {"type": "integer", "description": "Timeout in milliseconds (default 50000)", "default": 50000},
+                "cwd": {"type": "string", "description": "Working directory for the command (optional)"},
+            },
+            "required": ["command"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    # ── Computer Use ──────────────────────────────────────────────────────
+    {
+        "name": "agentbay_computer_screenshot",
+        "display_name": "AgentBay: Desktop Screenshot",
+        "description": "[ENV: Cloud Desktop] Take a screenshot of the full Cloud Desktop (Windows/Linux). IMPORTANT: This desktop is an ISOLATED environment — it does NOT share filesystem, processes, or browser sessions with the Headless Browser (browser_* tools) or Code Sandbox (code_execute/command_exec). To browse the web on this desktop, use computer_start_app to open a browser app. Essential for understanding the current desktop state before performing GUI operations.",
+        "category": "agentbay",
+        "icon": "📸",
+        "is_default": False,
+        "parameters_schema": {"type": "object", "properties": {}},
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_computer_click",
+        "display_name": "AgentBay: Mouse Click",
+        "description": "[ENV: Cloud Desktop] Click the mouse at specific screen coordinates on the Cloud Desktop (ISOLATED from Browser and Code Sandbox). Take a screenshot first to identify the target position.",
+        "category": "agentbay",
+        "icon": "🖱️",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "integer", "description": "X coordinate to click"},
+                "y": {"type": "integer", "description": "Y coordinate to click"},
+                "button": {"type": "string", "enum": ["left", "right", "middle", "double_left"], "description": "Mouse button (default: left)", "default": "left"},
+            },
+            "required": ["x", "y"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_computer_input_text",
+        "display_name": "AgentBay: Keyboard Input",
+        "description": "[ENV: Cloud Desktop] Type text at the current cursor position on the Cloud Desktop (ISOLATED from Browser and Code Sandbox). Click on the target input field first.",
+        "category": "agentbay",
+        "icon": "⌨️",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Text to type"},
+            },
+            "required": ["text"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_computer_press_keys",
+        "display_name": "AgentBay: Keyboard Shortcut",
+        "description": "[ENV: Cloud Desktop] Press keyboard keys or shortcuts on the Cloud Desktop (ISOLATED from Browser and Code Sandbox). For example ['ctrl', 'c'] for copy, ['alt', 'tab'] for window switch, ['enter'] to confirm.",
+        "category": "agentbay",
+        "icon": "⌨️",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "keys": {"type": "array", "items": {"type": "string"}, "description": "List of keys to press simultaneously, e.g. ['ctrl', 'c']"},
+                "hold": {"type": "boolean", "description": "If true, hold keys down", "default": False},
+            },
+            "required": ["keys"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_computer_scroll",
+        "display_name": "AgentBay: Scroll",
+        "description": "[ENV: Cloud Desktop] Scroll the screen at a specific position on the Cloud Desktop (ISOLATED from Browser and Code Sandbox).",
+        "category": "agentbay",
+        "icon": "🔃",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "integer", "description": "X coordinate of scroll position"},
+                "y": {"type": "integer", "description": "Y coordinate of scroll position"},
+                "direction": {"type": "string", "enum": ["up", "down", "left", "right"], "description": "Scroll direction (default: down)", "default": "down"},
+                "amount": {"type": "integer", "description": "Scroll amount in steps (default: 1)", "default": 1},
+            },
+            "required": ["x", "y"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_computer_move_mouse",
+        "display_name": "AgentBay: Mouse Move",
+        "description": "[ENV: Cloud Desktop] Move the mouse to coordinates on the Cloud Desktop without clicking. Useful for triggering hover effects, tooltips, or dropdown menus.",
+        "category": "agentbay",
+        "icon": "🖱️",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "integer", "description": "Target X coordinate"},
+                "y": {"type": "integer", "description": "Target Y coordinate"},
+            },
+            "required": ["x", "y"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_computer_drag_mouse",
+        "display_name": "AgentBay: Mouse Drag",
+        "description": "[ENV: Cloud Desktop] Drag the mouse from one position to another on the Cloud Desktop. Useful for selecting text, moving files, resizing windows.",
+        "category": "agentbay",
+        "icon": "🖱️",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "from_x": {"type": "integer", "description": "Start X coordinate"},
+                "from_y": {"type": "integer", "description": "Start Y coordinate"},
+                "to_x": {"type": "integer", "description": "End X coordinate"},
+                "to_y": {"type": "integer", "description": "End Y coordinate"},
+                "button": {"type": "string", "enum": ["left", "right", "middle"], "description": "Mouse button (default: left)", "default": "left"},
+            },
+            "required": ["from_x", "from_y", "to_x", "to_y"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_computer_get_screen_size",
+        "display_name": "AgentBay: Get Screen Size",
+        "description": "[ENV: Cloud Desktop] Get the screen resolution of the Cloud Desktop. Useful for calculating click coordinates.",
+        "category": "agentbay",
+        "icon": "📐",
+        "is_default": False,
+        "parameters_schema": {"type": "object", "properties": {}},
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_computer_start_app",
+        "display_name": "AgentBay: Start Application",
+        "description": "[ENV: Cloud Desktop] Start an application on the Cloud Desktop by its launch command (e.g. 'firefox', 'libreoffice --calc'). The desktop is ISOLATED from the Headless Browser and Code Sandbox environments.",
+        "category": "agentbay",
+        "icon": "🚀",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "cmd": {"type": "string", "description": "Application launch command, e.g. 'firefox' or 'libreoffice --calc'"},
+                "work_dir": {"type": "string", "description": "Working directory for the application (optional)"},
+            },
+            "required": ["cmd"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_computer_get_cursor_position",
+        "display_name": "AgentBay: Get Cursor Position",
+        "description": "[ENV: Cloud Desktop] Get the current mouse cursor position on the Cloud Desktop.",
+        "category": "agentbay",
+        "icon": "📍",
+        "is_default": False,
+        "parameters_schema": {"type": "object", "properties": {}},
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_computer_get_active_window",
+        "display_name": "AgentBay: Get Active Window",
+        "description": "[ENV: Cloud Desktop] Get information about the currently focused window on the Cloud Desktop, including window ID, title, and position.",
+        "category": "agentbay",
+        "icon": "🪟",
+        "is_default": False,
+        "parameters_schema": {"type": "object", "properties": {}},
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_computer_activate_window",
+        "display_name": "AgentBay: Activate Window",
+        "description": "[ENV: Cloud Desktop] Bring a specific window to the foreground on the Cloud Desktop by its window ID. Use get_active_window or list_visible_apps to find window IDs.",
+        "category": "agentbay",
+        "icon": "🪟",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "window_id": {"type": "integer", "description": "Window ID to activate"},
+            },
+            "required": ["window_id"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_computer_list_visible_apps",
+        "display_name": "AgentBay: List Running Apps",
+        "description": "[ENV: Cloud Desktop] List all currently visible/running applications on the Cloud Desktop with their process info and window IDs.",
+        "category": "agentbay",
+        "icon": "📋",
+        "is_default": False,
+        "parameters_schema": {"type": "object", "properties": {}},
         "config": {},
         "config_schema": {},
     },
@@ -1156,7 +1457,6 @@ async def seed_builtin_tools():
                         db.add(AgentTool(agent_id=agent_id, tool_id=tool_id, enabled=True))
             logger.info(f"[ToolSeeder] Auto-assigned {len(new_tool_ids)} new tools to {len(agent_ids)} agents")
 
-        # Remove obsolete tools that have been replaced
         OBSOLETE_TOOLS = ["bing_search", "read_webpage", "manage_tasks"]
         for obsolete_name in OBSOLETE_TOOLS:
             result = await db.execute(select(Tool).where(Tool.name == obsolete_name))
@@ -1169,6 +1469,36 @@ async def seed_builtin_tools():
         logger.info("[ToolSeeder] Builtin tools seeded")
 
 
+async def clean_orphaned_mcp_tools():
+    """Clean up orphan MCP tools that lost all their AgentTool assignments.
+    
+    This happens when an Agent is deleted (cascade deletes AgentTool) but the
+    shared Tool record remains. We run this periodically/on-startup to prevent
+    the database from filling up with abandoned tool records.
+    """
+    from app.models.tool import AgentTool
+    from sqlalchemy import and_, delete
+    
+    async with async_session() as db:
+        # 1. Get all currently assigned tool IDs
+        all_assigned_r = await db.execute(select(AgentTool.tool_id).distinct())
+        assigned_ids = [row[0] for row in all_assigned_r.fetchall()]
+        
+        # 2. Delete MCP tools that have NO tenant_id AND are NOT in the assigned list
+        # tenant_id == None ensures we don't delete Global Tools manually added by company admins
+        stmt = delete(Tool).where(
+            and_(
+                Tool.type == "mcp",
+                Tool.tenant_id == None,
+                ~Tool.id.in_(assigned_ids) if assigned_ids else True
+            )
+        )
+        result = await db.execute(stmt)
+        deleted_count = result.rowcount
+        await db.commit()
+        
+        if deleted_count > 0:
+            logger.info(f"[ToolSeeder] Cleaned up {deleted_count} orphaned MCP tools")
 
 # ── Atlassian Rovo MCP Server Integration ──────────────────────────────────
 
