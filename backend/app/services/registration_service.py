@@ -77,9 +77,11 @@ class RegistrationService:
 
         # Check email conflicts
         if email:
-            result = await db.execute(
-                select(User).where(User.email.ilike(f"%{email}%"))
-            )
+            query = select(User).where(User.email.ilike(email))
+            if tenant_id:
+                query = query.where(User.tenant_id == tenant_id)
+            
+            result = await db.execute(query)
             existing = result.scalar_one_or_none()
             if existing:
                 conflicts.append({
@@ -91,14 +93,11 @@ class RegistrationService:
         # Check mobile conflicts
         if mobile:
             normalized_mobile = re.sub(r"[\s\-\+]", "", mobile)
-            result = await db.execute(
-                select(User).where(
-                    and_(
-                        User.primary_mobile.ilike(f"%{normalized_mobile}%"),
-                        User.tenant_id == tenant_id if tenant_id else True,
-                    )
-                )
-            )
+            query = select(User).where(User.primary_mobile == normalized_mobile)
+            if tenant_id:
+                query = query.where(User.tenant_id == tenant_id)
+                
+            result = await db.execute(query)
             existing = result.scalar_one_or_none()
             if existing:
                 conflicts.append({
@@ -140,8 +139,12 @@ class RegistrationService:
         Returns:
             Created User
         """
-        # Ensure unique username
-        existing = await db.execute(select(User).where(User.username == username))
+        # Ensure unique username within tenant
+        query = select(User).where(User.username == username)
+        if tenant_id:
+            query = query.where(User.tenant_id == tenant_id)
+        
+        existing = await db.execute(query)
         if existing.scalar_one_or_none():
             username = f"{username}_{uuid.uuid4().hex[:6]}"
 
@@ -226,14 +229,15 @@ class RegistrationService:
         # (moved up)
         pass
 
-        # Generate username from email or provider ID
-        username = email.split("@")[0] if email else f"{provider_type}_{provider_user_id[:8]}"
+        # Generate username from email or provider ID (fallback to open_id)
+        effective_id = provider_user_id or user_info.get("open_id") or user_info.get("union_id") or uuid.uuid4().hex[:8]
+        username = email.split("@")[0] if email else f"{provider_type}_{effective_id[:8]}"
 
         user = await self.create_user_with_identity(
             db,
             username=username,
             email=email or f"{username}@{provider_type}.local",
-            password=provider_user_id,  # Placeholder for SSO users
+            password=effective_id,  # Placeholder for SSO users
             display_name=user_info.get("name", username),
             provider_type=provider_type,
             provider_user_id=provider_user_id,
@@ -450,6 +454,11 @@ class RegistrationService:
             member.phone = user.primary_mobile
 
         await db.flush()
+
+
+# Global registration service
+registration_service = RegistrationService()
+h()
 
 
 # Global registration service

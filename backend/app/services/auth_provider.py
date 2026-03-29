@@ -229,19 +229,26 @@ class BaseAuthProvider(ABC):
         self, db: AsyncSession, user_info: ExternalUserInfo, tenant_id: str | None
     ) -> User:
         """Create new user from external identity."""
-        username = user_info.email.split("@")[0] if user_info.email else f"{self.provider_type}_{user_info.provider_user_id[:8]}"
+        # Use fallback IDs if provider_user_id is missing
+        effective_id = user_info.provider_user_id or user_info.provider_union_id or "unknown"
+        username = user_info.email.split("@")[0] if user_info.email else f"{self.provider_type}_{effective_id[:8]}"
 
-        # Ensure unique username
-        existing = await db.execute(select(User).where(User.username == username))
+        # Ensure unique username within tenant
+        query = select(User).where(User.username == username)
+        if tenant_id:
+            query = query.where(User.tenant_id == tenant_id)
+            
+        existing = await db.execute(query)
         if existing.scalar_one_or_none():
-            username = f"{username}_{user_info.provider_user_id[:6]}"
+            import uuid
+            username = f"{username}_{uuid.uuid4().hex[:6]}"
 
         email = user_info.email or f"{username}@{self.provider_type}.local"
 
         user = User(
             username=username,
             email=email,
-            password_hash=hash_password(user_info.provider_user_id),
+            password_hash=hash_password(effective_id),
             display_name=user_info.name or username,
             avatar_url=user_info.avatar_url,
             primary_mobile=user_info.mobile,

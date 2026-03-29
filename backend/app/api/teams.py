@@ -460,7 +460,11 @@ async def teams_event_webhook(
         # Find-or-create platform user for this Teams sender
         from app.models.user import User as _User
         _teams_username = f"teams_{sender_id}"
-        _u_r = await db.execute(select(_User).where(_User.username == _teams_username))
+        query = select(_User).where(_User.username == _teams_username)
+        if agent_obj and agent_obj.tenant_id:
+            query = query.where(_User.tenant_id == agent_obj.tenant_id)
+            
+        _u_r = await db.execute(query)
         _platform_user = _u_r.scalar_one_or_none()
 
         if not _platform_user:
@@ -470,7 +474,8 @@ async def teams_event_webhook(
                 password_hash=_hp(uuid.uuid4().hex),
                 display_name=sender_name,
                 role="member",
-                tenant_id=agent_obj.tenant_id if (agent_obj := await db.get(AgentModel, agent_id)) else None,
+                tenant_id=agent_obj.tenant_id if agent_obj else None,
+                registration_source="teams",
             )
             db.add(_platform_user)
             await db.flush()

@@ -467,9 +467,8 @@ async def _process_wecom_text(
     from app.database import async_session
     from app.models.agent import Agent as AgentModel
     from app.models.audit import ChatMessage
-    from app.models.user import User as UserModel
-    from app.core.security import hash_password
     from app.services.channel_session import find_or_create_channel_session
+    from app.services.channel_user_service import channel_user_service
     from app.api.feishu import _call_agent_llm
 
     async with async_session() as db:
@@ -489,13 +488,8 @@ async def _process_wecom_text(
         else:
             conv_id = f"wecom_p2p_{from_user}"
 
-        # Find or create platform user
-        wc_username = f"wecom_{from_user}"
-        u_r = await db.execute(_select(UserModel).where(UserModel.username == wc_username))
-        platform_user = u_r.scalar_one_or_none()
-
-        # Try to resolve display name from WeCom API
-        display_name = f"WeCom {from_user[:8]}"
+        # Try to resolve display name from WeCom API (optional enrichment)
+        extra_info: dict | None = None
         try:
             async with httpx.AsyncClient(timeout=5) as client:
                 tok_resp = await client.get(
@@ -510,22 +504,26 @@ async def _process_wecom_text(
                     )
                     user_data = user_resp.json()
                     if user_data.get("errcode") == 0:
-                        display_name = user_data.get("name", display_name)
+                        extra_info = {
+                            "name": user_data.get("name"),
+                            "avatar_url": user_data.get("avatar_mediaid"),
+                        }
         except Exception as e:
-            logger.error(f"[WeCom] Failed to resolve user info: {e}")
+            logger.debug(f"[WeCom] Failed to resolve user info: {e}")
 
-        if not platform_user:
-            import uuid as _uuid
-            platform_user = UserModel(
-                username=wc_username,
-                email=f"{wc_username}@wecom.local",
-                password_hash=hash_password(_uuid.uuid4().hex),
-                display_name=display_name,
-                role="member",
-                tenant_id=agent_obj.tenant_id if agent_obj else None,
-            )
-            db.add(platform_user)
-            await db.flush()
+        # Ensure unionid is set (from_user is the WeCom userid)
+        if extra_info is None:
+            extra_info = {}
+        extra_info.setdefault("unionid", from_user)
+
+        # Resolve channel user via unified service (uses OrgMember + SSO patterns)
+        platform_user = await channel_user_service.resolve_channel_user(
+            db=db,
+            agent=agent_obj,
+            channel_type="wecom",
+            external_user_id=from_user,
+            extra_info=extra_info,
+        )
         platform_user_id = platform_user.id
 
         # Find or create session

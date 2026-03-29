@@ -245,8 +245,13 @@ async def slack_event_webhook(
     from app.core.security import hash_password as _hp
     import uuid as _uuid2
     _slack_username = f"slack_{sender_id}"
-    _u_r = await db.execute(select(_User).where(_User.username == _slack_username))
-    _platform_user = _u_r.scalar_one_or_none()
+    query = select(_User).where(_User.username == _slack_username)
+    if _agent and _agent.tenant_id:
+        query = query.where(_User.tenant_id == _agent.tenant_id)
+
+    _u_r = await db.execute(query)
+    _u = _u_r.scalar_one_or_none()
+
 
     # Resolve real display name from Slack API
     _bot_token_for_info = config.app_secret or ""
@@ -279,9 +284,10 @@ async def slack_event_webhook(
             password_hash=_hp(_uuid2.uuid4().hex),
             display_name=_slack_real_name or f"Slack User {sender_id[:8]}",
             role="member",
-            tenant_id=agent_obj.tenant_id if agent_obj else None,
+            tenant_id=_agent.tenant_id if _agent else None,
+            registration_source="slack",
         )
-        db.add(_platform_user)
+
         await db.flush()
     elif _slack_real_name and _platform_user.display_name.startswith("Slack User "):
         # Update display_name if we now have the real name

@@ -2818,21 +2818,19 @@ async def _send_feishu_message(agent_id: uuid.UUID, args: dict) -> str:
                     from app.models.agent import Agent as AgentModel
                     from app.services.channel_session import find_or_create_channel_session
                     from datetime import datetime as _dt, timezone as _tz
+                    from app.services.channel_user_service import get_platform_user_by_org_member
 
                     agent_r = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
                     agent_obj = agent_r.scalar_one_or_none()
                     creator_id = agent_obj.creator_id if agent_obj else agent_id
 
-                    # Look up the platform user via OrgMember if possible
-                    from app.models.org import OrgMember as OrgMemberModel
-                    user_id = target_member.user_id or creator_id
-                    if open_id and not target_member.user_id:
-                        om_r = await db.execute(
-                            select(OrgMemberModel).where(OrgMemberModel.open_id == open_id)
-                        )
-                        om = om_r.scalar_one_or_none()
-                        if om and om.user_id:
-                            user_id = om.user_id
+                    # Get or create platform user from OrgMember (unified logic)
+                    platform_user = await get_platform_user_by_org_member(
+                        db=db,
+                        org_member=target_member,
+                        agent_tenant_id=agent_obj.tenant_id if agent_obj else None,
+                    )
+                    user_id = platform_user.id
 
                     ext_conv_id = f"feishu_p2p_{open_id}"
                     sess = await find_or_create_channel_session(
@@ -3026,35 +3024,36 @@ async def _send_dingtalk_message(
                     from app.services.channel_session import find_or_create_channel_session
                     from app.models.audit import ChatMessage
                     from datetime import datetime, timezone
-                    
-                    # 1. Find the platform user for this DingTalk ID
-                    from app.models.user import User as UserModel
-                    dt_username = f"dingtalk_{user_id}"
-                    u_r = await db.execute(select(UserModel).where(UserModel.username == dt_username))
-                    platform_user = u_r.scalar_one_or_none()
-                    
-                    if platform_user:
-                        conv_id = f"dingtalk_p2p_{user_id}"
-                        # 2. Get/Create session
-                        sess = await find_or_create_channel_session(
-                            db=db,
-                            agent_id=agent_id,
-                            user_id=platform_user.id,
-                            external_conv_id=conv_id,
-                            source_channel="dingtalk",
-                            first_message_title=message_text[:30],
-                        )
-                        # 3. Save assistant message
-                        db.add(ChatMessage(
-                            agent_id=agent_id,
-                            user_id=platform_user.id,
-                            role="assistant",
-                            content=message_text,
-                            conversation_id=str(sess.id),
-                        ))
-                        sess.last_message_at = datetime.now(timezone.utc)
-                        await db.commit()
-                        logger.info(f"[DingTalk] Proactive message saved to session {sess.id}")
+                    from app.services.channel_user_service import get_platform_user_by_org_member
+
+                    # Get or create platform user from OrgMember (unified logic)
+                    platform_user = await get_platform_user_by_org_member(
+                        db=db,
+                        org_member=target_member,
+                        agent_tenant_id=agent.tenant_id if agent else None,
+                    )
+
+                    conv_id = f"dingtalk_p2p_{user_id}"
+                    # 2. Get/Create session
+                    sess = await find_or_create_channel_session(
+                        db=db,
+                        agent_id=agent_id,
+                        user_id=platform_user.id,
+                        external_conv_id=conv_id,
+                        source_channel="dingtalk",
+                        first_message_title=message_text[:30],
+                    )
+                    # 3. Save assistant message
+                    db.add(ChatMessage(
+                        agent_id=agent_id,
+                        user_id=platform_user.id,
+                        role="assistant",
+                        content=message_text,
+                        conversation_id=str(sess.id),
+                    ))
+                    sess.last_message_at = datetime.now(timezone.utc)
+                    await db.commit()
+                    logger.info(f"[DingTalk] Proactive message saved to session {sess.id}")
                 except Exception as ex:
                     logger.error(f"[DingTalk] Failed to save proactive message to session: {ex}")
 
@@ -3079,6 +3078,7 @@ async def _send_wecom_message(
     import json as _j
 
     from app.models.channel_config import ChannelConfig
+    from app.models.agent import Agent as AgentModel
     from app.services.wecom_service import send_wecom_message
 
     try:
@@ -3113,6 +3113,46 @@ async def _send_wecom_message(
             )
 
             if result.get("errcode") == 0:
+                # Save proactive message to session so it appears in UI
+                try:
+                    from app.services.channel_session import find_or_create_channel_session
+                    from app.models.audit import ChatMessage
+                    from datetime import datetime, timezone
+                    from app.services.channel_user_service import get_platform_user_by_org_member
+
+                    # Get agent tenant context
+                    agent_r = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
+                    agent = agent_r.scalar_one_or_none()
+
+                    # Get or create platform user from OrgMember (unified logic)
+                    platform_user = await get_platform_user_by_org_member(
+                        db=db,
+                        org_member=target_member,
+                        agent_tenant_id=agent.tenant_id if agent else None,
+                    )
+
+                    conv_id = f"wecom_p2p_{user_id}"
+                    sess = await find_or_create_channel_session(
+                        db=db,
+                        agent_id=agent_id,
+                        user_id=platform_user.id,
+                        external_conv_id=conv_id,
+                        source_channel="wecom",
+                        first_message_title=message_text[:30],
+                    )
+                    db.add(ChatMessage(
+                        agent_id=agent_id,
+                        user_id=platform_user.id,
+                        role="assistant",
+                        content=message_text,
+                        conversation_id=str(sess.id),
+                    ))
+                    sess.last_message_at = datetime.now(timezone.utc)
+                    await db.commit()
+                    logger.info(f"[WeCom] Proactive message saved to session {sess.id}")
+                except Exception as ex:
+                    logger.error(f"[WeCom] Failed to save proactive message to session: {ex}")
+
                 return f"✅ Message sent to {member_name} via WeCom"
             else:
                 errmsg = result.get("errmsg", "Unknown error")
@@ -3134,27 +3174,40 @@ async def _send_web_message(agent_id: uuid.UUID, args: dict) -> str:
 
     try:
         from app.models.user import User as UserModel
+        from app.models.agent import Agent as AgentModel
         from app.models.audit import ChatMessage
         from app.models.chat_session import ChatSession
         from datetime import datetime as _dt, timezone as _tz
 
         async with async_session() as db:
-            # Look up target user by username or display_name
+            # 0. Get agent's tenant_id for scoping
+            agent_res = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
+            agent = agent_res.scalar_one_or_none()
+            if not agent:
+                return "❌ Agent not found"
+
+            # 1. Look up target user by username or display_name within tenant
             from sqlalchemy import or_
-            u_result = await db.execute(
-                select(UserModel).where(
-                    or_(
-                        UserModel.username == username,
-                        UserModel.display_name == username,
-                    )
+            query = select(UserModel).where(
+                or_(
+                    UserModel.username == username,
+                    UserModel.display_name == username,
                 )
             )
+            if agent.tenant_id:
+                query = query.where(UserModel.tenant_id == agent.tenant_id)
+
+            u_result = await db.execute(query)
             target_user = u_result.scalar_one_or_none()
             if not target_user:
-                # List available users for the agent to pick from
-                all_r = await db.execute(select(UserModel.username, UserModel.display_name).limit(20))
+                # List available users for the agent to pick from (within the same tenant)
+                list_query = select(UserModel.username, UserModel.display_name).limit(20)
+                if agent.tenant_id:
+                    list_query = list_query.where(UserModel.tenant_id == agent.tenant_id)
+                
+                all_r = await db.execute(list_query)
                 names = [f"{r.display_name or r.username}" for r in all_r.all()]
-                return f"❌ No user named '{username}' found. Available users: {', '.join(names) if names else 'none'}"
+                return f"❌ No user named '{username}' found in your organization. Available users: {', '.join(names) if names else 'none'}"
 
             # Find or create a web session between the agent and this user
             sess_r = await db.execute(

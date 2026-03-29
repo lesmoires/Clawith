@@ -154,10 +154,15 @@ class FeishuService:
             username = fs_email.split("@")[0] if fs_email else f"feishu_{open_id[:8]}"
             email = fs_email or f"{username}@feishu.local"
 
-            # Ensure unique username
-            existing_r = await db.execute(select(User).where(User.username == username))
+            # Ensure unique username within tenant
+            query = select(User).where(User.username == username)
+            if tenant_id:
+                query = query.where(User.tenant_id == tenant_id)
+            
+            existing_r = await db.execute(query)
             if existing_r.scalar_one_or_none():
-                username = f"{username}_{open_id[:6]}"
+                import uuid
+                username = f"{username}_{uuid.uuid4().hex[:6]}"
 
             user = User(
                 username=username,
@@ -165,7 +170,6 @@ class FeishuService:
                 password_hash=hash_password(open_id),
                 display_name=fs_name or username,
                 avatar_url=fs_avatar or None,
-                external_id=user_id,
                 feishu_user_id=user_id,
                 registration_source="feishu",
                 tenant_id=tenant_id,

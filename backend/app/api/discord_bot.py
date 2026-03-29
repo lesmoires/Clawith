@@ -307,7 +307,11 @@ async def discord_interaction_webhook(
                 from app.core.security import hash_password as _hp
                 import uuid as _uuid
                 _username = f"discord_{sender_id}"
-                _u_r = await bg_db.execute(select(_User).where(_User.username == _username))
+                query = select(_User).where(_User.username == _username)
+                if agent_obj and agent_obj.tenant_id:
+                    query = query.where(_User.tenant_id == agent_obj.tenant_id)
+                
+                _u_r = await bg_db.execute(query)
                 _platform_user = _u_r.scalar_one_or_none()
                 if not _platform_user:
                     _discord_username = body.get("member", {}).get("user", {}).get("username") or body.get("user", {}).get("username", "")
@@ -319,6 +323,7 @@ async def discord_interaction_webhook(
                         display_name=_display,
                         role="member",
                         tenant_id=agent_obj.tenant_id if agent_obj else None,
+                        registration_source="discord",
                     )
                     bg_db.add(_platform_user)
                     await bg_db.flush()

@@ -15,12 +15,12 @@ class User(Base):
     """Platform user."""
 
     __tablename__ = "users"
-    # Note: Unique constraints for (tenant_id, email) and (tenant_id, primary_mobile)
+    # Note: Unique constraints for (tenant_id, username), (tenant_id, email) and (tenant_id, primary_mobile)
     # are handled via partial unique indexes in migration to allow NULL values
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    username: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(String(500))
@@ -36,9 +36,6 @@ class User(Base):
     primary_mobile: Mapped[str | None] = mapped_column(String(50), index=True)
     registration_source: Mapped[str | None] = mapped_column(String(50), default="web")
     
-    # Generic platform-stable identity IDs
-    external_id: Mapped[str | None] = mapped_column(String(255), index=True)
-
     # Legacy Feishu specific fields (Maintained for compatibility)
     feishu_user_id: Mapped[str | None] = mapped_column(String(255))
 

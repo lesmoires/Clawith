@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, delete, func, select, update
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, delete, func, or_, select, update
 
 import httpx
 from loguru import logger
@@ -415,14 +415,25 @@ class BaseOrgSyncAdapter(ABC):
             )
             department = dept_result.scalar_one_or_none()
 
-        # Check if exists by external_id and provider
-        result = await db.execute(
-            select(OrgMember).where(
-                OrgMember.external_id == user.external_id,
-                OrgMember.provider_id == provider.id,
+        # Check if exists by unionid or external_id or open_id (any matches), and provider
+        conditions = []
+        if user.unionid:
+            conditions.append(OrgMember.unionid == user.unionid)
+        if user.external_id:
+            conditions.append(OrgMember.external_id == user.external_id)
+        if user.open_id:
+            conditions.append(OrgMember.open_id == user.open_id)
+
+        if conditions:
+            result = await db.execute(
+                select(OrgMember).where(
+                    OrgMember.provider_id == provider.id,
+                    or_(*conditions)
+                )
             )
-        )
-        existing_member = result.scalar_one_or_none()
+            existing_member = result.scalar_one_or_none()
+        else:
+            existing_member = None
 
         now = datetime.now()
 
@@ -473,7 +484,8 @@ class BaseOrgSyncAdapter(ABC):
             # Universal ID fields
             existing_member.external_id = user.external_id
             existing_member.open_id = user.open_id
-            
+            existing_member.unionid = user.unionid
+
             existing_member.provider_id = provider.id
             existing_member.synced_at = now
             if user_id and not existing_member.user_id:
@@ -486,6 +498,7 @@ class BaseOrgSyncAdapter(ABC):
             new_member = OrgMember(
                 external_id=user.external_id,
                 open_id=user.open_id,
+                unionid=user.unionid,
 
                 provider_id=provider.id,
                 user_id=user_id,

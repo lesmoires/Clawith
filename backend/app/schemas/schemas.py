@@ -22,6 +22,7 @@ class UserRegister(BaseModel):
 class UserLogin(BaseModel):
     username: str
     password: str
+    tenant_slug: str | None = Field(None, description="Optional tenant slug for non-globally-unique usernames")
 
 
 class TokenResponse(BaseModel):

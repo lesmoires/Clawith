@@ -21,7 +21,9 @@ export default function Login() {
         username: '',
         password: '',
         email: '',
+        tenant_slug: '',
     });
+    const [showTenantField, setShowTenantField] = useState(false);
 
     // Login page always uses dark theme (hero panel is dark)
     useEffect(() => {
@@ -39,6 +41,7 @@ export default function Login() {
             .then(res => {
                 if (res) {
                     setTenant(res);
+                    setForm(f => ({ ...f, tenant_slug: res.slug }));
                 }
             })
             .catch(() => { })
@@ -93,7 +96,11 @@ export default function Login() {
                     display_name: form.username,
                 });
             } else {
-                res = await authApi.login({ username: form.username, password: form.password });
+                res = await authApi.login({ 
+                    username: form.username, 
+                    password: form.password,
+                    tenant_slug: form.tenant_slug || undefined
+                });
             }
             setAuth(res.user, res.access_token);
             // Redirect to company setup if user has no company assigned
@@ -113,6 +120,9 @@ export default function Login() {
                     setError(t('auth.invalidCredentials'));
                 } else if (msg.includes('Account is disabled')) {
                     setError(t('auth.accountDisabled'));
+                } else if (msg.includes('not unique across organizations')) {
+                    setError(t('auth.ambiguousUsername', 'Username is used in multiple organizations. Please specify organization ID.'));
+                    setShowTenantField(true);
                 } else if (msg.includes('500') || msg.includes('Internal Server Error')) {
                     setError(t('auth.serverStarting'));
                 } else {
@@ -276,6 +286,19 @@ export default function Login() {
                     )}
 
                     <form onSubmit={handleSubmit} className="login-form">
+                        {(tenant || showTenantField) && !isRegister && (
+                            <div className="login-field">
+                                <label>{t('auth.organizationId', 'Organization ID')}</label>
+                                <input
+                                    value={form.tenant_slug}
+                                    onChange={(e) => setForm({ ...form, tenant_slug: e.target.value })}
+                                    placeholder={t('auth.organizationPlaceholder', 'e.g. acme')}
+                                    required={showTenantField}
+                                    style={tenant ? { opacity: 0.7, background: 'var(--bg-tertiary)' } : {}}
+                                />
+                            </div>
+                        )}
+
                         <div className="login-field">
                             <label>{t('auth.username')}</label>
                             <input

@@ -174,9 +174,11 @@ class DiscordGatewayManager:
 
                 # Find or create platform user for this Discord sender
                 _username = f"discord_{sender_id}"
-                _u_r = await db.execute(
-                    select(_User).where(_User.username == _username)
-                )
+                query = select(_User).where(_User.username == _username)
+                if agent_obj and agent_obj.tenant_id:
+                    query = query.where(_User.tenant_id == agent_obj.tenant_id)
+                    
+                _u_r = await db.execute(query)
                 _platform_user = _u_r.scalar_one_or_none()
                 if not _platform_user:
                     _display = message.author.display_name or message.author.name or f"Discord User {sender_id[:8]}"
@@ -187,6 +189,7 @@ class DiscordGatewayManager:
                         display_name=_display,
                         role="member",
                         tenant_id=agent_obj.tenant_id,
+                        registration_source="discord",
                     )
                     db.add(_platform_user)
                     await db.flush()

@@ -40,29 +40,53 @@ async def get_registration_config(db: AsyncSession = Depends(get_db)):
 async def check_duplicate(
     email: str | None = Query(None, description="Email to check"),
     username: str | None = Query(None, description="Username to check"),
+    mobile: str | None = Query(None, description="Mobile to check"),
+    tenant_id: uuid.UUID | None = Query(None, description="Tenant context"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Check if email or username already exists."""
-    from app.services.registration_service import registration_service
-
-    result = {"email_exists": False, "username_exists": False, "conflicts": []}
+    """Check if email, username or mobile already exists within a tenant context.
+    If tenant_id is not provided, it checks globally (legacy/platform-admin behavior).
+    """
+    result = {"email_exists": False, "username_exists": False, "mobile_exists": False, "conflicts": []}
 
     if email:
-        # Check email - use exact match (case-insensitive)
-        existing = await db.execute(
-            select(User).where(User.email.ilike(email))
-        )
+        # Check email within tenant
+        query = select(User).where(User.email.ilike(email))
+        if tenant_id:
+            query = query.where(User.tenant_id == tenant_id)
+        
+        existing = await db.execute(query)
         if existing.scalar_one_or_none():
             result["email_exists"] = True
-            result["conflicts"].append({"type": "email", "message": "Email already registered"})
+            result["conflicts"].append({"type": "email", "message": "Email already registered in this tenant"})
 
     if username:
-        existing = await db.execute(select(User).where(User.username == username))
+        # Check username within tenant
+        query = select(User).where(User.username == username)
+        if tenant_id:
+            query = query.where(User.tenant_id == tenant_id)
+            
+        existing = await db.execute(query)
         if existing.scalar_one_or_none():
             result["username_exists"] = True
-            result["conflicts"].append({"type": "username", "message": "Username already taken"})
+            result["conflicts"].append({"type": "username", "message": "Username already taken in this tenant"})
 
-    result["has_conflict"] = result["email_exists"] or result["username_exists"]
+    if mobile:
+        # Normalize mobile before checking
+        import re
+        normalized_mobile = re.sub(r"[\s\-\+]", "", mobile)
+        
+        # Check mobile within tenant
+        query = select(User).where(User.primary_mobile == normalized_mobile)
+        if tenant_id:
+            query = query.where(User.tenant_id == tenant_id)
+            
+        existing = await db.execute(query)
+        if existing.scalar_one_or_none():
+            result["mobile_exists"] = True
+            result["conflicts"].append({"type": "mobile", "message": "Mobile already registered in this tenant"})
+
+    result["has_conflict"] = result["email_exists"] or result["username_exists"] or result["mobile_exists"]
     return result
 
 
@@ -111,30 +135,16 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
         )
 
     # Regular username/password registration
-    # Check existing
-    existing = await db.execute(
-        select(User).where(
-            (User.username == data.username) |
-            (User.email == data.email)
-        )
-    )
-    if existing.scalars().first():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username or email already exists")
-
-    # Check if this is the first user (→ platform admin + default company org_admin)
+    from app.services.registration_service import registration_service
+    
+    # Resolve tenant and role
     from sqlalchemy import func
-    user_count = await db.execute(select(func.count()).select_from(User))
-    is_first_user = user_count.scalar() == 0
-
-    # Note: invitation code validation has been moved to the company-join flow
-    # (POST /tenants/join). Registration itself is now open.
-
-    # Resolve tenant and role for first user only
+    user_count_result = await db.execute(select(func.count()).select_from(User))
+    is_first_user = user_count_result.scalar() == 0
+    
     tenant_uuid = None
     role = "member"
     quota_defaults: dict = {}
-
-    from app.services.registration_service import registration_service
 
     if is_first_user:
         from app.models.tenant import Tenant
@@ -165,6 +175,18 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
                 "quota_max_agents": tenant.default_max_agents,
                 "quota_agent_ttl_hours": tenant.default_agent_ttl_hours,
             }
+
+    # Check existing within resolved tenant
+    query = select(User).where(
+        (User.username == data.username) |
+        (User.email == data.email)
+    )
+    if tenant_uuid:
+        query = query.where(User.tenant_id == tenant_uuid)
+    
+    existing = await db.execute(query)
+    if existing.scalars().first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username or email already exists in this tenant")
 
     user = User(
         username=data.username,
@@ -209,14 +231,34 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
-    """Login with username and password."""
-    result = await db.execute(
-        select(User)
-        .where(User.username == data.username)
-    )
-    user = result.scalar_one_or_none()
+    """Login with username and password. Supports tenant disambiguation."""
+    from app.models.tenant import Tenant
+    
+    query = select(User).where(User.username == data.username)
+    
+    if data.tenant_slug:
+        t_res = await db.execute(select(Tenant).where(Tenant.slug == data.tenant_slug))
+        tenant = t_res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Organization not found")
+        query = query.where(User.tenant_id == tenant.id)
+    
+    result = await db.execute(query)
+    users = result.scalars().all()
 
-    if not user or not verify_password(data.password, user.password_hash):
+    if not users:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    if len(users) > 1:
+        # Multiple users with same username across tenants
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Username is not unique across organizations. Please specify your organization slug."
+        )
+
+    user = users[0]
+
+    if not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     if not user.is_active:
@@ -259,9 +301,15 @@ async def update_me(
 
     # Validate username uniqueness if changing
     if "username" in update_data and update_data["username"] != current_user.username:
-        existing = await db.execute(select(User).where(User.username == update_data["username"]))
+        existing = await db.execute(
+            select(User).where(
+                User.username == update_data["username"],
+                User.tenant_id == current_user.tenant_id,
+                User.id != current_user.id,
+            )
+        )
         if existing.scalars().first():
-            raise HTTPException(status_code=409, detail="Username already taken")
+            raise HTTPException(status_code=409, detail="Username already taken in this tenant")
 
     # Validate email uniqueness within tenant if changing
     if "email" in update_data and update_data["email"] != current_user.email:
