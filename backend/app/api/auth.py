@@ -13,8 +13,10 @@ from app.models.user import User
 from app.schemas.schemas import (
     IdentityBindRequest,
     IdentityUnbindRequest,
+    MultiTenantResponse,
     OAuthAuthorizeResponse,
     OAuthCallbackRequest,
+    TenantChoice,
     TokenResponse,
     UserLogin,
     UserOut,
@@ -177,16 +179,16 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
             }
 
     # Check existing within resolved tenant
-    query = select(User).where(
-        (User.username == data.username) |
-        (User.email == data.email)
-    )
+    # Only check uniqueness if tenant is resolved (via invitation code or email domain)
     if tenant_uuid:
-        query = query.where(User.tenant_id == tenant_uuid)
-    
-    existing = await db.execute(query)
-    if existing.scalars().first():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username or email already exists in this tenant")
+        query = select(User).where(
+            (User.username == data.username) |
+            (User.email.ilike(data.email))
+        ).where(User.tenant_id == tenant_uuid)
+
+        existing = await db.execute(query)
+        if existing.scalars().first():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username or email already exists in this tenant")
 
     user = User(
         username=data.username,
@@ -229,44 +231,72 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login")
 async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
-    """Login with username and password. Supports tenant disambiguation."""
+    """Login with email and password. Supports multi-tenant selection when email matches multiple users."""
     from app.models.tenant import Tenant
-    
-    query = select(User).where(User.username == data.username)
-    
-    if data.tenant_slug:
-        t_res = await db.execute(select(Tenant).where(Tenant.slug == data.tenant_slug))
-        tenant = t_res.scalar_one_or_none()
-        if not tenant:
-            raise HTTPException(status_code=404, detail="Organization not found")
-        query = query.where(User.tenant_id == tenant.id)
-    
-    result = await db.execute(query)
-    users = result.scalars().all()
 
-    if not users:
+    # Query all users by email (login_identifier)
+    query = select(User).where(User.email.ilike(data.login_identifier))
+    result = await db.execute(query)
+    all_users = list(result.scalars().all())
+
+    if not all_users:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    if len(users) > 1:
-        # Multiple users with same username across tenants
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail="Username is not unique across organizations. Please specify your organization slug."
+    # If no tenant_id provided and multiple users exist, return tenant selection
+    if not data.tenant_id and len(all_users) > 1:
+        # Get tenant info for all users
+        tenant_ids = [u.tenant_id for u in all_users if u.tenant_id]
+        tenants_map = {}
+        if tenant_ids:
+            tenants_result = await db.execute(
+                select(Tenant).where(Tenant.id.in_(tenant_ids))
+            )
+            tenants_map = {str(t.id): t for t in tenants_result.scalars().all()}
+
+        tenant_choices = []
+        for u in all_users:
+            tenant = tenants_map.get(str(u.tenant_id)) if u.tenant_id else None
+            tenant_choices.append(TenantChoice(
+                tenant_id=u.tenant_id,
+                tenant_name=tenant.name if tenant else "No Company",
+                tenant_slug=tenant.slug if tenant else "",
+            ))
+
+        return MultiTenantResponse(
+            requires_tenant_selection=True,
+            login_identifier=data.login_identifier,
+            tenants=tenant_choices,
         )
 
-    user = users[0]
+    # Filter by tenant_id if provided
+    users = all_users
+    if data.tenant_id:
+        users = [u for u in all_users if u.tenant_id == data.tenant_id]
+        if not users:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account does not belong to this organization.",
+            )
 
-    if not verify_password(data.password, user.password_hash):
+    # Verify password against any matching user
+    user = None
+    for u in users:
+        if verify_password(data.password, u.password_hash):
+            user = u
+            break
+
+    if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+    # Check if user is active
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
 
     # Check if user's company is disabled
+    tenant = None
     if user.tenant_id:
-        from app.models.tenant import Tenant
         t_result = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
         tenant = t_result.scalar_one_or_none()
         if tenant and not tenant.is_active:
@@ -275,21 +305,13 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
                 detail="Your company has been disabled. Please contact the platform administrator.",
             )
 
-    # Tenant-scoped login: when accessing from a company-specific domain,
-    # only allow users who belong to that company (platform_admin exempt)
-    if data.tenant_id and user.role != "platform_admin":
-        if str(user.tenant_id) != str(data.tenant_id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="This account does not belong to this organization.",
-            )
-
     needs_setup = user.tenant_id is None
     token = create_access_token(str(user.id), user.role)
     return TokenResponse(
         access_token=token,
         user=UserOut.model_validate(user),
         needs_company_setup=needs_setup,
+        tenant_name=tenant.name if tenant else None,
     )
 
 
@@ -367,7 +389,10 @@ async def change_password(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Change current user's password. Requires old_password verification."""
+    """Change current user's password. Requires old_password verification.
+
+    Synchronizes password across all users with the same email or phone number.
+    """
     old_password = data.get("old_password", "")
     new_password = data.get("new_password", "")
 
@@ -380,7 +405,36 @@ async def change_password(
     if not verify_password(old_password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
 
-    current_user.password_hash = hash_password(new_password)
+    # Hash the new password once
+    new_hash = hash_password(new_password)
+
+    # Update current user's password
+    current_user.password_hash = new_hash
+
+    # Find all users with the same email (case-insensitive) and update their passwords
+    if current_user.email:
+        same_email_result = await db.execute(
+            select(User).where(
+                User.email.ilike(current_user.email),
+                User.id != current_user.id,
+            )
+        )
+        same_email_users = same_email_result.scalars().all()
+        for user in same_email_users:
+            user.password_hash = new_hash
+
+    # Find all users with the same primary_mobile and update their passwords
+    if current_user.primary_mobile:
+        same_phone_result = await db.execute(
+            select(User).where(
+                User.primary_mobile == current_user.primary_mobile,
+                User.id != current_user.id,
+            )
+        )
+        same_phone_users = same_phone_result.scalars().all()
+        for user in same_phone_users:
+            user.password_hash = new_hash
+
     await db.flush()
     return {"ok": True}
 

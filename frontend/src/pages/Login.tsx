@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
 import { authApi, tenantApi, fetchJson } from '../services/api';
+import type { TokenResponse } from '../types';
 
 export default function Login() {
     const { t, i18n } = useTranslation();
@@ -16,22 +17,20 @@ export default function Login() {
     const [ssoProviders, setSsoProviders] = useState<any[]>([]);
     const [ssoLoading, setSsoLoading] = useState(false);
     const [ssoError, setSsoError] = useState('');
+    const [tenantSelection, setTenantSelection] = useState<any[] | null>(null);
 
     const [form, setForm] = useState({
-        username: '',
+        login_identifier: '',
         password: '',
-        email: '',
-        tenant_slug: '',
+        tenant_id: '',
     });
-    const [showTenantField, setShowTenantField] = useState(false);
 
     // Login page always uses dark theme (hero panel is dark)
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', 'dark');
 
-        // Resolve tenant by domain
+        // Resolve tenant by domain (for SSO detection only, not for login form)
         const domain = window.location.hostname;
-        // In development, ignore localhost/127.0.0.1 unless its a subdomain we want to test
         if (domain === 'localhost' || domain === '127.0.0.1' || domain.includes('.local')) {
             setResolving(false);
             return;
@@ -41,7 +40,6 @@ export default function Login() {
             .then(res => {
                 if (res) {
                     setTenant(res);
-                    setForm(f => ({ ...f, tenant_slug: res.slug }));
                 }
             })
             .catch(() => { })
@@ -92,39 +90,42 @@ export default function Login() {
             let res;
             if (isRegister) {
                 res = await authApi.register({
-                    ...form,
-                    display_name: form.username,
+                    username: form.login_identifier.split('@')[0],
+                    email: form.login_identifier,
+                    password: form.password,
+                    display_name: form.login_identifier.split('@')[0],
                 });
             } else {
                 res = await authApi.login({
-                    username: form.username,
+                    login_identifier: form.login_identifier,
                     password: form.password,
-                    tenant_slug: form.tenant_slug,
-                    // Pass tenant_id for domain-scoped login enforcement
-                    ...(tenant?.id ? { tenant_id: tenant.id } : {}),
                 });
             }
-            setAuth(res.user, res.access_token);
-            // Redirect to company setup if user has no company assigned
-            if (res.user && !res.user.tenant_id) {
+
+            // Check if multi-tenant selection is needed
+            if ('requires_tenant_selection' in res && res.requires_tenant_selection) {
+                setTenantSelection(res.tenants);
+                setLoading(false);
+                return;
+            }
+
+            const tokenRes = res as TokenResponse;
+            setAuth(tokenRes.user, tokenRes.access_token);
+
+            if (tokenRes.user && !tokenRes.user.tenant_id) {
                 navigate('/setup-company');
             } else {
                 navigate('/');
             }
         } catch (err: any) {
             const msg = err.message || '';
-            // Server-returned error messages (e.g. disabled company, invalid credentials)
             if (msg && msg !== 'Failed to fetch' && !msg.includes('NetworkError') && !msg.includes('ERR_CONNECTION')) {
-                // Translate known error messages
                 if (msg.includes('company has been disabled')) {
                     setError(t('auth.companyDisabled'));
                 } else if (msg.includes('Invalid credentials')) {
                     setError(t('auth.invalidCredentials'));
                 } else if (msg.includes('Account is disabled')) {
                     setError(t('auth.accountDisabled'));
-                } else if (msg.includes('not unique across organizations')) {
-                    setError(t('auth.ambiguousUsername', 'Username is used in multiple organizations. Please specify organization ID.'));
-                    setShowTenantField(true);
                 } else if (msg.includes('does not belong to this organization')) {
                     setError(t('auth.notInOrganization', 'This account does not belong to this organization.'));
                 } else if (msg.includes('500') || msg.includes('Internal Server Error')) {
@@ -135,6 +136,41 @@ export default function Login() {
             } else {
                 setError(t('auth.serverUnreachable'));
             }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleTenantSelect = async (tenantId: string) => {
+        setForm(f => ({ ...f, tenant_id: tenantId }));
+        setTenantSelection(null);
+        setError('');
+        setLoading(true);
+
+        try {
+            const res = await authApi.login({
+                login_identifier: form.login_identifier,
+                password: form.password,
+                tenant_id: tenantId,
+            });
+
+            // Should not get multi-tenant response when tenant_id is provided
+            if ('requires_tenant_selection' in res && res.requires_tenant_selection) {
+                setTenantSelection(res.tenants);
+                setLoading(false);
+                return;
+            }
+
+            const tokenRes = res as TokenResponse;
+            setAuth(tokenRes.user, tokenRes.access_token);
+            if (tokenRes.user && !tokenRes.user.tenant_id) {
+                navigate('/setup-company');
+            } else {
+                navigate('/');
+            }
+        } catch (err: any) {
+            const msg = err.message || '';
+            setError(msg || t('auth.loginFailed', 'Login failed'));
         } finally {
             setLoading(false);
         }
@@ -290,42 +326,17 @@ export default function Login() {
                     )}
 
                     <form onSubmit={handleSubmit} className="login-form">
-                        {(tenant || showTenantField) && !isRegister && (
-                            <div className="login-field">
-                                <label>{t('auth.organizationId', 'Organization ID')}</label>
-                                <input
-                                    value={form.tenant_slug}
-                                    onChange={(e) => setForm({ ...form, tenant_slug: e.target.value })}
-                                    placeholder={t('auth.organizationPlaceholder', 'e.g. acme')}
-                                    required={showTenantField}
-                                    style={tenant ? { opacity: 0.7, background: 'var(--bg-tertiary)' } : {}}
-                                />
-                            </div>
-                        )}
-
                         <div className="login-field">
-                            <label>{t('auth.username')}</label>
+                            <label>{t('auth.email')}</label>
                             <input
-                                value={form.username}
-                                onChange={(e) => setForm({ ...form, username: e.target.value })}
+                                type="email"
+                                value={form.login_identifier}
+                                onChange={(e) => setForm({ ...form, login_identifier: e.target.value })}
                                 required
                                 autoFocus
-                                placeholder={t('auth.usernamePlaceholder')}
+                                placeholder={t('auth.emailPlaceholder')}
                             />
                         </div>
-
-                        {isRegister && (
-                            <div className="login-field">
-                                <label>{t('auth.email')}</label>
-                                <input
-                                    type="email"
-                                    value={form.email}
-                                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                                    required
-                                    placeholder={t('auth.emailPlaceholder')}
-                                />
-                            </div>
-                        )}
 
                         <div className="login-field">
                             <label>{t('auth.password')}</label>
@@ -349,6 +360,73 @@ export default function Login() {
                             )}
                         </button>
                     </form>
+
+                    {/* Multi-tenant selection modal */}
+                    {tenantSelection && (
+                        <div style={{
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            background: 'rgba(0,0,0,0.5)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 1000,
+                        }}>
+                            <div style={{
+                                background: 'var(--bg-primary)',
+                                borderRadius: '16px',
+                                padding: '32px',
+                                maxWidth: '400px',
+                                width: '90%',
+                            }}>
+                                <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: 'var(--text-primary)' }}>
+                                    {t('auth.selectOrganization', '选择公司')}
+                                </h3>
+                                <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                                    {t('auth.multiTenantPrompt', '该邮箱对应多个公司，请选择要登录的公司：')}
+                                </p>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    {tenantSelection.map((t: any) => (
+                                        <button
+                                            key={t.tenant_id}
+                                            onClick={() => handleTenantSelect(t.tenant_id)}
+                                            style={{
+                                                padding: '12px 16px',
+                                                borderRadius: '8px',
+                                                border: '1px solid var(--border-subtle)',
+                                                background: 'var(--bg-secondary)',
+                                                color: 'var(--text-primary)',
+                                                fontSize: '14px',
+                                                cursor: 'pointer',
+                                                textAlign: 'left',
+                                            }}
+                                        >
+                                            {t.tenant_name} {t.tenant_slug && `(${t.tenant_slug})`}
+                                        </button>
+                                    ))}
+                                </div>
+                                <button
+                                    onClick={() => setTenantSelection(null)}
+                                    style={{
+                                        marginTop: '20px',
+                                        padding: '10px 16px',
+                                        borderRadius: '8px',
+                                        border: 'none',
+                                        background: 'var(--bg-tertiary)',
+                                        color: 'var(--text-primary)',
+                                        fontSize: '14px',
+                                        cursor: 'pointer',
+                                        width: '100%',
+                                    }}
+                                >
+                                    {t('common.cancel', '取消')}
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="login-switch">
                         {isRegister ? t('auth.hasAccount') : t('auth.noAccount')}{' '}

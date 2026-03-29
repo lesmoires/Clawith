@@ -20,9 +20,8 @@ class UserRegister(BaseModel):
 
 
 class UserLogin(BaseModel):
-    username: str
+    login_identifier: str = Field(description="Email address for login")
     password: str
-    tenant_slug: str | None = Field(None, description="Optional tenant slug for non-globally-unique usernames")
     tenant_id: uuid.UUID | None = None  # Optional: when set, restrict login to users of this tenant
 
 
@@ -31,6 +30,21 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user: "UserOut"
     needs_company_setup: bool = False
+    tenant_name: str | None = None
+
+
+class TenantChoice(BaseModel):
+    """Multi-tenant login: tenant selection info."""
+    tenant_id: uuid.UUID
+    tenant_name: str
+    tenant_slug: str
+
+
+class MultiTenantResponse(BaseModel):
+    """Response when multiple tenants match the same email."""
+    requires_tenant_selection: bool = True
+    login_identifier: str
+    tenants: list[TenantChoice]
 
 
 class UserOut(BaseModel):

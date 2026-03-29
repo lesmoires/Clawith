@@ -130,11 +130,11 @@ export function uploadFileWithProgress(
 
 // ─── Auth ─────────────────────────────────────────────
 export const authApi = {
-    register: (data: { username: string; email: string; password: string; display_name: string; invitation_code?: string; provider?: string; provider_code?: string }) =>
+    register: (data: { username?: string; email: string; password: string; display_name: string; invitation_code?: string; provider?: string; provider_code?: string }) =>
         request<TokenResponse>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
 
-    login: (data: { username: string; password: string; tenant_id?: string; tenant_slug?: string }) =>
-        request<TokenResponse>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+    login: (data: { login_identifier: string; password: string; tenant_id?: string }) =>
+        request<TokenResponse | { requires_tenant_selection: boolean; login_identifier: string; tenants: any[] }>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
 
     me: () => request<User>('/auth/me'),
 

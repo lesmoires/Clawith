@@ -99,6 +99,7 @@ async def lifespan(app: FastAPI):
         import app.models.notification   # noqa
         import app.models.gateway_message # noqa
         import app.models.identity       # noqa
+        import app.models.email_verification  # noqa
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("[startup] Database tables ready")

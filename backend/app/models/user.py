@@ -35,7 +35,7 @@ class User(Base):
     # Generic identity fields for matching and SSO
     primary_mobile: Mapped[str | None] = mapped_column(String(50), index=True)
     registration_source: Mapped[str | None] = mapped_column(String(50), default="web")
-    
+
     # Legacy Feishu specific fields (Maintained for compatibility)
     feishu_user_id: Mapped[str | None] = mapped_column(String(255))
 
