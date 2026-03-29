@@ -700,6 +700,13 @@ class FeishuOrgSyncAdapter(BaseOrgSyncAdapter):
                     
                     external_id = item.get("user_id", "") or item.get("open_id", "")
                     
+                    # For Feishu, a user is considered inactive if they are explicitly frozen or resigned.
+                    # Merely not being activated (is_activated=False) shouldn't hide them from the org chart.
+                    feishu_status = item.get("status", {})
+                    is_frozen = feishu_status.get("is_frozen", False)
+                    is_resigned = feishu_status.get("is_resigned", False)
+                    member_status = "inactive" if (is_frozen or is_resigned) else "active"
+
                     user = ExternalUser(
                         external_id=external_id,
                         open_id=item.get("open_id", ""),
@@ -711,7 +718,7 @@ class FeishuOrgSyncAdapter(BaseOrgSyncAdapter):
                         department_external_id=department_external_id,
                         department_ids=department_ids,
                         mobile=item.get("mobile", ""),
-                        status="active" if item.get("status", {}).get("is_activated") else "inactive",
+                        status=member_status,
                         raw_data=item,
                     )
                     users.append(user)
