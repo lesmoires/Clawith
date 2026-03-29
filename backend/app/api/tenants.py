@@ -34,6 +34,8 @@ class TenantOut(BaseModel):
     im_provider: str
     timezone: str = "UTC"
     is_active: bool
+    sso_enabled: bool = False
+    sso_domain: str | None = None
     created_at: datetime | None = None
 
     model_config = {"from_attributes": True}
@@ -44,6 +46,8 @@ class TenantUpdate(BaseModel):
     im_provider: str | None = None
     timezone: str | None = None
     is_active: bool | None = None
+    sso_enabled: bool | None = None
+    sso_domain: str | None = None
 
 
 # ─── Helpers ────────────────────────────────────────────
@@ -188,6 +192,44 @@ async def get_registration_config(db: AsyncSession = Depends(get_db)):
     return {"allow_self_create_company": allowed}
 
 
+# ─── Public: Resolve Tenant by Domain ───────────────────
+
+@router.get("/resolve-by-domain")
+async def resolve_tenant_by_domain(
+    domain: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Resolve a tenant by its sso_domain or subdomain slug.
+
+    Lookup precedence:
+    1. Exact match on tenant.sso_domain (e.g. "acme.clawith.ai")
+    2. Extract slug from "{slug}.clawith.ai" and match tenant.slug
+    """
+    # 1. Try exact sso_domain match first
+    result = await db.execute(select(Tenant).where(Tenant.sso_domain == domain))
+    tenant = result.scalar_one_or_none()
+
+    # 2. Fallback: extract slug from subdomain pattern
+    if not tenant:
+        import re
+        m = re.match(r"^([a-z0-9][a-z0-9\-]*[a-z0-9])\.clawith\.ai$", domain.lower())
+        if m:
+            slug = m.group(1)
+            result = await db.execute(select(Tenant).where(Tenant.slug == slug))
+            tenant = result.scalar_one_or_none()
+
+    if not tenant or not tenant.is_active:
+        raise HTTPException(status_code=404, detail="Tenant not found or not active")
+    
+    return {
+        "id": tenant.id,
+        "name": tenant.name,
+        "slug": tenant.slug,
+        "sso_enabled": tenant.sso_enabled,
+        "sso_domain": tenant.sso_domain,
+        "is_active": tenant.is_active,
+    }
+
 # ─── Authenticated: List / Get ──────────────────────────
 
 @router.get("/", response_model=list[TenantOut])
@@ -233,7 +275,15 @@ async def update_tenant(
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    update_data = data.model_dump(exclude_unset=True)
+    
+    # SSO configuration is managed exclusively by the company's own org_admin
+    # via the Enterprise Settings page. Platform admins should not override it here.
+    if current_user.role == "platform_admin":
+        update_data.pop("sso_enabled", None)
+        update_data.pop("sso_domain", None)
+
+    for field, value in update_data.items():
         setattr(tenant, field, value)
     await db.flush()
     return TenantOut.model_validate(tenant)

@@ -224,6 +224,29 @@ async def update_tool(
     return {"ok": True}
 
 
+class BulkToolUpdateItem(BaseModel):
+    tool_id: str
+    enabled: bool
+
+@router.put("/bulk")
+async def update_tools_bulk(
+    updates: list[BulkToolUpdateItem],
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk update the enabled status of multiple tools."""
+    tool_ids = [uuid.UUID(u.tool_id) for u in updates]
+    result = await db.execute(select(Tool).where(Tool.id.in_(tool_ids)))
+    tools_map = {str(t.id): t for t in result.scalars().all()}
+    
+    for update in updates:
+        if update.tool_id in tools_map:
+            tools_map[update.tool_id].enabled = update.enabled
+            
+    await db.commit()
+    return {"ok": True}
+
+
 @router.delete("/{tool_id}")
 async def delete_tool(
     tool_id: uuid.UUID,
@@ -270,9 +293,11 @@ async def get_agent_tools(
             continue
         tid = str(t.id)
         at = assignments.get(tid)
-        # MCP tools only show for agents that have an explicit assignment
+        # MCP tools installed by agents (no tenant_id) only show for that agent.
+        # MCP tools imported by admin in company settings (tenant_id set) show for all agents (default disabled).
         if t.type == "mcp" and not at:
-            continue
+            if not t.tenant_id:
+                continue
         # If no explicit assignment, use is_default
         enabled = at.enabled if at else t.is_default
         result.append({
@@ -488,9 +513,11 @@ async def get_agent_tools_with_config(
             continue
         tid = str(t.id)
         at = assignments.get(tid)
-        # MCP tools only show for agents that have an explicit assignment
+        # MCP tools installed by agents (no tenant_id) only show for that agent.
+        # MCP tools imported by admin in company settings (tenant_id set) show for all agents (default disabled).
         if t.type == "mcp" and not at:
-            continue
+            if not t.tenant_id:
+                continue
         enabled = at.enabled if at else t.is_default
         result.append({
             "id": tid,

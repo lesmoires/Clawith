@@ -109,8 +109,18 @@
     "companyDisabled": "你的公司已被停用，请联系平台管理员。",
     "invalidCredentials": "用户名或密码错误。",
     "accountDisabled": "你的账号已被停用。",
+    "notInOrganization": "该账号不属于当前组织。",
     "serverStarting": "服务正在启动或遇到问题，请稍后重试。",
-    "serverUnreachable": "无法连接服务器，请检查服务是否正在运行。"
+    "serverUnreachable": "无法连接服务器，请检查服务是否正在运行。",
+    "qrLogin": "扫码登录",
+    "unifiedSSO": "统一扫码登录",
+    "scanWithPlatform": "请使用 飞书 / 钉钉 / 企业微信 扫码",
+    "qrExpired": "二维码已过期",
+    "qrSuccess": "登录成功，正在跳转...",
+    "refresh": "刷新二维码",
+    "loginWithSSO": "使用企业 SSO 登录",
+    "ssoNotice": "此域名已启用企业单点登录 (SSO)。",
+    "standardLogin": "标准登录"
   },
   "roles": {
     "platformAdmin": "超级管理员",
@@ -694,7 +704,7 @@
     "tabs": {
       "llm": "模型池",
       "tools": "工具",
-      "org": "组织架构",
+      "org": "组织管理",
       "info": "公司信息",
       "audit": "审计日志",
       "config": "平台配置",
@@ -703,7 +713,8 @@
       "skills": "技能管理",
       "quotas": "配额",
       "users": "用户",
-      "invites": "邀请码"
+      "invites": "邀请码",
+      "identity": "OA管理"
     },
     "invites": {
       "pageTitle": "邀请码",
@@ -833,7 +844,36 @@
       "searchMembers": "搜索成员...",
       "member": "成员",
       "admin": "管理员",
-      "noMembers": "暂无成员"
+      "noMembers": "暂无成员",
+      "syncSetupGuide": "配置说明与权限声明",
+      "feishuGuideText": "在飞书开发者后台，进入「权限管理」->「批量导入/导出权限」，粘贴以下 JSON：",
+      "feishuGuideWarning": "注意：添加权限后，必须创建并发布应用新版本，并在企业后台审批通过后，权限才会生效。",
+      "syncGuide": {
+        "feishu": {
+          "step1": "打开 open.feishu.cn → 登录 → 开发者后台 → 创建企业自建应用",
+          "step2": "左侧菜单 → 凭证与基础信息 → 复制 App ID 和 App Secret，填入下方并保存配置",
+          "step3": "左侧菜单 → 权限管理 → 点击「批量导入/导出权限」→ 粘贴下方权限 JSON → 确认导入",
+          "step4": "【如需免登】左侧菜单 → 添加应用能力 → 找到「网页应用」→ 点击添加，将下方的 SSO Login URL 填入「桌面端主页」和「移动端主页」",
+          "step5": "【如需免登】左侧菜单 → 安全设置 → 在「重定向 URL」中添加下方的 Redirect URL",
+          "step6": "【如需免登】打开下方的“SSO登录”开关，团队成员即可通过 SSO Login URL 一键免登",
+          "step7": "左侧菜单 → 版本管理与发布 → 创建版本（可用范围设为所有员工）→ 提交审核发布 → 在飞书管理后台审批通过"
+        },
+        "dingtalk": {
+          "step1": "打开 open.dingtalk.com → 登录 → 开发者后台 → 创建企业内部应用 → 填写名称",
+          "step2": "应用能力 → 找到「通讯录」→ 点击添加",
+          "step3": "应用信息 → 复制 AppKey 和 AppSecret",
+          "step4": "通讯录权限 → 勾选部门和成员的读取权限",
+          "step5": "将 AppKey 和 AppSecret 填入下方 → 点击保存配置",
+          "step6": "如需使用钉钉免登：打开下方的SSO登录开关，然后在钉钉中配置：登录与分享 → 填写回调域名（即下方的 Redirect URL 的域名）。分享下方的 SSO Login URL 给团队成员，他们即可一键登录。"
+        },
+        "wecom": {
+          "step1": "登录企业微信管理后台 → 管理工具 → 通讯录同步",
+          "step2": "API 安全 → 设置 API 可见范围，包含你想同步的部门或成员",
+          "step3": "复制企业 ID (CorpID) 和 Secret",
+          "step4": "将 CorpID 和 Secret 填入下方 → 点击保存配置",
+          "step5": "如需使用企微免登：打开下方的SSO登录开关，然后在企微中配置：应用管理 → 网页授权及JS-SDK → 设置可信域名（即下方 Redirect URL 的域名部分）。分享下方的 SSO Login URL 给团队成员即可登录。"
+        }
+      }
     },
     "config": {
       "title": "平台配置",
@@ -959,9 +999,33 @@
     "active": "正常",
     "disabled": "已停用",
     "disable": "停用",
-    "enable": "启用",
+    "editCompany": "编辑公司",
+    "ssoConfigTitle": "SSO 与域名配置",
+    "ssoConfigDesc": "为公司开启 SSO 登录并设置专属访问域名。开启后，用户访问该域名将自动进入该公司的 SSO 流程。",
+    "ssoEnabled": "启用 SSO",
+    "ssoDomain": "专属访问域名",
+    "ssoDomainPlaceholder": "例如: acme.clawith.com",
     "confirmDisable": "停用此公司？所有用户和数字员工将被暂停。",
+    "cannotDisableDefault": "无法禁用默认公司 — 平台管理员将被锁定",
+    "company": "公司",
+    "users": "用户",
+    "agents": "数字员工",
+    "tokens": "Token 消耗",
     "createdAt": "创建时间",
+    "status": "状态",
+    "active": "已启用",
+    "disabled": "已停用",
+    "enable": "启用",
+    "disable": "停用",
+    "createCompany": "创建公司",
+    "companyNamePlaceholder": "公司名称",
+    "companyCreated": "公司已创建",
+    "companyCreatedDesc": "已成功创建。",
+    "inviteCodeLabel": "管理员邀请码",
+    "inviteCodeHowTo": "如何使用此代码：",
+    "inviteCodeExplain": "将此代码发送给将管理该公司的人员。他们应在平台上注册新账号，然后输入此代码加入。第一个使用它的人将自动成为该公司的组织管理员。此代码为一次性使用。",
+    "copyCode": "复制邀请码",
+    "copied": "已复制",
     "showing": "{{start}}-{{end}} / {{total}}",
     "prev": "上一页",
     "next": "下一页"
@@ -1091,5 +1155,21 @@
       "ws_step6": "在企业微信中找到机器人，发送消息测试",
       "ws_note": "WebSocket 长连接模式无需公网 IP、回调地址或域名备案（ICP），连接由系统自动管理。"
     }
+  },
+  "identity": {
+    "title": "组织架构与账号同步",
+    "addProvider": "添加同步源",
+    "type": "类型",
+    "name": "显示名称",
+    "config": "配置 (JSON)",
+    "configExample": "配置示例",
+    "deleteConfirm": "确定删除此 OA 账号源吗？",
+    "providerHints": {
+      "feishu": "飞书：需填写 app_id, app_secret（可选：encrypt_key, verification_token）",
+      "dingtalk": "钉钉：需填写 app_key, app_secret",
+      "wecom": "企业微信：传统模式需 corp_id, secret, agent_id；智能机器人模式需 bot_id, bot_secret",
+      "oauth2": "OAuth2：填写 App ID、App Secret、授权地址、Token地址、用户信息地址",
+      "saml": "SAML：需填写 entry_point, issuer, cert (公钥)",
+      "microsoft_teams": "Microsoft Teams：需填写 client_id, client_secret, tenant_id"    }
   }
 }

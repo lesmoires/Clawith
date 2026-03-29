@@ -54,6 +54,9 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     return res.json();
 }
 
+/** Legacy/Internal generic fetcher */
+export const fetchJson = request;
+
 async function uploadFile(url: string, file: File, extraFields?: Record<string, string>): Promise<any> {
     const token = localStorage.getItem('token');
     const formData = new FormData();
@@ -133,7 +136,7 @@ export const authApi = {
     register: (data: { username: string; email: string; password: string; display_name: string }) =>
         request<TokenResponse>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
 
-    login: (data: { username: string; password: string }) =>
+    login: (data: { username: string; password: string; tenant_id?: string }) =>
         request<TokenResponse>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
 
     forgotPassword: (data: { email: string }) =>
@@ -158,6 +161,9 @@ export const tenantApi = {
 
     registrationConfig: () =>
         request<{ allow_self_create_company: boolean }>('/tenants/registration-config'),
+
+    resolveByDomain: (domain: string) =>
+        request<any>(`/tenants/resolve-by-domain?domain=${encodeURIComponent(domain)}`),
 };
 
 export const adminApi = {
@@ -166,6 +172,9 @@ export const adminApi = {
 
     createCompany: (data: { name: string }) =>
         request<any>('/admin/companies', { method: 'POST', body: JSON.stringify(data) }),
+
+    updateCompany: (id: string, data: any) =>
+        request<any>(`/tenants/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
     toggleCompany: (id: string) =>
         request<any>(`/admin/companies/${id}/toggle`, { method: 'PUT' }),
@@ -420,3 +429,4 @@ export const triggerApi = {
     delete: (agentId: string, triggerId: string) =>
         request<void>(`/agents/${agentId}/triggers/${triggerId}`, { method: 'DELETE' }),
 };
+

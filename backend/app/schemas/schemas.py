@@ -14,11 +14,15 @@ class UserRegister(BaseModel):
     password: str = Field(min_length=6, max_length=128)
     display_name: str | None = None
     invitation_code: str | None = None
+    # SSO registration fields
+    provider: str | None = Field(None, description="Provider type for SSO registration (feishu, dingtalk, etc.)")
+    provider_code: str | None = Field(None, description="OAuth code for SSO registration")
 
 
 class UserLogin(BaseModel):
     username: str
     password: str
+    tenant_id: uuid.UUID | None = None  # Optional: when set, restrict login to users of this tenant
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -45,13 +49,45 @@ class UserOut(BaseModel):
     avatar_url: str | None = None
     role: str
     tenant_id: uuid.UUID | None = None
-    department_id: uuid.UUID | None = None
     title: str | None = None
-    feishu_open_id: str | None = None
+    primary_mobile: str | None = None
+    registration_source: str | None = None
     is_active: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class IdentityProviderOut(BaseModel):
+    id: uuid.UUID
+    provider_type: str
+    name: str
+    is_active: bool
+    sso_login_enabled: bool = False
+    config: dict | None = None
+    tenant_id: uuid.UUID | None = None
+    updated_at: datetime | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class OAuthAuthorizeResponse(BaseModel):
+    authorization_url: str
+
+
+class OAuthCallbackRequest(BaseModel):
+    code: str
+    state: str
+
+
+class IdentityBindRequest(BaseModel):
+    provider_type: str
+    code: str  # OAuth code for binding
+
+
+class IdentityUnbindRequest(BaseModel):
+    provider_type: str
 
 
 class UserUpdate(BaseModel):
@@ -60,7 +96,7 @@ class UserUpdate(BaseModel):
     display_name: str | None = None
     avatar_url: str | None = None
     title: str | None = None
-    department_id: uuid.UUID | None = None
+    primary_mobile: str | None = None
 
 
 # ─── Agent ──────────────────────────────────────────────
@@ -226,30 +262,6 @@ class TaskLogOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
-
-
-# ─── Department ─────────────────────────────────────────
-
-class DepartmentCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
-    parent_id: uuid.UUID | None = None
-    manager_id: uuid.UUID | None = None
-
-
-class DepartmentOut(BaseModel):
-    id: uuid.UUID
-    name: str
-    parent_id: uuid.UUID | None = None
-    manager_id: uuid.UUID | None = None
-    sort_order: int
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class DepartmentTree(DepartmentOut):
-    children: list["DepartmentTree"] = []
-    member_count: int = 0
 
 
 # ─── LLM ────────────────────────────────────────────────
