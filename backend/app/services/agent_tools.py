@@ -1344,6 +1344,8 @@ async def execute_tool(
             result = await _agentmail_get_lite(agent_id, arguments)
         elif tool_name == "agentmail_inboxes_lite":
             result = await _agentmail_inboxes_lite(agent_id, arguments)
+        elif tool_name == "agentmail_download_attachment_lite":
+            result = await _agentmail_download_attachment_lite(agent_id, arguments)
 
         # ── Infisical Tools ──
         elif tool_name == "infisical_get_secret":
@@ -5696,3 +5698,61 @@ async def _agentmail_get_lite(agent_id: uuid.UUID, arguments: dict) -> str:
 async def _agentmail_inboxes_lite(agent_id: uuid.UUID, arguments: dict) -> str:
     """List inboxes via LiteLLM AgentMail MCP."""
     return await _litellm_mcp_call(agent_id, 'agentmail', 'list_inboxes', arguments)
+
+
+async def _agentmail_download_attachment_lite(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Download email attachment via AgentMail MCP and save to workspace."""
+    import base64
+    from pathlib import Path
+    
+    inbox_id = arguments.get('inboxId', '')
+    thread_id = arguments.get('threadId', '')
+    attachment_id = arguments.get('attachmentId', '')
+    save_path = arguments.get('savePath', '')
+    
+    if not all([inbox_id, thread_id, attachment_id, save_path]):
+        return 'Error: Missing required parameters (inboxId, threadId, attachmentId, savePath)'
+    
+    # Get attachment via MCP
+    result = await _litellm_mcp_call(agent_id, 'agentmail', 'get_attachment', {
+        'inboxId': inbox_id,
+        'threadId': thread_id,
+        'attachmentId': attachment_id
+    })
+    
+    try:
+        import json
+        attachment_data = json.loads(result)
+        
+        filename = attachment_data.get('filename', 'attachment')
+        content_type = attachment_data.get('contentType', 'application/octet-stream')
+        
+        # Try to get content from downloadUrl (official agentmail-mcp returns URL, not base64)
+        download_url = attachment_data.get('downloadUrl', '')
+        
+        if download_url:
+            # Fetch content from URL
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(download_url)
+                response.raise_for_status()
+                file_content = response.content
+        else:
+            # Fallback: try base64 content (legacy format)
+            content = attachment_data.get('content', '')
+            if not content:
+                return f'Error: No content in attachment response (no downloadUrl or content field)'
+            file_content = base64.b64decode(content)
+        
+        # Save to workspace
+        workspace_path = WORKSPACE_ROOT / str(agent_id) / 'workspace' / save_path
+        workspace_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(workspace_path, 'wb') as f:
+            f.write(file_content)
+        
+        return f'Successfully downloaded {filename} ({len(file_content)} bytes) to {save_path}'
+        
+    except httpx.HTTPError as e:
+        return f'Error downloading attachment from URL: {str(e)[:200]}'
+    except Exception as e:
+        return f'Error processing attachment: {str(e)[:200]}'
