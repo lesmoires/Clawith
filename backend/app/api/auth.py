@@ -287,32 +287,66 @@ async def register(
 
 @router.post("/login", response_model=TokenResponse)
 async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
-    """Login with username and password.
-    
-    When tenant_id is provided (e.g., from a company-specific SSO domain),
-    non-platform_admin users must belong to that tenant.
-    """
-    result = await db.execute(
-        select(User)
-        .where(User.username == data.username)
-    )
-    user = result.scalar_one_or_none()
+    """Login with email and password. Supports multi-tenant selection when email matches multiple users."""
+    from app.models.tenant import Tenant
 
-    if not user or not verify_password(data.password, user.password_hash):
+    # Query all users by email (login_identifier)
+    query = select(User).where(User.email.ilike(data.login_identifier))
+    result = await db.execute(query)
+    all_users = list(result.scalars().all())
+
+    if not all_users:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    # If no tenant_id provided and multiple users exist, return tenant selection
+    if not data.tenant_id and len(all_users) > 1:
+        # Get tenant info for all users
+        tenant_ids = [u.tenant_id for u in all_users if u.tenant_id]
+        tenants_map = {}
+        if tenant_ids:
+            tenants_result = await db.execute(
+                select(Tenant).where(Tenant.id.in_(tenant_ids))
+            )
+            tenants_map = {str(t.id): t for t in tenants_result.scalars().all()}
+
+        tenant_choices = []
+        for u in all_users:
+            tenant = tenants_map.get(str(u.tenant_id)) if u.tenant_id else None
+            tenant_choices.append(TenantChoice(
+                tenant_id=u.tenant_id,
+                tenant_name=tenant.name if tenant else "Default",
+                tenant_slug=tenant.slug if tenant else "",
+            ))
+
+        return MultiTenantResponse(
+            requires_tenant_selection=True,
+            login_identifier=data.login_identifier,
+            tenants=tenant_choices,
+        )
+
+    # Filter by tenant_id if provided
+    users = all_users
+    if data.tenant_id:
+        users = [u for u in all_users if u.tenant_id == data.tenant_id]
+        if not users:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account does not belong to this organization.",
+            )
+
+    # Verify password against any matching user
+    user = None
+    for u in users:
+        if verify_password(data.password, u.password_hash):
+            user = u
+            break
+
+    if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     # Check if user is active
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
-
-    # Check if email is verified (if required)
-    from app.config import get_settings
-    settings = get_settings()
-    if settings.EMAIL_VERIFICATION_REQUIRED and not user.email_verified:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Email not verified. Please check your inbox or request a new verification email.",
-        )
 
     # Check if user's company is disabled
     if user.tenant_id:
