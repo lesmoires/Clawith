@@ -25,6 +25,15 @@ class UserLogin(BaseModel):
     tenant_id: uuid.UUID | None = None  # Optional: when set, restrict login to users of this tenant
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=512)
+    new_password: str = Field(min_length=6, max_length=128)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

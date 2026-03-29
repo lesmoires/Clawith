@@ -15,7 +15,10 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 
     if (!res.ok) {
         // Auto-logout on expired/invalid token (but not on auth endpoints — let them show errors)
-        const isAuthEndpoint = url.startsWith('/auth/login') || url.startsWith('/auth/register');
+        const isAuthEndpoint = url.startsWith('/auth/login')
+            || url.startsWith('/auth/register')
+            || url.startsWith('/auth/forgot-password')
+            || url.startsWith('/auth/reset-password');
         if (res.status === 401 && !isAuthEndpoint) {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
@@ -135,6 +138,12 @@ export const authApi = {
 
     login: (data: { login_identifier: string; password: string; tenant_id?: string }) =>
         request<TokenResponse | { requires_tenant_selection: boolean; login_identifier: string; tenants: any[] }>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+
+    forgotPassword: (data: { email: string }) =>
+        request<{ ok: boolean; message: string }>('/auth/forgot-password', { method: 'POST', body: JSON.stringify(data) }),
+
+    resetPassword: (data: { token: string; new_password: string }) =>
+        request<{ ok: boolean }>('/auth/reset-password', { method: 'POST', body: JSON.stringify(data) }),
 
     me: () => request<User>('/auth/me'),
 
