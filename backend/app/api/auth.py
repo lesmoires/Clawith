@@ -406,6 +406,8 @@ async def forgot_password(
             user.display_name or user.username,
             reset_url,
             expiry_minutes,
+            user.tenant_id,  # Pass tenant_id for tenant-specific email config
+            db,
         )
     except Exception as exc:
         logger.warning(f"Failed to process password reset email for {data.email}: {exc}")

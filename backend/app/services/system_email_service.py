@@ -1,4 +1,9 @@
-"""System-owned outbound email service."""
+"""System-owned outbound email service.
+
+Supports both:
+1. Platform-level configuration via environment variables
+2. Tenant-level configuration via system_settings table
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ import inspect
 import logging
 import smtplib
 import ssl
+import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -47,37 +53,151 @@ class BroadcastEmailRecipient:
     body: str
 
 
+async def get_tenant_email_config(db, tenant_id: uuid.UUID | None = None) -> SystemEmailConfig | None:
+    """Get email configuration from system_settings for a tenant.
+
+    Args:
+        db: Database session
+        tenant_id: Tenant ID (if None, uses environment variable config)
+
+    Returns:
+        SystemEmailConfig if configured, None otherwise
+    """
+    if not tenant_id:
+        return None
+
+    try:
+        from sqlalchemy import select
+        from app.models.system_settings import SystemSetting
+
+        config_key = f"system_email_{tenant_id}"
+        result = await db.execute(select(SystemSetting).where(SystemSetting.key == config_key))
+        setting = result.scalar_one_or_none()
+
+        if not setting or not setting.value:
+            return None
+
+        value = setting.value
+        from_address = str(value.get("SYSTEM_EMAIL_FROM_ADDRESS", "")).strip()
+        smtp_host = str(value.get("SYSTEM_SMTP_HOST", "")).strip()
+        smtp_password = str(value.get("SYSTEM_SMTP_PASSWORD", ""))
+
+        # Return None if required fields are missing
+        if not from_address or not smtp_host or not smtp_password:
+            return None
+
+        return SystemEmailConfig(
+            from_address=from_address,
+            from_name=str(value.get("SYSTEM_EMAIL_FROM_NAME", "Clawith")).strip() or "Clawith",
+            smtp_host=smtp_host,
+            smtp_port=int(value.get("SYSTEM_SMTP_PORT", 465)),
+            smtp_username=str(value.get("SYSTEM_SMTP_USERNAME", "")).strip() or from_address,
+            smtp_password=smtp_password,
+            smtp_ssl=bool(value.get("SYSTEM_SMTP_SSL", True)),
+            smtp_timeout_seconds=max(1, int(value.get("SYSTEM_SMTP_TIMEOUT_SECONDS", 15))),
+        )
+    except Exception as e:
+        logger.warning(f"Failed to load tenant email config: {e}")
+        return None
+
+
 def get_system_email_config() -> SystemEmailConfig:
-    """Resolve and validate the env-driven system email configuration."""
+    """Get platform-level fallback email configuration from system_settings ('platform' key).
+
+    This is used when tenant doesn't have its own email configuration.
+    Falls back to environment variables for backward compatibility.
+    """
+    # Try to get from system_settings first (for platform-level config)
+    try:
+        import asyncio
+        from sqlalchemy import select
+        from app.database import async_session
+        from app.models.system_settings import SystemSetting
+
+        async def _fetch_platform_config():
+            async with async_session() as db:
+                result = await db.execute(select(SystemSetting).where(SystemSetting.key == "system_email_platform"))
+                setting = result.scalar_one_or_none()
+                if setting and setting.value:
+                    value = setting.value
+                    from_address = str(value.get("SYSTEM_EMAIL_FROM_ADDRESS", "")).strip()
+                    smtp_host = str(value.get("SYSTEM_SMTP_HOST", "")).strip()
+                    smtp_password = str(value.get("SYSTEM_SMTP_PASSWORD", ""))
+                    if from_address and smtp_host and smtp_password:
+                        return SystemEmailConfig(
+                            from_address=from_address,
+                            from_name=str(value.get("SYSTEM_EMAIL_FROM_NAME", "Clawith")).strip() or "Clawith",
+                            smtp_host=smtp_host,
+                            smtp_port=int(value.get("SYSTEM_SMTP_PORT", 465)),
+                            smtp_username=str(value.get("SYSTEM_SMTP_USERNAME", "")).strip() or from_address,
+                            smtp_password=smtp_password,
+                            smtp_ssl=bool(value.get("SYSTEM_SMTP_SSL", True)),
+                            smtp_timeout_seconds=max(1, int(value.get("SYSTEM_SMTP_TIMEOUT_SECONDS", 15))),
+                        )
+                return None
+
+        config = asyncio.get_event_loop().run_until_complete(_fetch_platform_config())
+        if config:
+            return config
+    except Exception:
+        pass
+
+    # Fallback to environment variables for backward compatibility
+    from app.config import get_settings
     settings = get_settings()
-    from_address = settings.SYSTEM_EMAIL_FROM_ADDRESS.strip()
-    smtp_host = settings.SYSTEM_SMTP_HOST.strip()
-    smtp_username = settings.SYSTEM_SMTP_USERNAME.strip() or from_address
-    smtp_password = settings.SYSTEM_SMTP_PASSWORD
+    from_address = getattr(settings, 'SYSTEM_EMAIL_FROM_ADDRESS', '').strip()
+    smtp_host = getattr(settings, 'SYSTEM_SMTP_HOST', '').strip()
+    smtp_username = getattr(settings, 'SYSTEM_SMTP_USERNAME', '').strip() or from_address
+    smtp_password = getattr(settings, 'SYSTEM_SMTP_PASSWORD', '')
+    smtp_port = getattr(settings, 'SYSTEM_SMTP_PORT', 465)
+    smtp_ssl = getattr(settings, 'SYSTEM_SMTP_SSL', True)
+    smtp_timeout = getattr(settings, 'SYSTEM_SMTP_TIMEOUT_SECONDS', 15)
 
     if not from_address or not smtp_host or not smtp_password:
         raise SystemEmailConfigError(
-            "System email is not configured. Set SYSTEM_EMAIL_FROM_ADDRESS, SYSTEM_SMTP_HOST, and SYSTEM_SMTP_PASSWORD."
+            "System email is not configured. Configure email settings in Enterprise Settings or set environment variables."
         )
-
-    smtp_timeout_seconds = max(1, int(settings.SYSTEM_SMTP_TIMEOUT_SECONDS))
 
     return SystemEmailConfig(
         from_address=from_address,
-        from_name=settings.SYSTEM_EMAIL_FROM_NAME.strip() or "Clawith",
+        from_name=getattr(settings, 'SYSTEM_EMAIL_FROM_NAME', 'Clawith').strip() or "Clawith",
         smtp_host=smtp_host,
-        smtp_port=settings.SYSTEM_SMTP_PORT,
+        smtp_port=smtp_port,
         smtp_username=smtp_username,
         smtp_password=smtp_password,
-        smtp_ssl=settings.SYSTEM_SMTP_SSL,
-        smtp_timeout_seconds=smtp_timeout_seconds,
+        smtp_ssl=smtp_ssl,
+        smtp_timeout_seconds=max(1, int(smtp_timeout)),
     )
 
 
-def _send_system_email_sync(to: str, subject: str, body: str) -> None:
-    """Send a plain-text system email synchronously."""
-    config = get_system_email_config()
+async def send_system_email(to: str, subject: str, body: str, tenant_id: uuid.UUID | None = None, db=None) -> None:
+    """Send a plain-text system email without blocking the event loop.
 
+    Args:
+        to: Recipient email address
+        subject: Email subject
+        body: Email body text
+        tenant_id: Optional tenant ID to use tenant-specific config
+        db: Optional database session (required if tenant_id is provided)
+    """
+    # Try tenant-level config first
+    config = None
+    if tenant_id and db:
+        config = await get_tenant_email_config(db, tenant_id)
+
+    # Fallback to platform-level env config
+    if not config:
+        try:
+            config = get_system_email_config()
+        except SystemEmailConfigError:
+            logger.warning("System email not configured (neither tenant nor platform level)")
+            return
+
+    await asyncio.to_thread(_send_email_with_config_sync, config, to, subject, body)
+
+
+def _send_email_with_config_sync(config: SystemEmailConfig, to: str, subject: str, body: str) -> None:
+    """Send email with provided config."""
     msg = MIMEMultipart()
     msg["From"] = formataddr((config.from_name, config.from_address))
     msg["To"] = to
@@ -106,28 +226,32 @@ def _send_system_email_sync(to: str, subject: str, body: str) -> None:
                 server.sendmail(config.from_address, [to], msg.as_string())
 
 
-async def send_system_email(to: str, subject: str, body: str) -> None:
-    """Send a plain-text system email without blocking the event loop."""
-    await asyncio.to_thread(_send_system_email_sync, to, subject, body)
-
-
 async def send_password_reset_email(
     to: str,
     display_name: str,
     reset_url: str,
     expiry_minutes: int,
+    tenant_id: uuid.UUID | None = None,
+    db=None,
 ) -> None:
-    """Send a password reset email."""
-    await send_system_email(
-        to,
-        "Reset your Clawith password",
-        (
-            f"Hello {display_name},\n\n"
-            f"We received a request to reset your Clawith password.\n\n"
-            f"Reset link: {reset_url}\n\n"
-            f"This link expires in {expiry_minutes} minutes. If you did not request this, you can ignore this email."
-        ),
+    """Send a password reset email.
+
+    Args:
+        to: Recipient email
+        display_name: User display name
+        reset_url: Password reset URL
+        expiry_minutes: Token expiry time in minutes
+        tenant_id: Optional tenant ID for tenant-specific email config
+        db: Optional database session
+    """
+    subject = "Reset your Clawith password"
+    body = (
+        f"Hello {display_name},\n\n"
+        f"We received a request to reset your Clawith password.\n\n"
+        f"Reset link: {reset_url}\n\n"
+        f"This link expires in {expiry_minutes} minutes. If you did not request this, you can ignore this email."
     )
+    await send_system_email(to, subject, body, tenant_id=tenant_id, db=db)
 
 
 async def deliver_broadcast_emails(recipients: Iterable[BroadcastEmailRecipient]) -> None:
