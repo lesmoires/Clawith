@@ -759,7 +759,33 @@
       "searchMembers": "Search members...",
       "member": "Member",
       "admin": "Admin",
-      "noMembers": "No members"
+      "noMembers": "No members",
+      "syncSetupGuide": "Setup Guide & Required Permissions",
+      "feishuGuideText": "In the Feishu Developer Console, go to Permissions & Scopes -> Bulk Import/Export, and paste the following JSON:",
+      "feishuGuideWarning": "Important: After adding permissions, you must create and publish a new application version for them to take effect.",
+      "syncGuide": {
+        "feishu": {
+          "step1": "Go to open.feishu.cn → log in → Developer Console → Create Enterprise Self-Built App → fill in name and description → Confirm",
+          "step2": "Left sidebar → Add App Capabilities → click Add next to Contacts",
+          "step3": "Left sidebar → Credentials & Basic Info → copy App ID and App Secret",
+          "step4": "Paste App ID and App Secret below → click Save",
+          "step5": "Left sidebar → Permissions & Scopes → click Bulk Import/Export Permissions → paste the permission JSON below → confirm import",
+          "step6": "Left sidebar → App Release → Create Version → Release for Review → approve it in your admin console"
+        },
+        "dingtalk": {
+          "step1": "Go to open.dingtalk.com → log in → Developer Console → Create Enterprise Internal App → fill in name",
+          "step2": "App Features → click Add next to Contacts",
+          "step3": "App Info → copy AppKey and AppSecret",
+          "step4": "Contacts Permission → enable reading permissions for Departments and Members",
+          "step5": "Paste AppKey and AppSecret below → click Save"
+        },
+        "wecom": {
+          "step1": "Log in to WeCom Admin Console → Management Tools → Address Book Sync",
+          "step2": "API Security → set the API visibility range to include the departments/users you want to sync",
+          "step3": "Copy CorpID and Secret",
+          "step4": "Paste CorpID and Secret below → click Save"
+        }
+      }
     },
     "config": {
       "title": "Platform Configuration",

@@ -824,7 +824,33 @@
       "searchMembers": "搜索成员...",
       "member": "成员",
       "admin": "管理员",
-      "noMembers": "暂无成员"
+      "noMembers": "暂无成员",
+      "syncSetupGuide": "配置说明与权限声明",
+      "feishuGuideText": "在飞书开发者后台，进入「权限管理」->「批量导入/导出权限」，粘贴以下 JSON：",
+      "feishuGuideWarning": "注意：添加权限后，必须创建并发布应用新版本，并在企业后台审批通过后，权限才会生效。",
+      "syncGuide": {
+        "feishu": {
+          "step1": "打开 open.feishu.cn → 登录 → 开发者后台 → 创建企业自建应用 → 填写名称和简介 → 确认创建",
+          "step2": "左侧菜单 → 添加应用能力 → 找到「通讯录」→ 点击添加",
+          "step3": "左侧菜单 → 凭证与基础信息 → 复制 App ID 和 App Secret",
+          "step4": "将 App ID 和 App Secret 填入下方 → 点击保存配置",
+          "step5": "左侧菜单 → 权限管理 → 点击「批量导入/导出权限」→ 粘贴下方权限 JSON → 确认导入",
+          "step6": "左侧菜单 → 版本管理与发布 → 创建版本 → 提交审核发布 → 在企业管理后台审批通过"
+        },
+        "dingtalk": {
+          "step1": "打开 open.dingtalk.com → 登录 → 开发者后台 → 创建企业内部应用 → 填写名称",
+          "step2": "应用能力 → 找到「通讯录」→ 点击添加",
+          "step3": "应用信息 → 复制 AppKey 和 AppSecret",
+          "step4": "通讯录权限 → 勾选部门和成员的读取权限",
+          "step5": "将 AppKey 和 AppSecret 填入下方 → 点击保存配置"
+        },
+        "wecom": {
+          "step1": "登录企业微信管理后台 → 管理工具 → 通讯录同步",
+          "step2": "API 安全 → 设置 API 可见范围，包含你想同步的部门或成员",
+          "step3": "复制企业 ID (CorpID) 和 Secret",
+          "step4": "将 CorpID 和 Secret 填入下方 → 点击保存配置"
+        }
+      }
     },
     "config": {
       "title": "平台配置",

@@ -416,35 +416,46 @@ function OrgTab({ tenant }: { tenant: any }) {
                         <div style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
                             {type === 'feishu' && (
                                 <>
-                                    <div style={{ marginBottom: '8px' }}>
-                                        {t('enterprise.org.feishuGuideText', 'In the Feishu Developer Console, go to Permissions & Scopes -> Bulk Import/Export, and paste the following JSON:')}
+                                    {Array.from({ length: 6 }).map((_, i) => (
+                                        <div key={i} style={{ marginBottom: '6px' }}>
+                                            {i + 1}. {t(`enterprise.org.syncGuide.feishu.step${i + 1}`)}
+                                        </div>
+                                    ))}
+                                    <div style={{ marginTop: '16px', marginBottom: '8px' }}>
+                                        {t('enterprise.org.feishuGuideText', 'Permission JSON (bulk import)')}
                                     </div>
                                     <div style={{ position: 'relative', background: '#282c34', borderRadius: '6px', padding: '12px', paddingRight: '40px', color: '#abb2bf', fontFamily: 'monospace', fontSize: '11px', whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
                                         <button 
                                             className="btn btn-ghost" 
-                                            style={{ position: 'absolute', top: '8px', right: '8px', fontSize: '10px', color: '#fff', padding: '4px 8px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer', border: 'none', borderRadius: '4px' }}
-                                            onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(FEISHU_SYNC_PERM_JSON); }}
+                                            style={{ position: 'absolute', top: '8px', right: '8px', fontSize: '10px', color: '#abb2bf', padding: '4px 8px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer', border: 'none', borderRadius: '4px' }}
+                                            onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(FEISHU_SYNC_PERM_JSON); e.currentTarget.textContent = 'Copied✓'; setTimeout(() => { e.currentTarget.textContent = 'Copy'; }, 2000); }}
                                         >
                                             Copy
                                         </button>
                                         {FEISHU_SYNC_PERM_JSON}
                                     </div>
-                                    <div style={{ marginTop: '8px', color: 'var(--warning)', fontWeight: 500 }}>
-                                        {t('enterprise.org.feishuGuideWarning', 'Important: After adding permissions, you must create and publish a new application version for them to take effect.')}
+                                    <div style={{ marginTop: '8px', color: 'var(--text-secondary)' }}>
+                                        {t('enterprise.org.feishuGuideWarning', 'Note: You must re-publish the app each time you add new permissions.')}
                                     </div>
                                 </>
                             )}
                             {type === 'dingtalk' && (
-                                <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                                    <li>{t('enterprise.org.dingtalkGuideStep1', "Go to DingTalk Developer Console -> App Features -> Contacts")}</li>
-                                    <li>{t('enterprise.org.dingtalkGuideStep2', "Enable reading permissions for Departments and Members.")}</li>
-                                </ul>
+                                <>
+                                    {Array.from({ length: 5 }).map((_, i) => (
+                                        <div key={i} style={{ marginBottom: '6px' }}>
+                                            {i + 1}. {t(`enterprise.org.syncGuide.dingtalk.step${i + 1}`)}
+                                        </div>
+                                    ))}
+                                </>
                             )}
                             {type === 'wecom' && (
-                                <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                                    <li>{t('enterprise.org.wecomGuideStep1', "In the WeCom Admin Console, configure the Address Book Sync app.")}</li>
-                                    <li>{t('enterprise.org.wecomGuideStep2', "Set the API visibility range to include the departments/users you want to sync.")}</li>
-                                </ul>
+                                <>
+                                    {Array.from({ length: 4 }).map((_, i) => (
+                                        <div key={i} style={{ marginBottom: '6px' }}>
+                                            {i + 1}. {t(`enterprise.org.syncGuide.wecom.step${i + 1}`)}
+                                        </div>
+                                    ))}
+                                </>
                             )}
                         </div>
                     </div>
