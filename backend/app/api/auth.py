@@ -275,6 +275,15 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
                 detail="Your company has been disabled. Please contact the platform administrator.",
             )
 
+    # Tenant-scoped login: when accessing from a company-specific domain,
+    # only allow users who belong to that company (platform_admin exempt)
+    if data.tenant_id and user.role != "platform_admin":
+        if str(user.tenant_id) != str(data.tenant_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account does not belong to this organization.",
+            )
+
     needs_setup = user.tenant_id is None
     token = create_access_token(str(user.id), user.role)
     return TokenResponse(

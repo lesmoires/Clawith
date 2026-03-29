@@ -96,10 +96,12 @@ export default function Login() {
                     display_name: form.username,
                 });
             } else {
-                res = await authApi.login({ 
-                    username: form.username, 
+                res = await authApi.login({
+                    username: form.username,
                     password: form.password,
-                    tenant_slug: form.tenant_slug || undefined
+                    tenant_slug: form.tenant_slug,
+                    // Pass tenant_id for domain-scoped login enforcement
+                    ...(tenant?.id ? { tenant_id: tenant.id } : {}),
                 });
             }
             setAuth(res.user, res.access_token);
@@ -123,6 +125,8 @@ export default function Login() {
                 } else if (msg.includes('not unique across organizations')) {
                     setError(t('auth.ambiguousUsername', 'Username is used in multiple organizations. Please specify organization ID.'));
                     setShowTenantField(true);
+                } else if (msg.includes('does not belong to this organization')) {
+                    setError(t('auth.notInOrganization', 'This account does not belong to this organization.'));
                 } else if (msg.includes('500') || msg.includes('Internal Server Error')) {
                     setError(t('auth.serverStarting'));
                 } else {

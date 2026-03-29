@@ -56,6 +56,17 @@ const FALLBACK_LLM_PROVIDERS: LLMProviderSpec[] = [
     { provider: 'custom', display_name: 'Custom', protocol: 'openai_compatible', default_base_url: '', supports_tool_choice: true, default_max_tokens: 4096 },
 ];
 
+const FEISHU_SYNC_PERM_JSON = `{
+  "scopes": {
+    "tenant": [
+      "contact:contact.base:readonly",
+      "contact:department.base:readonly",
+      "contact:user.base:readonly",
+      "contact:user.employee_id:readonly"
+    ],
+    "user": []
+  }
+}`;
 
 
 // ─── Department Tree ───────────────────────────────
@@ -396,12 +407,69 @@ function OrgTab({ tenant }: { tenant: any }) {
     const renderForm = (type: string, existingProvider?: any) => {
         return (
             <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-                    <div className="form-group">
-                        <label className="form-label">{t('enterprise.identity.name')}</label>
-                        <input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+                {/* Setup Guide moved to the top */}
+                {['feishu', 'dingtalk', 'wecom'].includes(type) && (
+                    <div style={{ background: 'var(--bg-primary)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-subtle)', marginBottom: '20px', fontSize: '12px' }}>
+                        <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '8px', color: 'var(--text-primary)' }}>
+                            👉 {t('enterprise.org.syncSetupGuide', 'Setup Guide & Required Permissions')}
+                        </div>
+                        <div style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                            {type === 'feishu' && (
+                                <>
+                                    {Array.from({ length: 7 }).map((_, i) => (
+                                        <div key={i} style={{ marginBottom: '6px' }}>
+                                            {i + 1}. {t(`enterprise.org.syncGuide.feishu.step${i + 1}`)}
+                                        </div>
+                                    ))}
+                                    <div style={{ marginTop: '16px', marginBottom: '8px' }}>
+                                        {t('enterprise.org.feishuGuideText', 'Permission JSON (bulk import)')}
+                                    </div>
+                                    <div style={{ position: 'relative', background: '#282c34', borderRadius: '6px', padding: '12px', paddingRight: '40px', color: '#abb2bf', fontFamily: 'monospace', fontSize: '11px', whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
+                                        <button 
+                                            className="btn btn-ghost" 
+                                            style={{ position: 'absolute', top: '8px', right: '8px', fontSize: '10px', color: '#abb2bf', padding: '4px 8px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer', border: 'none', borderRadius: '4px' }}
+                                            onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(FEISHU_SYNC_PERM_JSON); e.currentTarget.textContent = 'Copied✓'; setTimeout(() => { e.currentTarget.textContent = 'Copy'; }, 2000); }}
+                                        >
+                                            Copy
+                                        </button>
+                                        {FEISHU_SYNC_PERM_JSON}
+                                    </div>
+                                    <div style={{ marginTop: '8px', color: 'var(--text-secondary)' }}>
+                                        {t('enterprise.org.feishuGuideWarning', 'Note: You must re-publish the app each time you add new permissions.')}
+                                    </div>
+                                </>
+                            )}
+                            {type === 'dingtalk' && (
+                                <>
+                                    {Array.from({ length: 6 }).map((_, i) => (
+                                        <div key={i} style={{ marginBottom: '6px' }}>
+                                            {i + 1}. {t(`enterprise.org.syncGuide.dingtalk.step${i + 1}`)}
+                                        </div>
+                                    ))}
+                                </>
+                            )}
+                            {type === 'wecom' && (
+                                <>
+                                    {Array.from({ length: 5 }).map((_, i) => (
+                                        <div key={i} style={{ marginBottom: '6px' }}>
+                                            {i + 1}. {t(`enterprise.org.syncGuide.wecom.step${i + 1}`)}
+                                        </div>
+                                    ))}
+                                </>
+                            )}
+                        </div>
                     </div>
-                </div>
+                )}
+
+                {/* Name field only for oauth2 */}
+                {type === 'oauth2' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                        <div className="form-group">
+                            <label className="form-label">{t('enterprise.identity.name')}</label>
+                            <input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+                        </div>
+                    </div>
+                )}
 
                 {type === 'oauth2' ? (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -513,6 +581,8 @@ function OrgTab({ tenant }: { tenant: any }) {
                         )}
                     </div>
                 </div>
+
+
                 <div style={{ display: 'flex', gap: '16px' }}>
                     <div style={{ width: '260px', borderRight: '1px solid var(--border-subtle)', paddingRight: '16px', maxHeight: '500px', overflowY: 'auto' }}>
                         <div style={{ padding: '6px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: !selectedDept ? 'rgba(224,238,238,0.1)' : 'transparent' }} onClick={() => setSelectedDept(null)}>
@@ -601,14 +671,18 @@ function OrgTab({ tenant }: { tenant: any }) {
                                     <div style={{ padding: '0 20px 20px', background: 'var(--bg-secondary)' }}>
                                         {renderForm(idp.type, existingProvider)}
 
-                                        {/* Per-channel SSO Login toggle — only for configured, sync-capable providers */}
-                                        {existingProvider && ['feishu', 'dingtalk', 'wecom'].includes(idp.type) && (() => {
-                                            const ssoEnabled = !!existingProvider.sso_login_enabled;
+                                        {/* Per-channel SSO Login URLs & Toggle */}
+                                        {['feishu', 'dingtalk', 'wecom', 'oauth2'].includes(idp.type) && (() => {
+                                            const ssoEnabled = existingProvider ? !!existingProvider.sso_login_enabled : false;
                                             const slug = tenant?.slug || '';
                                             const domain = tenant?.sso_domain || (slug ? `${slug}.clawith.ai` : '');
                                             const callbackUrl = domain ? `https://${domain}/api/auth/${idp.type}/callback` : '';
 
                                             const handleSsoToggle = async () => {
+                                                if (!existingProvider) {
+                                                    alert(t('enterprise.identity.saveFirst', 'Please save the configuration first to enable SSO.'));
+                                                    return;
+                                                }
                                                 const newVal = !ssoEnabled;
                                                 try {
                                                     await fetchJson(`/enterprise/identity-providers/${existingProvider.id}`, {
@@ -626,7 +700,7 @@ function OrgTab({ tenant }: { tenant: any }) {
                                             return (
                                                 <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px dashed var(--border-subtle)' }}>
                                                     {/* SSO Toggle */}
-                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: ssoEnabled ? '16px' : 0 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
                                                         <div>
                                                             <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('enterprise.identity.ssoLoginToggle', 'SSO Login')}</div>
                                                             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
@@ -644,7 +718,8 @@ function OrgTab({ tenant }: { tenant: any }) {
                                                                 position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
                                                                 borderRadius: '20px', cursor: 'pointer',
                                                                 background: ssoEnabled ? 'var(--accent-primary)' : 'var(--border-subtle)',
-                                                                transition: '0.2s'
+                                                                transition: '0.2s',
+                                                                opacity: existingProvider ? 1 : 0.5
                                                             }}>
                                                                 <span style={{
                                                                     position: 'absolute', left: ssoEnabled ? '18px' : '2px', top: '2px',
@@ -656,9 +731,8 @@ function OrgTab({ tenant }: { tenant: any }) {
                                                         </label>
                                                     </div>
 
-                                                    {/* Callback URL & domain info — shown when SSO is enabled */}
-                                                    {ssoEnabled && (
-                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                                    {/* Callback URL & domain info — always shown so users can configure it before saving */}
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                                             {/* Company subdomain */}
                                                             <div>
                                                                 <label className="form-label" style={{ fontSize: '11px', marginBottom: '4px', color: 'var(--text-secondary)' }}>
@@ -674,7 +748,14 @@ function OrgTab({ tenant }: { tenant: any }) {
                                                                     <button
                                                                         className="btn btn-ghost btn-sm"
                                                                         style={{ fontSize: '11px' }}
-                                                                        onClick={() => { navigator.clipboard.writeText(`https://${domain}`); }}
+                                                                        onClick={(e) => { 
+                                                                            e.preventDefault();
+                                                                            navigator.clipboard.writeText(`https://${domain}`);
+                                                                            const el = e.currentTarget;
+                                                                            const old = el.textContent;
+                                                                            el.textContent = 'Copied✓';
+                                                                            setTimeout(() => { el.textContent = old; }, 2000);
+                                                                        }}
                                                                     >
                                                                         {t('common.copy', 'Copy')}
                                                                     </button>
@@ -699,7 +780,14 @@ function OrgTab({ tenant }: { tenant: any }) {
                                                                     <button
                                                                         className="btn btn-ghost btn-sm"
                                                                         style={{ fontSize: '11px' }}
-                                                                        onClick={() => { navigator.clipboard.writeText(callbackUrl); }}
+                                                                        onClick={(e) => { 
+                                                                            e.preventDefault();
+                                                                            navigator.clipboard.writeText(callbackUrl);
+                                                                            const el = e.currentTarget;
+                                                                            const old = el.textContent;
+                                                                            el.textContent = 'Copied✓';
+                                                                            setTimeout(() => { el.textContent = old; }, 2000);
+                                                                        }}
                                                                     >
                                                                         {t('common.copy', 'Copy')}
                                                                     </button>
@@ -709,7 +797,6 @@ function OrgTab({ tenant }: { tenant: any }) {
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                    )}
                                                 </div>
                                             );
                                         })()}

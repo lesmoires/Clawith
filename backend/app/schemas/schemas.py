@@ -23,6 +23,7 @@ class UserLogin(BaseModel):
     username: str
     password: str
     tenant_slug: str | None = Field(None, description="Optional tenant slug for non-globally-unique usernames")
+    tenant_id: uuid.UUID | None = None  # Optional: when set, restrict login to users of this tenant
 
 
 class TokenResponse(BaseModel):
