@@ -1,7 +1,7 @@
 """Add source to tools and backfill data
 
 Revision ID: add_tool_source
-Revises: user_refactor_v1
+Revises: add_sso_login_enabled
 Create Date: 2026-03-29
 """
 from typing import Sequence, Union
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'add_tool_source'
-down_revision: Union[str, None] = 'user_refactor_v1'
+down_revision: Union[str, None] = 'add_sso_login_enabled'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
