@@ -20,7 +20,17 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # Add email_verified column with default False
     op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE")
-
+  
+    # 2. Drop deprecated feishu_user_id column (no longer needed with OrgMember-based identity)
+    op.execute("""
+        ALTER TABLE users DROP COLUMN IF EXISTS feishu_user_id
+    """)
+    op.execute("""
+        ALTER TABLE users DROP COLUMN IF EXISTS wecom_user_id
+    """)
+    op.execute("""
+        ALTER TABLE users DROP COLUMN IF EXISTS dingtalk_user_id
+    """)
 
 def downgrade() -> None:
     # Drop index first
