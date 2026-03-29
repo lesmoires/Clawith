@@ -1021,6 +1021,160 @@ AGENT_TOOLS = [
             }
         }
     },
+    # ── AgentMail Lite Tools (Additional) ──
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_get_inbox_lite",
+            "description": "Get details of a specific inbox including email address, display name, and metadata.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "inboxId": {
+                        "type": "string",
+                        "description": "Email address of the inbox (e.g., 'conver.thesis@agentmail.to')"
+                    }
+                },
+                "required": ["inboxId"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_create_inbox_lite",
+            "description": "Create a new email inbox with a unique @agentmail.to address. Provide a display name for the inbox.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "displayName": {
+                        "type": "string",
+                        "description": "Human-readable name for the inbox (e.g., 'Conver Thesis', 'Support Agent')"
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "Optional username part (before @). If not provided, AgentMail will generate one."
+                    }
+                },
+                "required": ["displayName"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_delete_inbox_lite",
+            "description": "Delete an inbox permanently. This action cannot be undone.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "inboxId": {
+                        "type": "string",
+                        "description": "Email address of the inbox to delete"
+                    }
+                },
+                "required": ["inboxId"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_reply_to_message_lite",
+            "description": "Reply to a specific email message. Automatically maintains thread with In-Reply-To headers.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "inboxId": {
+                        "type": "string",
+                        "description": "Email address of the inbox to reply from"
+                    },
+                    "messageId": {
+                        "type": "string",
+                        "description": "Message ID to reply to (from agentmail_read_lite response)"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Plain text reply body"
+                    },
+                    "html": {
+                        "type": "string",
+                        "description": "HTML reply body (optional)"
+                    },
+                    "replyAll": {
+                        "type": "boolean",
+                        "description": "Reply to all recipients (default: false)"
+                    }
+                },
+                "required": ["inboxId", "messageId", "text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_forward_message_lite",
+            "description": "Forward an email message to another recipient.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "inboxId": {
+                        "type": "string",
+                        "description": "Email address of the inbox to forward from"
+                    },
+                    "messageId": {
+                        "type": "string",
+                        "description": "Message ID to forward"
+                    },
+                    "to": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of recipient email addresses"
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "Forward subject (optional, defaults to 'Fwd: original subject')"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Additional text to prepend to forwarded message"
+                    }
+                },
+                "required": ["inboxId", "messageId", "to"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_update_message_lite",
+            "description": "Update message properties such as read status or labels.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "inboxId": {
+                        "type": "string",
+                        "description": "Email address of the inbox"
+                    },
+                    "messageId": {
+                        "type": "string",
+                        "description": "Message ID to update"
+                    },
+                    "addLabels": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Labels to add (e.g., ['read', 'important'])"
+                    },
+                    "removeLabels": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Labels to remove"
+                    }
+                },
+                "required": ["inboxId", "messageId"]
+            }
+        }
+    },
 ]
 
 
@@ -1486,6 +1640,18 @@ async def execute_tool(
             result = await _agentmail_inboxes_lite(agent_id, arguments)
         elif tool_name == "agentmail_download_attachment_lite":
             result = await _agentmail_download_attachment_lite(agent_id, arguments)
+        elif tool_name == "agentmail_get_inbox_lite":
+            result = await _agentmail_get_inbox_lite(agent_id, arguments)
+        elif tool_name == "agentmail_create_inbox_lite":
+            result = await _agentmail_create_inbox_lite(agent_id, arguments)
+        elif tool_name == "agentmail_delete_inbox_lite":
+            result = await _agentmail_delete_inbox_lite(agent_id, arguments)
+        elif tool_name == "agentmail_reply_to_message_lite":
+            result = await _agentmail_reply_to_message_lite(agent_id, arguments)
+        elif tool_name == "agentmail_forward_message_lite":
+            result = await _agentmail_forward_message_lite(agent_id, arguments)
+        elif tool_name == "agentmail_update_message_lite":
+            result = await _agentmail_update_message_lite(agent_id, arguments)
 
         # ── Infisical Tools ──
         elif tool_name == "infisical_get_secret":
@@ -5896,3 +6062,33 @@ async def _agentmail_download_attachment_lite(agent_id: uuid.UUID, arguments: di
         return f'Error downloading attachment from URL: {str(e)[:200]}'
     except Exception as e:
         return f'Error processing attachment: {str(e)[:200]}'
+
+
+async def _agentmail_get_inbox_lite(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get inbox details via LiteLLM AgentMail MCP."""
+    return await _litellm_mcp_call(agent_id, 'agentmail', 'get_inbox', arguments)
+
+
+async def _agentmail_create_inbox_lite(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Create inbox via LiteLLM AgentMail MCP."""
+    return await _litellm_mcp_call(agent_id, 'agentmail', 'create_inbox', arguments)
+
+
+async def _agentmail_delete_inbox_lite(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Delete inbox via LiteLLM AgentMail MCP."""
+    return await _litellm_mcp_call(agent_id, 'agentmail', 'delete_inbox', arguments)
+
+
+async def _agentmail_reply_to_message_lite(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Reply to message via LiteLLM AgentMail MCP."""
+    return await _litellm_mcp_call(agent_id, 'agentmail', 'reply_to_message', arguments)
+
+
+async def _agentmail_forward_message_lite(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Forward message via LiteLLM AgentMail MCP."""
+    return await _litellm_mcp_call(agent_id, 'agentmail', 'forward_message', arguments)
+
+
+async def _agentmail_update_message_lite(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update message via LiteLLM AgentMail MCP."""
+    return await _litellm_mcp_call(agent_id, 'agentmail', 'update_message', arguments)
