@@ -153,9 +153,8 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
 
     if (loading) return <div style={{ color: 'var(--text-tertiary)', padding: '20px' }}>{t('common.loading')}</div>;
 
-    // Split by source first, then group by category
-    const systemTools = tools.filter(t => t.source !== 'user_installed');
-    const agentInstalledTools = tools.filter(t => t.source === 'user_installed');
+    const systemTools = tools.filter(t => t.source !== 'agent');
+    const agentInstalledTools = tools.filter(t => t.source === 'agent');
 
     const groupByCategory = (toolList: any[]) =>
         toolList.reduce((acc: Record<string, any[]>, t) => {
@@ -245,7 +244,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                                             title="Configure per-agent settings"
                                         >⚙️ Config</button>
                                     )}
-                                    {canManage && tool.source === 'user_installed' && tool.agent_tool_id && (
+                                    {canManage && tool.source === 'agent' && tool.agent_tool_id && (
                                         <button
                                             onClick={async () => {
                                                 if (!confirm(t('agent.tools.confirmDelete', `Remove "${tool.display_name}" from this agent?`))) return;
