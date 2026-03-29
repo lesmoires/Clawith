@@ -89,6 +89,7 @@
     "companyDisabled": "你的公司已被停用，请联系平台管理员。",
     "invalidCredentials": "用户名或密码错误。",
     "accountDisabled": "你的账号已被停用。",
+    "notInOrganization": "该账号不属于当前组织。",
     "serverStarting": "服务正在启动或遇到问题，请稍后重试。",
     "serverUnreachable": "无法连接服务器，请检查服务是否正在运行。",
     "qrLogin": "扫码登录",

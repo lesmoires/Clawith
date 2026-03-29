@@ -93,7 +93,12 @@ export default function Login() {
                     display_name: form.username,
                 });
             } else {
-                res = await authApi.login({ username: form.username, password: form.password });
+                res = await authApi.login({
+                    username: form.username,
+                    password: form.password,
+                    // Pass tenant_id for domain-scoped login enforcement
+                    ...(tenant?.id ? { tenant_id: tenant.id } : {}),
+                });
             }
             setAuth(res.user, res.access_token);
             // Redirect to company setup if user has no company assigned
@@ -113,6 +118,8 @@ export default function Login() {
                     setError(t('auth.invalidCredentials'));
                 } else if (msg.includes('Account is disabled')) {
                     setError(t('auth.accountDisabled'));
+                } else if (msg.includes('does not belong to this organization')) {
+                    setError(t('auth.notInOrganization', 'This account does not belong to this organization.'));
                 } else if (msg.includes('500') || msg.includes('Internal Server Error')) {
                     setError(t('auth.serverStarting'));
                 } else {

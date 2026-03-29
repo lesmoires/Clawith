@@ -209,7 +209,11 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
-    """Login with username and password."""
+    """Login with username and password.
+    
+    When tenant_id is provided (e.g., from a company-specific SSO domain),
+    non-platform_admin users must belong to that tenant.
+    """
     result = await db.execute(
         select(User)
         .where(User.username == data.username)
@@ -231,6 +235,15 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Your company has been disabled. Please contact the platform administrator.",
+            )
+
+    # Tenant-scoped login: when accessing from a company-specific domain,
+    # only allow users who belong to that company (platform_admin exempt)
+    if data.tenant_id and user.role != "platform_admin":
+        if str(user.tenant_id) != str(data.tenant_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account does not belong to this organization.",
             )
 
     needs_setup = user.tenant_id is None

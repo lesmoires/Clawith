@@ -22,6 +22,7 @@ class UserRegister(BaseModel):
 class UserLogin(BaseModel):
     username: str
     password: str
+    tenant_id: uuid.UUID | None = None  # Optional: when set, restrict login to users of this tenant
 
 
 class TokenResponse(BaseModel):

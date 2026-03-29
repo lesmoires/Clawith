@@ -133,7 +133,7 @@ export const authApi = {
     register: (data: { username: string; email: string; password: string; display_name: string }) =>
         request<TokenResponse>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
 
-    login: (data: { username: string; password: string }) =>
+    login: (data: { username: string; password: string; tenant_id?: string }) =>
         request<TokenResponse>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
 
     me: () => request<User>('/auth/me'),
