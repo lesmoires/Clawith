@@ -1652,6 +1652,27 @@ async def execute_tool(
             result = await _agentmail_forward_message_lite(agent_id, arguments)
         elif tool_name == "agentmail_update_message_lite":
             result = await _agentmail_update_message_lite(agent_id, arguments)
+        # ── Hetzner Cloud Tools ──
+        elif tool_name == "hetzner_list_servers":
+            result = await _hetzner_list_servers(agent_id, arguments)
+        elif tool_name == "hetzner_get_server":
+            result = await _hetzner_get_server(agent_id, arguments)
+        elif tool_name == "hetzner_create_server":
+            result = await _hetzner_create_server(agent_id, arguments)
+        elif tool_name == "hetzner_reboot":
+            result = await _hetzner_reboot(agent_id, arguments)
+        elif tool_name == "hetzner_list_locations":
+            result = await _hetzner_list_locations(agent_id, arguments)
+        elif tool_name == "hetzner_get_server_metrics":
+            result = await _hetzner_get_server_metrics(agent_id, arguments)
+        elif tool_name == "hetzner_list_server_actions":
+            result = await _hetzner_list_server_actions(agent_id, arguments)
+        elif tool_name == "hetzner_power_on":
+            result = await _hetzner_power_on(agent_id, arguments)
+        elif tool_name == "hetzner_power_off":
+            result = await _hetzner_power_off(agent_id, arguments)
+        elif tool_name == "hetzner_shutdown":
+            result = await _hetzner_shutdown(agent_id, arguments)
 
         # ── Infisical Tools ──
         elif tool_name == "infisical_get_secret":
@@ -6092,3 +6113,54 @@ async def _agentmail_forward_message_lite(agent_id: uuid.UUID, arguments: dict) 
 async def _agentmail_update_message_lite(agent_id: uuid.UUID, arguments: dict) -> str:
     """Update message via LiteLLM AgentMail MCP."""
     return await _litellm_mcp_call(agent_id, 'agentmail', 'update_message', arguments)
+
+
+# ── LiteLLM MCP Hetzner Cloud Tools ──
+async def _hetzner_list_servers(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List servers via LiteLLM Hetzner MCP."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_servers', arguments)
+
+
+async def _hetzner_get_server(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get server details via LiteLLM Hetzner MCP."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_server', arguments)
+
+
+async def _hetzner_create_server(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Create server via LiteLLM Hetzner MCP."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_create_server', arguments)
+
+
+async def _hetzner_reboot(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Reboot server via LiteLLM Hetzner MCP."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_reboot', arguments)
+
+
+async def _hetzner_list_locations(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List locations via LiteLLM Hetzner MCP."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_locations', arguments)
+
+
+async def _hetzner_get_server_metrics(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get server metrics via LiteLLM Hetzner MCP."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_server_metrics', arguments)
+
+
+async def _hetzner_list_server_actions(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List server actions via LiteLLM Hetzner MCP."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_server_actions', arguments)
+
+
+async def _hetzner_power_on(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Power on server via LiteLLM Hetzner MCP."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_power_on', arguments)
+
+
+async def _hetzner_power_off(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Power off server via LiteLLM Hetzner MCP."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_power_off', arguments)
+
+
+async def _hetzner_shutdown(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Shutdown server via LiteLLM Hetzner MCP."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_shutdown', arguments)
