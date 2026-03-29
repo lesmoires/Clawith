@@ -276,7 +276,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                                             />
                                             <span style={{
                                                 position: 'absolute', inset: 0,
-                                                background: tool.enabled ? '#22c55e' : 'var(--bg-tertiary)',
+                                                background: tool.enabled ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
                                                 borderRadius: '11px', transition: 'background 0.2s',
                                             }}>
                                                 <span style={{
