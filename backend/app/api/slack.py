@@ -284,7 +284,7 @@ async def slack_event_webhook(
             password_hash=_hp(_uuid2.uuid4().hex),
             display_name=_slack_real_name or f"Slack User {sender_id[:8]}",
             role="member",
-            tenant_id=_agent.tenant_id if _agent else None,
+            tenant_id=agent_obj.tenant_id if agent_obj else None,
             registration_source="slack",
         )
 
