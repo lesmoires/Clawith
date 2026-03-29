@@ -770,7 +770,9 @@
           "step3": "Left sidebar → Credentials & Basic Info → copy App ID and App Secret",
           "step4": "Paste App ID and App Secret below → click Save",
           "step5": "Left sidebar → Permissions & Scopes → click Bulk Import/Export Permissions → paste the permission JSON below → confirm import",
-          "step6": "Left sidebar → App Release → Create Version → set Availability to All Employees → Release for Review → approve it in your admin console"
+          "step6": "Left sidebar → App Release → Create Version → set Availability to All Employees → Release for Review → approve it in your admin console",
+          "step7": "[For SSO] Left sidebar → Security Settings → add the Redirect URL below to the 'Redirect URL' list",
+          "step8": "[For SSO] Share the SSO Login URL below with your team; they can use it to log in with one click"
         },
         "dingtalk": {
           "step1": "Go to open.dingtalk.com → log in → Developer Console → Create Enterprise Internal App → fill in name",

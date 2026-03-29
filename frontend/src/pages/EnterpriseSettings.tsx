@@ -416,7 +416,7 @@ function OrgTab({ tenant }: { tenant: any }) {
                         <div style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
                             {type === 'feishu' && (
                                 <>
-                                    {Array.from({ length: 6 }).map((_, i) => (
+                                    {Array.from({ length: 8 }).map((_, i) => (
                                         <div key={i} style={{ marginBottom: '6px' }}>
                                             {i + 1}. {t(`enterprise.org.syncGuide.feishu.step${i + 1}`)}
                                         </div>
@@ -744,7 +744,14 @@ function OrgTab({ tenant }: { tenant: any }) {
                                                                     <button
                                                                         className="btn btn-ghost btn-sm"
                                                                         style={{ fontSize: '11px' }}
-                                                                        onClick={() => { navigator.clipboard.writeText(`https://${domain}`); }}
+                                                                        onClick={(e) => { 
+                                                                            e.preventDefault();
+                                                                            navigator.clipboard.writeText(`https://${domain}`);
+                                                                            const el = e.currentTarget;
+                                                                            const old = el.textContent;
+                                                                            el.textContent = 'Copied✓';
+                                                                            setTimeout(() => { el.textContent = old; }, 2000);
+                                                                        }}
                                                                     >
                                                                         {t('common.copy', 'Copy')}
                                                                     </button>
@@ -769,7 +776,14 @@ function OrgTab({ tenant }: { tenant: any }) {
                                                                     <button
                                                                         className="btn btn-ghost btn-sm"
                                                                         style={{ fontSize: '11px' }}
-                                                                        onClick={() => { navigator.clipboard.writeText(callbackUrl); }}
+                                                                        onClick={(e) => { 
+                                                                            e.preventDefault();
+                                                                            navigator.clipboard.writeText(callbackUrl);
+                                                                            const el = e.currentTarget;
+                                                                            const old = el.textContent;
+                                                                            el.textContent = 'Copied✓';
+                                                                            setTimeout(() => { el.textContent = old; }, 2000);
+                                                                        }}
                                                                     >
                                                                         {t('common.copy', 'Copy')}
                                                                     </button>
