@@ -56,6 +56,17 @@ const FALLBACK_LLM_PROVIDERS: LLMProviderSpec[] = [
     { provider: 'custom', display_name: 'Custom', protocol: 'openai_compatible', default_base_url: '', supports_tool_choice: true, default_max_tokens: 4096 },
 ];
 
+const FEISHU_SYNC_PERM_JSON = `{
+  "scopes": {
+    "tenant": [
+      "contact:contact.base:readonly",
+      "contact:department.base:readonly",
+      "contact:user.base:readonly",
+      "contact:user.employee_id:readonly"
+    ],
+    "user": []
+  }
+}`;
 
 
 // ─── Department Tree ───────────────────────────────
@@ -396,12 +407,58 @@ function OrgTab({ tenant }: { tenant: any }) {
     const renderForm = (type: string, existingProvider?: any) => {
         return (
             <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-                    <div className="form-group">
-                        <label className="form-label">{t('enterprise.identity.name')}</label>
-                        <input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+                {/* Setup Guide moved to the top */}
+                {['feishu', 'dingtalk', 'wecom'].includes(type) && (
+                    <div style={{ background: 'var(--bg-primary)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-subtle)', marginBottom: '20px', fontSize: '12px' }}>
+                        <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '8px', color: 'var(--text-primary)' }}>
+                            👉 {t('enterprise.org.syncSetupGuide', 'Setup Guide & Required Permissions')}
+                        </div>
+                        <div style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                            {type === 'feishu' && (
+                                <>
+                                    <div style={{ marginBottom: '8px' }}>
+                                        {t('enterprise.org.feishuGuideText', 'In the Feishu Developer Console, go to Permissions & Scopes -> Bulk Import/Export, and paste the following JSON:')}
+                                    </div>
+                                    <div style={{ position: 'relative', background: '#282c34', borderRadius: '6px', padding: '12px', paddingRight: '40px', color: '#abb2bf', fontFamily: 'monospace', fontSize: '11px', whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
+                                        <button 
+                                            className="btn btn-ghost" 
+                                            style={{ position: 'absolute', top: '8px', right: '8px', fontSize: '10px', color: '#fff', padding: '4px 8px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer', border: 'none', borderRadius: '4px' }}
+                                            onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(FEISHU_SYNC_PERM_JSON); }}
+                                        >
+                                            Copy
+                                        </button>
+                                        {FEISHU_SYNC_PERM_JSON}
+                                    </div>
+                                    <div style={{ marginTop: '8px', color: 'var(--warning)', fontWeight: 500 }}>
+                                        {t('enterprise.org.feishuGuideWarning', 'Important: After adding permissions, you must create and publish a new application version for them to take effect.')}
+                                    </div>
+                                </>
+                            )}
+                            {type === 'dingtalk' && (
+                                <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                                    <li>{t('enterprise.org.dingtalkGuideStep1', "Go to DingTalk Developer Console -> App Features -> Contacts")}</li>
+                                    <li>{t('enterprise.org.dingtalkGuideStep2', "Enable reading permissions for Departments and Members.")}</li>
+                                </ul>
+                            )}
+                            {type === 'wecom' && (
+                                <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                                    <li>{t('enterprise.org.wecomGuideStep1', "In the WeCom Admin Console, configure the Address Book Sync app.")}</li>
+                                    <li>{t('enterprise.org.wecomGuideStep2', "Set the API visibility range to include the departments/users you want to sync.")}</li>
+                                </ul>
+                            )}
+                        </div>
                     </div>
-                </div>
+                )}
+
+                {/* Name field only for oauth2 */}
+                {type === 'oauth2' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                        <div className="form-group">
+                            <label className="form-label">{t('enterprise.identity.name')}</label>
+                            <input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+                        </div>
+                    </div>
+                )}
 
                 {type === 'oauth2' ? (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -514,36 +571,6 @@ function OrgTab({ tenant }: { tenant: any }) {
                     </div>
                 </div>
 
-                {/* Setup Guide for Sync Permissions */}
-                <details style={{ background: 'var(--bg-primary)', padding: '12px', borderRadius: '6px', border: '1px solid var(--border-subtle)', marginBottom: '16px', fontSize: '12px' }}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                        👉 {t('enterprise.org.syncSetupGuide', 'Setup Guide & Required Permissions (Click to expand)')}
-                    </summary>
-                    <div style={{ marginTop: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                        {p.provider_type === 'feishu' && (
-                            <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                                <li>Ensure you have added the following <strong>API Permissions</strong> in the Feishu Developer Console:</li>
-                                <li>- <code>contact:user.employee_id:readonly</code> (Get User ID, required for SSO)</li>
-                                <li>- <code>contact:user.base:readonly</code> (Get user basic info)</li>
-                                <li>- <code>contact:department.base:readonly</code> (Get department structure)</li>
-                                <li>- <code>contact:contact.base:readonly</code> (Address book basic read)</li>
-                                <li><strong>Important:</strong> After adding permissions, you must create and publish a new application version for them to take effect.</li>
-                            </ul>
-                        )}
-                        {p.provider_type === 'dingtalk' && (
-                            <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                                <li>Go to DingTalk Developer Console -{'>'} App Features -{'>'} Contacts</li>
-                                <li>Enable reading permissions for <strong>Departments</strong> and <strong>Members</strong>.</li>
-                            </ul>
-                        )}
-                        {p.provider_type === 'wecom' && (
-                            <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                                <li>In the WeCom Admin Console, configure the Address Book Sync app.</li>
-                                <li>Set the API visibility range to include the departments/users you want to sync.</li>
-                            </ul>
-                        )}
-                    </div>
-                </details>
 
                 <div style={{ display: 'flex', gap: '16px' }}>
                     <div style={{ width: '260px', borderRight: '1px solid var(--border-subtle)', paddingRight: '16px', maxHeight: '500px', overflowY: 'auto' }}>
