@@ -881,6 +881,146 @@ AGENT_TOOLS = [
     },
     {"type": "function", "function": {"name": "infisical_get_secret", "description": "Retrieve a secret from Infisical vault by name. Returns the secret value directly.", "parameters": {"type": "object", "properties": {"secret_name": {"type": "string", "description": "Name of the secret (e.g., HETZNER_API_KEY, DATABASE_PASSWORD)"}}, "required": ["secret_name"]}}},
     {"type": "function", "function": {"name": "list_infisical_secrets", "description": "List secret names in Infisical project.", "parameters": {"type": "object", "properties": {}}}},
+    # ── AgentMail Lite Tools (via LiteLLM MCP) ──
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_inboxes_lite",
+            "description": "List all email inboxes in your AgentMail account. Returns inbox IDs, email addresses, and display names.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_inbox_lite",
+            "description": "List threads in a specific inbox. Returns thread metadata including sender, subject, timestamp, and attachment info.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "inboxId": {
+                        "type": "string",
+                        "description": "Email address of the inbox (e.g., 'conver.thesis@agentmail.to' or 'geo.presence@agentmail.to')"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of threads to return (default: 10)",
+                        "default": 10
+                    }
+                },
+                "required": ["inboxId"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_read_lite",
+            "description": "Read a complete email thread with all messages in chronological order. Returns full text and HTML content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "inboxId": {
+                        "type": "string",
+                        "description": "Email address of the inbox"
+                    },
+                    "threadId": {
+                        "type": "string",
+                        "description": "Thread ID (from agentmail_inbox_lite response)"
+                    }
+                },
+                "required": ["inboxId", "threadId"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_get_lite",
+            "description": "Get a specific email thread (alias for agentmail_read_lite).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "inboxId": {
+                        "type": "string",
+                        "description": "Email address of the inbox"
+                    },
+                    "threadId": {
+                        "type": "string",
+                        "description": "Thread ID"
+                    }
+                },
+                "required": ["inboxId", "threadId"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_send_lite",
+            "description": "Send an email from an inbox. Supports plain text and HTML for best deliverability.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "inboxId": {
+                        "type": "string",
+                        "description": "Email address of the inbox to send from (e.g., 'conver.thesis@agentmail.to')"
+                    },
+                    "to": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of recipient email addresses"
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "Email subject line"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Plain text email body"
+                    },
+                    "html": {
+                        "type": "string",
+                        "description": "HTML email body (optional, recommended for better deliverability)"
+                    }
+                },
+                "required": ["inboxId", "to", "text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agentmail_download_attachment_lite",
+            "description": "Download an email attachment and save it to the workspace. Supports PDF, XLSX, DOCX, and other file types.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "inboxId": {
+                        "type": "string",
+                        "description": "Email address of the inbox"
+                    },
+                    "threadId": {
+                        "type": "string",
+                        "description": "Thread ID containing the attachment"
+                    },
+                    "attachmentId": {
+                        "type": "string",
+                        "description": "Attachment ID (from agentmail_inbox_lite response)"
+                    },
+                    "savePath": {
+                        "type": "string",
+                        "description": "Relative path to save the file in workspace (e.g., 'due_diligence/doc.pdf')"
+                    }
+                },
+                "required": ["inboxId", "threadId", "attachmentId", "savePath"]
+            }
+        }
+    },
 ]
 
 
