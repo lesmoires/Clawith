@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { channelApi } from '../services/api';
+import { copyToClipboard } from '../utils/clipboard';
 
 // ─── Shared fetchAuth (same as AgentDetail) ─────────────
 function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
@@ -246,30 +247,6 @@ const FEISHU_PERM_DISPLAY = `{
   }
 }`;
 
-// ─── Copy Button helper ─────────────────────────────────
-async function copyToClipboard(text: string): Promise<boolean> {
-    if (navigator.clipboard && window.isSecureContext) {
-        try {
-            await navigator.clipboard.writeText(text);
-            return true;
-        } catch (e) { }
-    }
-    try {
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.position = "fixed";
-        textArea.style.opacity = "0";
-        textArea.style.left = "-9999px";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        const successful = document.execCommand('copy');
-        document.body.removeChild(textArea);
-        return successful;
-    } catch (err) {
-        return false;
-    }
-}
 
 function CopyBtn({ url }: { url: string }) {
     const [copied, setCopied] = useState(false);
