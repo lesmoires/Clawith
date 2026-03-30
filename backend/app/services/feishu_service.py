@@ -557,4 +557,45 @@ class FeishuService:
             )
             return resp.json()
 
+    # --- Approval API ---
+    async def create_approval_instance(self, app_id: str, app_secret: str, approval_code: str, user_id: str, form_data: str) -> dict:
+        """Create a Feishu approval instance."""
+        tenant_token = await self.get_tenant_access_token(app_id, app_secret)
+        body = {
+            "approval_code": approval_code,
+            "user_id": user_id,
+            "form": form_data
+        }
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                "https://open.feishu.cn/open-apis/approval/v4/instances",
+                json=body,
+                headers={"Authorization": f"Bearer {tenant_token}"}
+            )
+            return resp.json()
+
+    async def query_approval_instances(self, app_id: str, app_secret: str, approval_code: str, status: str = None) -> dict:
+        """Query Feishu approval instances."""
+        tenant_token = await self.get_tenant_access_token(app_id, app_secret)
+        body = {"approval_code": approval_code}
+        if status:
+            body["status"] = status
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                "https://open.feishu.cn/open-apis/approval/v4/instances/query",
+                json=body,
+                headers={"Authorization": f"Bearer {tenant_token}"}
+            )
+            return resp.json()
+
+    async def get_approval_instance(self, app_id: str, app_secret: str, instance_id: str) -> dict:
+        """Get details of a specific Feishu approval instance."""
+        tenant_token = await self.get_tenant_access_token(app_id, app_secret)
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                f"https://open.feishu.cn/open-apis/approval/v4/instances/{instance_id}",
+                headers={"Authorization": f"Bearer {tenant_token}"}
+            )
+            return resp.json()
+
 feishu_service = FeishuService()

@@ -1030,6 +1030,60 @@ BUILTIN_TOOLS = [
         "config": {},
         "config_schema": {},
     },
+    {
+        "name": "feishu_approval_create",
+        "display_name": "Feishu Approval Create",
+        "description": "发起一个飞书审批流实例。你需要知道审批定义的 approval_code 和表单对应字段的内容。",
+        "category": "feishu",
+        "icon": "📝",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "approval_code": {"type": "string", "description": "审批定义的唯一代码 (approval_code)"},
+                "user_id": {"type": "string", "description": "发起人的 open_id。可以通过 feishu_user_search 获取。"},
+                "form_data": {"type": "string", "description": "表单内容的 JSON 字符串，例如 '[{\"id\":\"widget1\",\"type\":\"input\",\"value\":\"这是内容\"}]'"},
+            },
+            "required": ["approval_code", "user_id", "form_data"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "feishu_approval_query",
+        "display_name": "Feishu Approval Query",
+        "description": "查询指定的飞书审批实例列表。可以支持按状态查询（PENDING, APPROVED, REJECTED, CANCELED, DELETED）。",
+        "category": "feishu",
+        "icon": "📋",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "approval_code": {"type": "string", "description": "审批定义的唯一代码 (approval_code)"},
+                "status": {"type": "string", "description": "可选过滤状态：PENDING, APPROVED, REJECTED, CANCELED, DELETED"},
+            },
+            "required": ["approval_code"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "feishu_approval_get",
+        "display_name": "Feishu Approval Get",
+        "description": "获取指定飞书审批实例的详细信息与当前审批状态。",
+        "category": "feishu",
+        "icon": "📊",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "instance_id": {"type": "string", "description": "审批实例的 instance_id"},
+            },
+            "required": ["instance_id"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
     # --- Pages: public HTML hosting ---
     {
         "name": "publish_page",

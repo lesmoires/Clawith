@@ -973,6 +973,70 @@ AGENT_TOOLS = [
             },
         },
     },
+    # ── Feishu Approval Tools ──────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "feishu_approval_create",
+            "description": "发起一个飞书审批流实例。你需要知道审批定义的 approval_code 和表单对应字段的内容。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "approval_code": {
+                        "type": "string",
+                        "description": "审批定义的唯一代码 (approval_code)",
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "description": "发起人的 open_id。可以通过 feishu_user_search 获取。",
+                    },
+                    "form_data": {
+                        "type": "string",
+                        "description": "表单内容的 JSON 字符串，例如 '[{\"id\":\"widget1\",\"type\":\"input\",\"value\":\"这是内容\"}]'",
+                    },
+                },
+                "required": ["approval_code", "user_id", "form_data"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "feishu_approval_query",
+            "description": "查询指定的飞书审批实例列表。可以支持按状态查询（PENDING, APPROVED, REJECTED, CANCELED, DELETED）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "approval_code": {
+                        "type": "string",
+                        "description": "审批定义的唯一代码 (approval_code)",
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "可选过滤状态：PENDING, APPROVED, REJECTED, CANCELED, DELETED",
+                    },
+                },
+                "required": ["approval_code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "feishu_approval_get",
+            "description": "获取指定飞书审批实例的详细信息与当前审批状态。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instance_id": {
+                        "type": "string",
+                        "description": "审批实例的 instance_id",
+                    },
+                },
+                "required": ["instance_id"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -1275,6 +1339,9 @@ _FEISHU_TOOL_NAMES = {
     "feishu_calendar_create",
     "feishu_calendar_update",
     "feishu_calendar_delete",
+    "feishu_approval_create",
+    "feishu_approval_query",
+    "feishu_approval_get",
 }
 _always_core_tools = [t for t in AGENT_TOOLS if t["function"]["name"] in _ALWAYS_INCLUDE_CORE]
 _feishu_tools = [t for t in AGENT_TOOLS if t["function"]["name"] in _FEISHU_TOOL_NAMES]
@@ -1673,6 +1740,12 @@ async def execute_tool(
             result = await _feishu_calendar_update(agent_id, arguments)
         elif tool_name == "feishu_calendar_delete":
             result = await _feishu_calendar_delete(agent_id, arguments)
+        elif tool_name == "feishu_approval_create":
+            result = await _feishu_approval_create(agent_id, arguments)
+        elif tool_name == "feishu_approval_query":
+            result = await _feishu_approval_query(agent_id, arguments)
+        elif tool_name == "feishu_approval_get":
+            result = await _feishu_approval_get(agent_id, arguments)
         # ── Email Tools ──
         elif tool_name in ("send_email", "read_emails", "reply_email"):
             result = await _handle_email_tool(tool_name, agent_id, ws, arguments)
@@ -4990,9 +5063,10 @@ async def _resolve_bitable_app_token(agent_id: uuid.UUID, parsed_url: dict) -> s
         return app_token
     wiki_token = parsed_url.get("wiki_token")
     if wiki_token:
-        cred = await _get_feishu_token(agent_id)
-        if cred:
-            _, token = cred
+        app_id, app_secret = await _get_feishu_credentials(agent_id)
+        if app_id and app_secret:
+            from app.services.feishu_service import feishu_service
+            token = await feishu_service.get_tenant_access_token(app_id, app_secret)
             node_info = await _feishu_wiki_get_node(wiki_token, token)
             if node_info and node_info.get("obj_token"):
                 return node_info["obj_token"]
@@ -5209,9 +5283,10 @@ async def _resolve_docx_document_token(agent_id: uuid.UUID, parsed_url: dict) ->
         return doc_token
     wiki_token = parsed_url.get("wiki_token")
     if wiki_token:
-        cred = await _get_feishu_token(agent_id)
-        if cred:
-            _, token = cred
+        app_id, app_secret = await _get_feishu_credentials(agent_id)
+        if app_id and app_secret:
+            from app.services.feishu_service import feishu_service
+            token = await feishu_service.get_tenant_access_token(app_id, app_secret)
             node_info = await _feishu_wiki_get_node(wiki_token, token)
             if node_info and node_info.get("obj_token"):
                 return node_info["obj_token"]
@@ -5326,10 +5401,11 @@ async def _feishu_wiki_list(agent_id: uuid.UUID, arguments: dict) -> str:
     if not node_token:
         return "❌ Missing required argument 'node_token'"
 
-    creds = await _get_feishu_token(agent_id)
-    if not creds:
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
         return "❌ Agent has no Feishu channel configured."
-    _, token = creds
+    from app.services.feishu_service import feishu_service
+    token = await feishu_service.get_tenant_access_token(app_id, app_secret)
     headers = {"Authorization": f"Bearer {token}"}
 
     # Resolve node → space_id
@@ -5735,10 +5811,11 @@ async def _feishu_doc_share(agent_id: uuid.UUID, arguments: dict) -> str:
     if not document_token:
         return "❌ Missing required argument 'document_token'"
 
-    creds = await _get_feishu_token(agent_id)
-    if not creds:
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
         return "❌ Agent has no Feishu channel configured."
-    _, token = creds
+    from app.services.feishu_service import feishu_service
+    token = await feishu_service.get_tenant_access_token(app_id, app_secret)
     headers = {"Authorization": f"Bearer {token}"}
 
     # ── Detect if this is a Wiki node token ─────────────────────────────────
@@ -5913,10 +5990,11 @@ async def _feishu_calendar_list(agent_id: uuid.UUID, arguments: dict) -> str:
 
     user_email = arguments.get("user_email", "").strip()
 
-    creds = await _get_feishu_token(agent_id)
-    if not creds:
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
         return "❌ Agent has no Feishu channel configured."
-    _, token = creds
+    from app.services.feishu_service import feishu_service
+    token = await feishu_service.get_tenant_access_token(app_id, app_secret)
 
     now = datetime.now(timezone.utc)
 
@@ -6070,10 +6148,11 @@ async def _feishu_calendar_create(agent_id: uuid.UUID, arguments: dict) -> str:
         if not v:
             return f"❌ Missing required argument '{f}'"
 
-    creds = await _get_feishu_token(agent_id)
-    if not creds:
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
         return "❌ Agent has no Feishu channel configured."
-    _, token = creds
+    from app.services.feishu_service import feishu_service
+    token = await feishu_service.get_tenant_access_token(app_id, app_secret)
 
     # Resolve organizer open_id from email — soft failure
     organizer_open_id: str | None = None
@@ -6179,10 +6258,11 @@ async def _feishu_calendar_update(agent_id: uuid.UUID, arguments: dict) -> str:
     if not user_email or not event_id:
         return "❌ Both 'user_email' and 'event_id' are required."
 
-    creds = await _get_feishu_token(agent_id)
-    if not creds:
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
         return "❌ Agent has no Feishu channel configured."
-    _, token = creds
+    from app.services.feishu_service import feishu_service
+    token = await feishu_service.get_tenant_access_token(app_id, app_secret)
 
     open_id = await _feishu_resolve_open_id(token, user_email)
     if not open_id:
@@ -6230,10 +6310,11 @@ async def _feishu_calendar_delete(agent_id: uuid.UUID, arguments: dict) -> str:
     if not user_email or not event_id:
         return "❌ Both 'user_email' and 'event_id' are required."
 
-    creds = await _get_feishu_token(agent_id)
-    if not creds:
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
         return "❌ Agent has no Feishu channel configured."
-    _, token = creds
+    from app.services.feishu_service import feishu_service
+    token = await feishu_service.get_tenant_access_token(app_id, app_secret)
 
     open_id = await _feishu_resolve_open_id(token, user_email)
     if not open_id:
@@ -6255,6 +6336,78 @@ async def _feishu_calendar_delete(agent_id: uuid.UUID, arguments: dict) -> str:
 
     return f"✅ Event `{event_id}` deleted successfully."
 
+# ─── Feishu Approval Tools ───────────────────────────────────────────────────
+
+async def _feishu_approval_create(agent_id: uuid.UUID, arguments: dict) -> str:
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
+        return "❌ Agent has no Feishu channel configured."
+
+    approval_code = arguments.get("approval_code", "").strip()
+    user_id = arguments.get("user_id", "").strip()
+    form_data = arguments.get("form_data", "").strip()
+
+    if not approval_code or not user_id or not form_data:
+        return "❌ form_data, user_id and approval_code are required."
+
+    from app.services.feishu_service import feishu_service
+    try:
+        resp = await feishu_service.create_approval_instance(app_id, app_secret, approval_code, user_id, form_data)
+        err = _check_feishu_err(resp)
+        if err: return err
+
+        instance_code = resp.get("data", {}).get("instance_code", "")
+        return f"✅ 审批发起成功！\n审批实例 ID: `{instance_code}`"
+    except Exception as e:
+        return f"Failed: {str(e)[:300]}"
+
+
+async def _feishu_approval_query(agent_id: uuid.UUID, arguments: dict) -> str:
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
+        return "❌ Agent has no Feishu channel configured."
+
+    approval_code = arguments.get("approval_code", "").strip()
+    status = arguments.get("status")
+
+    if not approval_code:
+        return "❌ approval_code is required."
+
+    from app.services.feishu_service import feishu_service
+    try:
+        resp = await feishu_service.query_approval_instances(app_id, app_secret, approval_code, status)
+        err = _check_feishu_err(resp)
+        if err: return err
+
+        data = resp.get("data", {})
+        instance_codes = data.get("instance_code_list", [])
+        
+        return f"✅ 查询完成。共发现 {len(instance_codes)} 个符合条件的审批实例。\n实例列表: {instance_codes}"
+    except Exception as e:
+        return f"Failed: {str(e)[:300]}"
+
+
+async def _feishu_approval_get(agent_id: uuid.UUID, arguments: dict) -> str:
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
+        return "❌ Agent has no Feishu channel configured."
+
+    instance_id = arguments.get("instance_id", "").strip()
+    if not instance_id:
+        return "❌ instance_id is required."
+
+    from app.services.feishu_service import feishu_service
+    try:
+        resp = await feishu_service.get_approval_instance(app_id, app_secret, instance_id)
+        err = _check_feishu_err(resp)
+        if err: return err
+
+        data = resp.get("data", {})
+        import json
+        return f"✅ 审批实例查询结果:\n```json\n{json.dumps(data, ensure_ascii=False, indent=2)}\n```"
+    except Exception as e:
+        return f"Failed: {str(e)[:300]}"
+
 
 # ─── Feishu User Search ───────────────────────────────────────────────────────
 
@@ -6274,10 +6427,11 @@ async def _feishu_user_search(agent_id: uuid.UUID, arguments: dict) -> str:
     if not name:
         return "❌ Missing required argument 'name'"
 
-    creds = await _get_feishu_token(agent_id)
-    if not creds:
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
         return "❌ Agent has no Feishu channel configured."
-    _, token = creds
+    from app.services.feishu_service import feishu_service
+    token = await feishu_service.get_tenant_access_token(app_id, app_secret)
 
     # ── Load local contacts cache ─────────────────────────────────────────────
     _cache_file = _pl.Path(f"/data/workspaces/{agent_id}/feishu_contacts_cache.json")
