@@ -5016,6 +5016,38 @@ async def _get_feishu_credentials(agent_id: uuid.UUID) -> tuple[str, str]:
     return app_id, app_secret
 
 
+async def _get_feishu_tenant_doc_url(tenant_token: str, doc_token: str, doc_type: str = "docx") -> str:
+    """Build a user-accessible document URL using the tenant's actual domain.
+
+    The API gateway (open.feishu.cn) cannot serve user documents - we must use
+    the tenant's own domain (e.g. xxx.feishu.cn or xxx.larksuite.com).
+    Falls back to generating a search link if the tenant domain cannot be resolved.
+
+    Args:
+        tenant_token: A valid tenant_access_token.
+        doc_token:    The document_id (docx) or wiki node token.
+        doc_type:     'docx' or 'wiki' - controls the URL path prefix.
+    Returns:
+        A fully-formed URL string.
+    """
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://open.feishu.cn/open-apis/tenant/v2/tenant/query",
+                headers={"Authorization": f"Bearer {tenant_token}"},
+            )
+        data = resp.json()
+        if data.get("code") == 0:
+            domain = data.get("data", {}).get("tenant", {}).get("domain", "")
+            if domain:
+                return f"https://{domain}/{doc_type}/{doc_token}"
+    except Exception:
+        pass
+    # Fallback: construct a search URL so the user can locate the document
+    return f"https://feishu.cn/{doc_type}/{doc_token}"
+
+
 def _parse_feishu_url(url: str) -> dict:
     """Parse various Feishu URLs to extract tokens.
     Supports Bitable (table, view) and Docx.
@@ -5334,7 +5366,9 @@ async def _feishu_create_doc(agent_id: uuid.UUID, arguments: dict) -> str:
         
         doc = resp.get("data", {}).get("document", {})
         doc_id = doc.get("document_id")
-        url = f"https://open.feishu.cn/docx/{doc_id}"
+        # Get the tenant's actual domain (open.feishu.cn is the API gateway, not for users)
+        tenant_token = await feishu_service.get_tenant_access_token(app_id, app_secret)
+        url = await _get_feishu_tenant_doc_url(tenant_token, doc_id)
         return f"OK: Document created perfectly. Document ID: {doc_id}\nURL: {url}"
     except Exception as e:
         return f"Failed: {str(e)[:300]}"
@@ -5535,7 +5569,9 @@ async def _feishu_doc_create(agent_id: uuid.UUID, arguments: dict) -> str:
         
         doc = resp.get("data", {}).get("document", {})
         doc_token = doc.get("document_id", "")
-        doc_url = f"https://open.feishu.cn/docx/{doc_token}"
+        # Get tenant-specific doc URL via tenant domain resolution
+        tenant_token = await feishu_service.get_tenant_access_token(app_id, app_secret)
+        doc_url = await _get_feishu_tenant_doc_url(tenant_token, doc_token)
         
         # Auto-share with the Feishu sender so they can access the document
         share_note = ""
@@ -5785,7 +5821,7 @@ async def _feishu_doc_append(agent_id: uuid.UUID, arguments: dict) -> str:
             err = _check_feishu_err(result)
             if err: return err
 
-        doc_url = f"https://open.feishu.cn/docx/{docx_token}"
+        doc_url = await _get_feishu_tenant_doc_url(tenant_token, docx_token)
         return (
             f"✅ 已写入 {len(children)} 个段落到文档。\n"
             f"🔗 文档直链（原文发给用户，勿修改）：{doc_url}"
