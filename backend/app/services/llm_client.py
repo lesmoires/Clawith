@@ -151,7 +151,7 @@ class LLMClient(ABC):
         api_key: str,
         base_url: str | None = None,
         model: str | None = None,
-        timeout: float = 120.0,
+        timeout: float = 300.0,
     ):
         self.api_key = api_key
         self.base_url = base_url
@@ -204,7 +204,7 @@ class OpenAICompatibleClient(LLMClient):
         api_key: str,
         base_url: str | None = None,
         model: str | None = None,
-        timeout: float = 120.0,
+        timeout: float = 300.0,
         supports_tool_choice: bool = True,
     ):
         super().__init__(api_key, base_url or self.DEFAULT_BASE_URL, model, timeout)
@@ -403,32 +403,47 @@ class OpenAICompatibleClient(LLMClient):
         max_tokens: int | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        """Non-streaming completion."""
+        """Non-streaming completion with retry on timeout."""
         url = f"{self._normalize_base_url()}/chat/completions"
         payload = self._build_payload(messages, tools, temperature, max_tokens, stream=False, **kwargs)
 
         client = await self._get_client()
-        response = await client.post(url, json=payload, headers=self._get_headers())
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = await client.post(url, json=payload, headers=self._get_headers(), timeout=self.timeout)
 
-        if response.status_code >= 400:
-            error_text = response.text[:500]
-            raise LLMError(f"HTTP {response.status_code}: {error_text}")
+                if response.status_code >= 400:
+                    error_text = response.text[:500]
+                    raise LLMError(f"HTTP {response.status_code}: {error_text}")
 
-        data = response.json()
+                data = response.json()
 
-        if "error" in data:
-            raise LLMError(f"API error: {data['error']}")
+                if "error" in data:
+                    raise LLMError(f"API error: {data['error']}")
 
-        choice = data.get("choices", [{}])[0]
-        msg = choice.get("message", {})
+                choice = data.get("choices", [{}])[0]
+                msg = choice.get("message", {})
 
-        return LLMResponse(
-            content=msg.get("content", ""),
-            tool_calls=msg.get("tool_calls", []),
-            finish_reason=choice.get("finish_reason"),
-            usage=data.get("usage"),
-            model=data.get("model"),
-        )
+                return LLMResponse(
+                    content=msg.get("content", ""),
+                    tool_calls=msg.get("tool_calls", []),
+                    finish_reason=choice.get("finish_reason"),
+                    usage=data.get("usage"),
+                    model=data.get("model"),
+                )
+                
+            except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError) as e:
+                if attempt < max_retries - 1:
+                    wait = (attempt + 1) * 2  # 2s, 4s, 6s
+                    logger.warning(f"LLM complete attempt {attempt + 1} failed ({type(e).__name__}), retrying in {wait}s...")
+                    await asyncio.sleep(wait)
+                else:
+                    raise LLMError(f"LLM complete failed after {max_retries} attempts: {e}")
+
+        # Should not reach here, but just in case
+        raise LLMError("LLM complete failed unexpectedly")
 
     async def stream(
         self,
@@ -555,7 +570,7 @@ class OpenAIResponsesClient(LLMClient):
         api_key: str,
         base_url: str | None = None,
         model: str | None = None,
-        timeout: float = 120.0,
+        timeout: float = 300.0,
         supports_tool_choice: bool = True,
     ):
         super().__init__(api_key, base_url or self.DEFAULT_BASE_URL, model, timeout)
@@ -852,7 +867,7 @@ class GeminiClient(LLMClient):
         api_key: str,
         base_url: str | None = None,
         model: str | None = None,
-        timeout: float = 120.0,
+        timeout: float = 300.0,
         supports_tool_choice: bool = True,
     ):
         super().__init__(api_key, base_url or self.DEFAULT_BASE_URL, model, timeout)
@@ -1337,7 +1352,7 @@ class AnthropicClient(LLMClient):
         api_key: str,
         base_url: str | None = None,
         model: str | None = None,
-        timeout: float = 120.0,
+        timeout: float = 300.0,
     ):
         super().__init__(api_key, base_url or self.DEFAULT_BASE_URL, model, timeout)
         self._client: httpx.AsyncClient | None = None
@@ -1871,7 +1886,7 @@ def create_llm_client(
     api_key: str,
     model: str,
     base_url: str | None = None,
-    timeout: float = 120.0,
+    timeout: float = 300.0,
 ) -> LLMClient:
     """Create an LLM client for the given provider.
 
@@ -1951,7 +1966,7 @@ async def chat_complete(
     tools: list[dict] | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
-    timeout: float = 120.0,
+    timeout: float = 300.0,
 ) -> dict:
     """High-level function for non-streaming chat completion.
 
@@ -1993,7 +2008,7 @@ async def chat_stream(
     tools: list[dict] | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
-    timeout: float = 120.0,
+    timeout: float = 300.0,
     on_chunk: ChunkCallback | None = None,
     on_thinking: ThinkingCallback | None = None,
 ) -> dict:
