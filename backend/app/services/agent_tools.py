@@ -599,6 +599,102 @@ AGENT_TOOLS = [
             },
         },
     },
+    # ── Feishu Bitable (多维表格) Tools ──────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "bitable_list_tables",
+            "description": "列出飞书多维表格内的所有数据表 (Tables)。url 支持表格链接或 Wiki 链接。使用此工具了解请求的多维表格中有哪些表。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "多维表格的 URL 链接。"},
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bitable_list_fields",
+            "description": "列出飞书多维表格指定数据表中的所有字段 (Fields)。url 支持表格链接或 Wiki 链接。在查询或修改数据前，必须先调用此工具了解字段名称和类型。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "多维表格的 URL 链接。"},
+                    "table_id": {"type": "string", "description": "具体的数据表 ID，如果 url 中包含 tbl 则可以不填。"},
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bitable_query_records",
+            "description": "查询飞书多维表格中的数据行。可以提供过滤条件 (filter)。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "多维表格的 URL 链接。"},
+                    "table_id": {"type": "string", "description": "具体的数据表 ID，如果 url 中包含 tbl 则可以不填。"},
+                    "filter_info": {"type": "string", "description": "可选，FQL 语法的过滤条件，例如 'CurrentValue.[Status]=\"Done\"'。如不确定过滤语法，可以不填，由你臺己在本地过滤返回的所有数据。"},
+                    "max_results": {"type": "integer", "description": "最大返回条数 (默认 100)"},
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bitable_create_record",
+            "description": "在飞书多维表格中新增一行数据。fields 参数是一个字典，key 是字段名 (需要先通过 bitable_list_fields 获取)，value 是对应的值。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "多维表格的 URL 链接。"},
+                    "table_id": {"type": "string", "description": "具体的数据表 ID，如果 url 中包含 tbl 则可以不填。"},
+                    "fields": {"type": "string", "description": "一个 JSON 字符串，代表要插入的 fields。例如：'{\"Name\": \"张三\", \"Age\": 30}'"},
+                },
+                "required": ["url", "fields"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bitable_update_record",
+            "description": "更新飞书多维表格中的指定行数据。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "多维表格的 URL 链接。"},
+                    "table_id": {"type": "string", "description": "具体的数据表 ID，如果 url 中包含 tbl 则可以不填。"},
+                    "record_id": {"type": "string", "description": "要更新的 record_id，通过 bitable_query_records 获取。"},
+                    "fields": {"type": "string", "description": "一个 JSON 字符串，代表要更新的 fields。例如：'{\"Status\": \"Done\"}'"},
+                },
+                "required": ["url", "record_id", "fields"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bitable_delete_record",
+            "description": "删除飞书多维表格中的指定行数据。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "多维表格的 URL 链接。"},
+                    "table_id": {"type": "string", "description": "具体的数据表 ID，如果 url 中包含 tbl 则可以不填。"},
+                    "record_id": {"type": "string", "description": "要删除的 record_id，通过 bitable_query_records 获取。"},
+                },
+                "required": ["url", "record_id"],
+            },
+        },
+    },
     # ── Feishu Document Tools ──────────────────────────────────────
     {
         "type": "function",
@@ -1059,7 +1155,7 @@ AGENT_TOOLS = [
                     "wait_for": {"type": "string", "description": "等待特定元素出现的选择器（可选）"},
                     "save_to_workspace": {
                         "type": "boolean",
-                        "description": "Set to true ONLY when this screenshot is important evidence or a final result the user explicitly asked to see in their file manager. Default false: screenshot is used only for your internal analysis and is NOT shown to the user or saved to disk.",
+                        "description": "CRITICAL: Set to True IF AND ONLY IF the user explicitly asked you to SHOW them a screenshot or save it (e.g. \"截图给我看\", \"截图看看\", \"把截图发出来\"). If True, the image is saved to their workspace and you get a Markdown link. Default is False (internal in-memory analysis only, completely invisible to the user).",
                         "default": False,
                     },
                 },
@@ -1077,7 +1173,7 @@ AGENT_TOOLS = [
                 "properties": {
                     "save_to_workspace": {
                         "type": "boolean",
-                        "description": "Set to true ONLY when this screenshot is important evidence or a final result the user explicitly asked to see in their file manager. Default false: screenshot is used only for your internal analysis and is NOT shown to the user or saved to disk.",
+                        "description": "CRITICAL: Set to True IF AND ONLY IF the user explicitly asked you to SHOW them a screenshot or save it (e.g. \"截图给我看\", \"截图看看\", \"把截图发出来\"). If True, the image is saved to their workspace and you get a Markdown link. Default is False (internal in-memory analysis only, completely invisible to the user).",
                         "default": False,
                     },
                 },
@@ -1164,6 +1260,12 @@ _CHANNEL_MESSAGE_TOOL_NAMES = {
 _FEISHU_TOOL_NAMES = {
     "send_feishu_message",
     "feishu_user_search",
+    "bitable_list_tables",
+    "bitable_list_fields",
+    "bitable_query_records",
+    "bitable_create_record",
+    "bitable_update_record",
+    "bitable_delete_record",
     "feishu_wiki_list",
     "feishu_doc_read",
     "feishu_doc_create",
@@ -1536,6 +1638,19 @@ async def execute_tool(
             result = await _discover_resources(arguments)
         elif tool_name == "import_mcp_server":
             result = await _import_mcp_server(agent_id, arguments)
+        # ── Feishu Bitable Tools ──
+        elif tool_name == "bitable_list_tables":
+            result = await _bitable_list_tables(agent_id, arguments)
+        elif tool_name == "bitable_list_fields":
+            result = await _bitable_list_fields(agent_id, arguments)
+        elif tool_name == "bitable_query_records":
+            result = await _bitable_query_records(agent_id, arguments)
+        elif tool_name == "bitable_create_record":
+            result = await _bitable_create_record(agent_id, arguments)
+        elif tool_name == "bitable_update_record":
+            result = await _bitable_update_record(agent_id, arguments)
+        elif tool_name == "bitable_delete_record":
+            result = await _bitable_delete_record(agent_id, arguments)
         # ── Feishu Document Tools ──
         elif tool_name == "feishu_wiki_list":
             result = await _feishu_wiki_list(agent_id, arguments)
