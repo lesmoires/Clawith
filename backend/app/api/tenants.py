@@ -26,6 +26,7 @@ router = APIRouter(prefix="/tenants", tags=["tenants"])
 
 class TenantCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
+    target_tenant_id: uuid.UUID | None = None
 
 class TenantOut(BaseModel):
     id: uuid.UUID
@@ -75,9 +76,9 @@ async def self_create_company(
     """Create a new company (self-service). The creator becomes org_admin.
 
     Allows unverified users to create company during registration flow."""
-    # Must not already belong to a company
-    if current_user.tenant_id is not None:
-        raise HTTPException(status_code=400, detail="You already belong to a company")
+    # Block self-creation if locked to a specific tenant (Dedicated Link flow)
+    if data.target_tenant_id is not None:
+        raise HTTPException(status_code=403, detail="Company creation is not allowed via this link. Please join your assigned organization.")
 
     # Check if self-creation is allowed
     from app.models.system_settings import SystemSetting
@@ -111,6 +112,7 @@ async def self_create_company(
 
 class JoinRequest(BaseModel):
     invitation_code: str = Field(min_length=1, max_length=32)
+    target_tenant_id: uuid.UUID | None = None
 
 
 class JoinResponse(BaseModel):
@@ -141,6 +143,11 @@ async def join_company(
     code_obj = ic_result.scalar_one_or_none()
     if not code_obj:
         raise HTTPException(status_code=400, detail="Invalid invitation code")
+
+    # Verify matching tenant if locked (Dedicated Link flow)
+    if data.target_tenant_id and str(code_obj.tenant_id) != str(data.target_tenant_id):
+        raise HTTPException(status_code=403, detail="This invitation code does not belong to the required organization.")
+
     if code_obj.used_count >= code_obj.max_uses:
         raise HTTPException(status_code=400, detail="Invitation code has reached its usage limit")
 
@@ -205,20 +212,35 @@ async def resolve_tenant_by_domain(
 ):
     """Resolve a tenant by its sso_domain or subdomain slug.
 
-    Lookup precedence:
-    1. Exact match on tenant.sso_domain (e.g. "acme.clawith.ai" or "192.168.1.1:3000")
-    2. Match on tenant.sso_domain without port (if input domain has port)
-    3. Extract slug from "{slug}.clawith.ai" and match tenant.slug
-    """
-    # 1. Try exact sso_domain match first
-    result = await db.execute(select(Tenant).where(Tenant.sso_domain == domain))
-    tenant = result.scalar_one_or_none()
+    sso_domain is stored as a full URL (e.g. "https://acme.clawith.ai" or "http://1.2.3.4:3009").
+    The incoming `domain` parameter is the host (without protocol).
 
-    # 2. Try match without port if domain has one
+    Lookup precedence:
+    1. Exact match on tenant.sso_domain ending with the host (strips protocol)
+    2. Extract slug from "{slug}.clawith.ai" and match tenant.slug
+    """
+    tenant = None
+
+    # 1. Match by stripping protocol from stored sso_domain
+    # sso_domain = "https://acme.clawith.ai" → compare against "acme.clawith.ai"
+    for proto in ("https://", "http://"):
+        result = await db.execute(
+            select(Tenant).where(Tenant.sso_domain == f"{proto}{domain}")
+        )
+        tenant = result.scalar_one_or_none()
+        if tenant:
+            break
+
+    # 2. Try without port (e.g. domain = "1.2.3.4:3009" → try "1.2.3.4")
     if not tenant and ":" in domain:
         domain_no_port = domain.split(":")[0]
-        result = await db.execute(select(Tenant).where(Tenant.sso_domain == domain_no_port))
-        tenant = result.scalar_one_or_none()
+        for proto in ("https://", "http://"):
+            result = await db.execute(
+                select(Tenant).where(Tenant.sso_domain.like(f"{proto}{domain_no_port}%"))
+            )
+            tenant = result.scalar_one_or_none()
+            if tenant:
+                break
 
     # 3. Fallback: extract slug from subdomain pattern
     if not tenant:
@@ -229,9 +251,9 @@ async def resolve_tenant_by_domain(
             result = await db.execute(select(Tenant).where(Tenant.slug == slug))
             tenant = result.scalar_one_or_none()
 
-    if not tenant or not tenant.is_active:
-        raise HTTPException(status_code=404, detail="Tenant not found or not active")
-    
+    if not tenant or not tenant.is_active or not tenant.sso_enabled:
+        raise HTTPException(status_code=404, detail="Tenant not found or not active or SSO not enabled")
+
     return {
         "id": tenant.id,
         "name": tenant.name,

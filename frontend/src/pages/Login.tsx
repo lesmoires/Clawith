@@ -111,6 +111,7 @@ export default function Login() {
                 const res = await authApi.login({
                     login_identifier: form.login_identifier,
                     password: form.password,
+                    ...(tenant?.id ? { tenant_id: tenant.id } : {}),
                 });
 
                 // Check if multi-tenant selection is needed
@@ -130,6 +131,17 @@ export default function Login() {
                 }
             }
         } catch (err: any) {
+            // Handle structured verification error
+            if (err.detail?.needs_verification) {
+                navigate('/verify-email', { 
+                    state: { 
+                        fromRegister: false, 
+                        email: err.detail.email || form.login_identifier 
+                    } 
+                });
+                return;
+            }
+
             const msg = err.message || '';
             if (msg && msg !== 'Failed to fetch' && !msg.includes('NetworkError') && !msg.includes('ERR_CONNECTION')) {
                 if (msg.includes('company has been disabled')) {

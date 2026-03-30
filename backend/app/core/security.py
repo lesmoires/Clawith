@@ -146,6 +146,7 @@ async def get_current_user(
     result = await db.execute(
         select(User)
         .where(User.id == uuid.UUID(user_id))
+        .options(selectinload(User.identity))
     )
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
@@ -168,6 +169,7 @@ async def get_authenticated_user(
     result = await db.execute(
         select(User)
         .where(User.id == uuid.UUID(user_id))
+        .options(selectinload(User.identity))
     )
     user = result.scalar_one_or_none()
     if not user:

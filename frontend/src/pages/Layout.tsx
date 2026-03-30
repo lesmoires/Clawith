@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../stores';
 import { agentApi } from '../services/api';
+
 import {
     IconHome,
     IconPlus,
@@ -23,7 +24,8 @@ import {
     IconPinnedOff,
     IconArrowUpRight,
     IconBuilding,
-    IconChevronUp
+    IconChevronUp,
+    IconSwitchHorizontal
 } from '@tabler/icons-react';
 import { useAppStore } from '../stores';
 
@@ -226,6 +228,7 @@ export default function Layout() {
     const [showNotifications, setShowNotifications] = useState(false);
     const [notifCategory, setNotifCategory] = useState<string>('all');
     const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
+    const [showTenantMenu, setShowTenantMenu] = useState(false);
 
     // Notification polling
     const { data: unreadCount = 0 } = useQuery({
@@ -253,6 +256,40 @@ export default function Layout() {
         await fetch(`/api/notifications/${id}/read`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
         queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    };
+
+    // Tenant switching
+    const { data: myTenants = [] } = useQuery({
+        queryKey: ['my-tenants'],
+        queryFn: async () => {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/auth/my-tenants', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+            if (!res.ok) return [];
+            return res.json();
+        },
+        enabled: !!user,
+    });
+
+    const handleSwitchTenant = async (tenantId: string) => {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/auth/switch-tenant', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ tenant_id: tenantId }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: 'Failed to switch tenant' }));
+            alert(err.detail || 'Failed to switch tenant');
+            return;
+        }
+        const data = await res.json();
+        if (data.redirect_url) {
+            localStorage.setItem('token', data.access_token);
+            window.location.href = data.redirect_url;
+        } else if (data.access_token) {
+            localStorage.setItem('token', data.access_token);
+            window.location.reload();
+        }
     };
 
     // Theme
@@ -320,9 +357,9 @@ export default function Layout() {
                 setShowAccountMenu(false);
             }
         };
-        if (showAccountMenu) document.addEventListener('mousedown', handleClickOutside);
+        if (showAccountMenu || showTenantMenu) document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [showAccountMenu]);
+    }, [showAccountMenu, showTenantMenu]);
 
     return (
         <div className={`app-layout ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -503,6 +540,42 @@ export default function Layout() {
                                     }}>{(unreadCount as number) > 99 ? '99+' : unreadCount}</span>
                                 )}
                             </button>
+                            {myTenants.length > 1 && (
+                                <div style={{ position: 'relative', marginLeft: 'auto' }}>
+                                    <button className="btn btn-ghost" onClick={() => setShowTenantMenu(v => !v)} style={{
+                                        padding: '4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    }} title={isChinese ? '切换企业' : 'Switch Organization'}>
+                                        <IconSwitchHorizontal size={16} stroke={1.5} />
+                                    </button>
+                                    {showTenantMenu && (
+                                        <div style={{
+                                            position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
+                                            minWidth: '160px', marginBottom: '4px', background: 'var(--bg-secondary)',
+                                            border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)',
+                                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)', overflow: 'hidden', zIndex: 100,
+                                        }}>
+                                            {myTenants.map((tenant: any) => (
+                                                <button
+                                                    key={tenant.tenant_id}
+                                                    onClick={() => {
+                                                        handleSwitchTenant(tenant.tenant_id);
+                                                        setShowTenantMenu(false);
+                                                    }}
+                                                    style={{
+                                                        width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                                                        padding: '10px 12px', background: tenant.tenant_id === currentTenant ? 'var(--bg-tertiary)' : 'transparent',
+                                                        border: 'none', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px',
+                                                        textAlign: 'left', borderBottom: '1px solid var(--border-subtle)',
+                                                    }}
+                                                >
+                                                    <IconBuilding size={14} stroke={1.5} />
+                                                    <span style={{ flex: 1 }}>{tenant.tenant_name}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                         <div ref={accountMenuRef} style={{ position: 'relative' }}>
                             {showAccountMenu && (

@@ -89,17 +89,8 @@ async def get_slack_channel(
 
 @router.get("/agents/{agent_id}/slack-channel/webhook-url")
 async def get_slack_webhook_url(agent_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db)):
-    import os
-    from app.models.system_settings import SystemSetting
-    public_base = ""
-    result = await db.execute(select(SystemSetting).where(SystemSetting.key == "platform"))
-    setting = result.scalar_one_or_none()
-    if setting and setting.value.get("public_base_url"):
-        public_base = setting.value["public_base_url"].rstrip("/")
-    if not public_base:
-        public_base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
-    if not public_base:
-        public_base = str(request.base_url).rstrip("/")
+    from app.services.platform_service import platform_service
+    public_base = await platform_service.get_public_base_url(db, request)
     return {"webhook_url": f"{public_base}/api/channel/slack/{agent_id}/webhook"}
 
 

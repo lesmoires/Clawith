@@ -308,33 +308,8 @@ async def get_teams_webhook_url(
 ):
     """Get the Microsoft Teams webhook URL for an agent."""
     await check_agent_access(db, current_user, agent_id)
-    import os
-    from app.models.system_settings import SystemSetting
-    public_base = ""
-    result = await db.execute(select(SystemSetting).where(SystemSetting.key == "platform"))
-    setting = result.scalar_one_or_none()
-    if setting and setting.value.get("public_base_url"):
-        public_base = setting.value["public_base_url"].rstrip("/")
-    if not public_base:
-        public_base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
-    if not public_base:
-        # Use request.base_url
-        base_url = str(request.base_url).rstrip("/")
-        from urllib.parse import urlparse
-        parsed = urlparse(base_url)
-        
-        # Only adjust port for localhost/127.0.0.1 (local development)
-        # In production with reverse proxy, trust the request.base_url (port 80/443)
-        if parsed.hostname in ("localhost", "127.0.0.1"):
-            # Local development: if port is 80, 3008 (frontend), or missing, use backend port 8000
-            if parsed.port in (80, 3008, None):
-                public_base = f"{parsed.scheme}://{parsed.hostname}:8000"
-            else:
-                public_base = base_url
-        else:
-            # Production: trust the request.base_url (from reverse proxy headers)
-            # It will have the correct public port (80/443)
-            public_base = base_url
+    from app.services.platform_service import platform_service
+    public_base = await platform_service.get_public_base_url(db, request)
     return {"webhook_url": f"{public_base}/api/channel/teams/{agent_id}/webhook"}
 
 

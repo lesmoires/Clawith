@@ -94,28 +94,26 @@ class BaseAuthProvider(ABC):
     async def find_or_create_user(
         self, db: AsyncSession, user_info: ExternalUserInfo, tenant_id: str | None = None
     ) -> tuple[User, bool]:
-        """Find existing user or create new one via OrgMember.
+        """Find existing user or create new one via Identity/OrgMember.
 
         Args:
             db: Database session
             user_info: User info from provider
             tenant_id: Optional tenant ID for association
-
-        Returns:
-            Tuple of (user, is_new) where is_new indicates if user was created
         """
         from app.services.sso_service import sso_service
+        from sqlalchemy.orm import selectinload
 
         # Ensure provider exists
         await self._ensure_provider(db, tenant_id)
 
         # 1. Try lookup via sso_service (which now uses OrgMember)
-        # Prefer unionid if available, fallback to provider_user_id
         provider_user_id = user_info.provider_union_id or user_info.provider_user_id
         user = await sso_service.resolve_user_identity(
             db, provider_user_id, self.provider_type, tenant_id=tenant_id
         )
-        # Feishu: if union_id lookup misses, fall back to open_id (org sync app may not return union_id)
+        
+        # Feishu: fallback to open_id if union_id lookup misses
         if (
             not user
             and self.provider_type == "feishu"
@@ -128,54 +126,40 @@ class BaseAuthProvider(ABC):
 
         is_new = False
         if not user:
-            # 2. Fallback to legacy columns on User table
-            user = await self._find_user_by_legacy_fields(db, user_info)
-
-        # 3. Also try matching by email if available
-        if not user and user_info.email:
-            user = await sso_service.match_user_by_email(db, user_info.email, tenant_id)
+            # 2. Try matching by email/mobile (which now checks Identity too)
+            if user_info.email:
+                user = await sso_service.match_user_by_email(db, user_info.email, tenant_id)
+            if not user and user_info.mobile:
+                user = await sso_service.match_user_by_mobile(db, user_info.mobile, tenant_id)
+            
             if user:
-                # Link identity (OrgMember) to existing user
-                await sso_service.link_identity(
-                    db,
-                    str(user.id),
-                    self.provider_type,
-                    provider_user_id,
-                    user_info.raw_data,
-                    tenant_id=tenant_id,
-                )
-
-        # 4. Also try matching by mobile if available (critical to prevent duplicate users)
-        if not user and user_info.mobile:
-            user = await sso_service.match_user_by_mobile(db, user_info.mobile, tenant_id)
-            if user:
-                # Link identity (OrgMember) to existing user
-                await sso_service.link_identity(
-                    db,
-                    str(user.id),
-                    self.provider_type,
-                    provider_user_id,
-                    user_info.raw_data,
-                    tenant_id=tenant_id,
-                )
+                # If we found a user via email/mobile matching, it might be in a different tenant
+                if tenant_id and str(user.tenant_id) != tenant_id:
+                    # Identity exists but no user in this tenant
+                    user = None 
 
         if user:
-            # Update user info
+            # Update user info and ensure identity is loaded
+            if not user.identity_id:
+                 from app.services.registration_service import registration_service
+                 identity = await registration_service.find_or_create_identity(db, email=user_info.email, phone=user_info.mobile)
+                 user.identity_id = identity.id
+            
             await self._update_existing_user(db, user, user_info)
         else:
-            # Create new user
+            # 3. Create new user (and Identity if needed)
             user = await self._create_new_user(db, user_info, tenant_id)
             is_new = True
             
-            # Link identity (OrgMember) to the new user
-            await sso_service.link_identity(
-                db,
-                str(user.id),
-                self.provider_type,
-                provider_user_id,
-                user_info.raw_data,
-                tenant_id=tenant_id,
-            )
+        # Ensure OrgMember linkage
+        await sso_service.link_identity(
+            db,
+            str(user.id),
+            self.provider_type,
+            provider_user_id,
+            user_info.raw_data,
+            tenant_id=tenant_id,
+        )
 
         return user, is_new
 
@@ -229,7 +213,19 @@ class BaseAuthProvider(ABC):
         self, db: AsyncSession, user_info: ExternalUserInfo, tenant_id: str | None
     ) -> User:
         """Create new user from external identity."""
-        # Use fallback IDs if provider_user_id is missing
+        from app.services.registration_service import registration_service
+        import uuid
+        
+        # 1. Resolve global identity first
+        identity = await registration_service.find_or_create_identity(
+            db,
+            email=user_info.email,
+            phone=user_info.mobile,
+            username=user_info.email.split("@")[0] if user_info.email else None,
+            display_name=user_info.name
+        )
+
+        # 2. Prepare user fields
         effective_id = user_info.provider_user_id or user_info.provider_union_id or "unknown"
         username = user_info.email.split("@")[0] if user_info.email else f"{self.provider_type}_{effective_id[:8]}"
 
@@ -237,31 +233,32 @@ class BaseAuthProvider(ABC):
         query = select(User).where(User.username == username)
         if tenant_id:
             query = query.where(User.tenant_id == tenant_id)
-            
         existing = await db.execute(query)
         if existing.scalar_one_or_none():
-            import uuid
             username = f"{username}_{uuid.uuid4().hex[:6]}"
 
-        email = user_info.email or f"{username}@{self.provider_type}.local"
-
+        # 3. Create TenantUser record
         user = User(
+            identity_id=identity.id,
             username=username,
-            email=email,
-            password_hash=hash_password(effective_id),
+            email=user_info.email or f"{username}@{self.provider_type}.local",
             display_name=user_info.name or username,
             avatar_url=user_info.avatar_url,
             primary_mobile=user_info.mobile,
             registration_source=self.provider_type,
             tenant_id=tenant_id,
+            is_active=True,
+            email_verified=True if user_info.email else False,
         )
 
-        # Set legacy fields
+        # Set legacy fields if needed
         await self._set_legacy_user_fields(user, user_info)
 
         db.add(user)
         await db.flush()
-
+        
+        # Preload identity
+        user.identity = identity
         return user
 
     async def _update_legacy_user_fields(self, user: User, user_info: ExternalUserInfo):

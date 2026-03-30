@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import hash_password
 from app.models.identity import IdentityProvider
 from app.models.tenant import Tenant
-from app.models.user import User
+from app.models.user import Identity, User
 from app.services.sso_service import sso_service
 from loguru import logger
 
@@ -54,55 +54,38 @@ class RegistrationService:
         db: AsyncSession,
         email: str | None = None,
         mobile: str | None = None,
-        tenant_id: uuid.UUID | None = None,
     ) -> dict[str, Any]:
-        """Check for existing identities that might conflict with registration.
+        """Check for existing identities or tenant-users that might conflict.
 
         Args:
             db: Database session
-            email: User email
-            mobile: User mobile
-            tenant_id: Optional tenant to scope the search
+            email: Email address
+            mobile: Mobile phone
+            username: Username
+            tenant_id: Optional tenant to scope the search (for tenant-user conflicts)
 
         Returns:
-            Dict with conflict information:
-            {
-                "has_conflict": bool,
-                "conflicts": [
-                    {"type": "email|mobile|identity", "existing_user_id": str}
-                ]
-            }
+            Dict with conflict information
         """
         conflicts = []
 
-        # Check email conflicts
+        # 1. Check Global Identity Conflicts
         if email:
-            query = select(User).where(User.email.ilike(email))
-            if tenant_id:
-                query = query.where(User.tenant_id == tenant_id)
-            
-            result = await db.execute(query)
-            existing = result.scalar_one_or_none()
-            if existing:
+            ident_result = await db.execute(select(Identity).where(Identity.email.ilike(email)))
+            if ident_result.scalar_one_or_none():
                 conflicts.append({
                     "type": "email",
-                    "existing_user_id": str(existing.id),
+                    "scope": "global",
                     "message": "Email already registered",
                 })
-
-        # Check mobile conflicts
+        
         if mobile:
             normalized_mobile = re.sub(r"[\s\-\+]", "", mobile)
-            query = select(User).where(User.primary_mobile == normalized_mobile)
-            if tenant_id:
-                query = query.where(User.tenant_id == tenant_id)
-                
-            result = await db.execute(query)
-            existing = result.scalar_one_or_none()
-            if existing:
+            ident_result = await db.execute(select(Identity).where(Identity.phone == normalized_mobile))
+            if ident_result.scalar_one_or_none():
                 conflicts.append({
                     "type": "mobile",
-                    "existing_user_id": str(existing.id),
+                    "scope": "global",
                     "message": "Mobile already registered",
                 })
 
@@ -111,60 +94,94 @@ class RegistrationService:
             "conflicts": conflicts,
         }
 
+    async def find_or_create_identity(
+        self,
+        db: AsyncSession,
+        email: str | None = None,
+        phone: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        is_platform_admin: bool = False,
+    ) -> Identity:
+        """Find an existing identity or create a new one."""
+        identity = None
+        
+        # Try to find by email
+        if email:
+            res = await db.execute(select(Identity).where(Identity.email.ilike(email)))
+            identity = res.scalar_one_or_none()
+            
+        # Try to find by phone
+        if not identity and phone:
+            normalized_phone = re.sub(r"[\s\-\+]", "", phone)
+            res = await db.execute(select(Identity).where(Identity.phone == normalized_phone))
+            identity = res.scalar_one_or_none()
+            
+        # Try to find by username
+        if not identity and username:
+            res = await db.execute(select(Identity).where(Identity.username == username))
+            identity = res.scalar_one_or_none()
+
+        if identity:
+            return identity
+
+        # Create new identity
+        identity = Identity(
+            email=email,
+            phone=phone,
+            username=username,
+            password_hash=hash_password(password) if password else None,
+            is_platform_admin=is_platform_admin,
+        )
+        db.add(identity)
+        await db.flush()
+        return identity
+
     async def create_user_with_identity(
         self,
         db: AsyncSession,
-        username: str,
-        email: str,
-        password: str,
+        identity: Identity,
         display_name: str | None = None,
-        provider_type: str | None = None,
-        provider_user_id: str | None = None,
-        provider_data: dict | None = None,
+        role: str = "member",
         tenant_id: uuid.UUID | None = None,
+        registration_source: str = "web",
     ) -> User:
-        """Create a new user with optional external identity.
+        """Create a new tenant-specific user linked to an identity.
 
         Args:
             db: Database session
-            username: Username
-            email: Email address
-            password: Plain text password
-            display_name: Display name
-            provider_type: External provider type (feishu, dingtalk, etc.)
-            provider_user_id: User ID in external system
-            provider_data: Raw data from provider
-            tenant_id: Tenant ID to assign user to
+            identity: The global identity
+            display_name: Tenant-specific display name
+            role: Role within the tenant
+            tenant_id: Tenant ID
+            registration_source: Source of registration
 
         Returns:
-            Created User
+            Created User (tenant-user)
         """
-        # Ensure unique username within tenant
-        query = select(User).where(User.username == username)
-        if tenant_id:
-            query = query.where(User.tenant_id == tenant_id)
-        
-        existing = await db.execute(query)
-        if existing.scalar_one_or_none():
-            username = f"{username}_{uuid.uuid4().hex[:6]}"
+        # Ensure unique display name / username within tenant if needed
+        # (Using display_name or identity info)
+        name = display_name or identity.display_name or identity.username or "User"
 
-        # Create user
+        # Create tenant-user record
+        # is_active matches identity verification status by default, 
+        # unless it's a platform admin (handled separately in auth.py)
         user = User(
-            username=username,
-            email=email,
-            password_hash=hash_password(password),
-            display_name=display_name or username,
-            registration_source=provider_type or "web",
+            identity_id=identity.id,
             tenant_id=tenant_id,
+            display_name=name,
+            role=role,
+            registration_source=registration_source,
+            is_active=identity.email_verified,
         )
 
         db.add(user)
         await db.flush()
 
-        # Link to OrgMember if exists (bind platform user to org structure)
+        # Link to OrgMember if exists
         await self.bind_org_member(db, user)
 
-        # Create Participant identity
+        # Create Participant record
         from app.models.participant import Participant
         db.add(Participant(
             type="user",

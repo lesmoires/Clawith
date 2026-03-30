@@ -26,6 +26,7 @@ class RegisterInitRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)
     display_name: str | None = None
+    target_tenant_id: uuid.UUID | None = None
 
 
 class RegisterInitResponse(BaseModel):
@@ -36,6 +37,7 @@ class RegisterInitResponse(BaseModel):
     message: str = "Registration initiated. Please verify your email."
     user: "UserOut" # Include full user info
     needs_company_setup: bool = True
+    target_tenant_id: uuid.UUID | None = None
 
 
 class RegisterCompleteRequest(BaseModel):
@@ -92,6 +94,7 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: "UserOut"
+    identity: "IdentityOut | None" = None
     needs_company_setup: bool = False
     tenant_name: str | None = None
 
@@ -104,16 +107,43 @@ class TenantChoice(BaseModel):
 
 
 class MultiTenantResponse(BaseModel):
-    """Response when multiple tenants match the same email."""
+    """Response when multiple tenants match the same login identifier."""
     requires_tenant_selection: bool = True
     login_identifier: str
     tenants: list[TenantChoice]
 
 
+class TenantSwitchRequest(BaseModel):
+    tenant_id: uuid.UUID
+
+
+class TenantSwitchResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    redirect_url: str | None = None
+    message: str | None = None
+
+
+class IdentityOut(BaseModel):
+    """Global identity information."""
+    id: uuid.UUID
+    email: str | None = None
+    phone: str | None = None
+    username: str | None = None
+    is_active: bool
+    is_platform_admin: bool
+    email_verified: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class UserOut(BaseModel):
     id: uuid.UUID
-    username: str
-    email: str
+    identity_id: uuid.UUID | None = None
+    username: str | None = None
+    email: str | None = None
     display_name: str
     avatar_url: str | None = None
     role: str
@@ -138,6 +168,7 @@ class IdentityProviderOut(BaseModel):
     tenant_id: uuid.UUID | None = None
     updated_at: datetime | None = None
     created_at: datetime
+    sso_domain: str | None = None
 
     model_config = {"from_attributes": True}
 

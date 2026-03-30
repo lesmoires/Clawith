@@ -19,7 +19,7 @@ from app.models.agent import Agent
 from app.models.invitation_code import InvitationCode
 from app.models.system_settings import SystemSetting
 from app.models.tenant import Tenant
-from app.models.user import User
+from app.models.user import User, Identity
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -104,7 +104,11 @@ async def list_companies(
 
         # Org Admin Email (first found if multiple)
         admin_q = await db.execute(
-            select(User.email).where(User.tenant_id == tid, User.role == "org_admin").order_by(User.created_at.asc()).limit(1)
+            select(Identity.email)
+            .join(User, Identity.id == User.identity_id)
+            .where(User.tenant_id == tid, User.role == "org_admin")
+            .order_by(User.created_at.asc())
+            .limit(1)
         )
         org_admin_email = admin_q.scalar()
 

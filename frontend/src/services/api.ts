@@ -44,10 +44,17 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
                     return label ? `${label}: ${e.msg}` : e.msg;
                 })
                 .join('; ');
+        } else if (typeof error.detail === 'object' && error.detail !== null) {
+            // Structured error detail (e.g., NeedsVerificationResponse)
+            message = error.detail.message || `HTTP ${res.status}`;
         } else {
             message = error.detail || `HTTP ${res.status}`;
         }
-        throw new Error(message);
+
+        const apiErr: any = new Error(message);
+        apiErr.status = res.status;
+        apiErr.detail = error.detail;
+        throw apiErr;
     }
 
     if (res.status === 204) return undefined as T;
@@ -155,6 +162,12 @@ export const authApi = {
 
     resendVerification: (email: string) =>
         request<{ ok: boolean; message: string }>('/auth/resend-verification', { method: 'POST', body: JSON.stringify({ email }) }),
+
+    getMyTenants: () =>
+        request<any[]>('/auth/my-tenants'),
+
+    switchTenant: (tenantId: string) =>
+        request<{ access_token: string; redirect_url?: string; message?: string }>('/auth/switch-tenant', { method: 'POST', body: JSON.stringify({ tenant_id: tenantId }) }),
 };
 
 // ─── Tenants ──────────────────────────────────────────
