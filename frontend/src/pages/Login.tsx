@@ -31,8 +31,8 @@ export default function Login() {
         document.documentElement.setAttribute('data-theme', 'dark');
 
         // Resolve tenant by domain (for SSO detection only, not for login form)
-        const domain = window.location.hostname;
-        if (domain === 'localhost' || domain === '127.0.0.1' || domain.includes('.local')) {
+        const domain = window.location.host;
+        if (domain.startsWith('localhost') || domain.startsWith('127.0.0.1')) {
             setResolving(false);
             return;
         }
@@ -89,37 +89,45 @@ export default function Login() {
         setLoading(true);
 
         try {
-            let res;
             if (isRegister) {
-                res = await authApi.register({
+                const regRes = await authApi.register({
                     username: form.login_identifier.split('@')[0],
                     email: form.login_identifier,
                     password: form.password,
                     display_name: form.login_identifier.split('@')[0],
                 });
-                // Show verification message after successful registration
-                setSuccessMessage(t('auth.checkEmailVerification', 'Registration successful! Please check your email to verify your account.'));
+                // Save authentication state for company selection (user not active yet)
+                if (regRes.access_token && regRes.user) {
+                    setAuth(regRes.user, regRes.access_token);
+                }
+                // Redirect based on whether company setup is needed
+                if (regRes.needs_company_setup === false) {
+                    navigate('/verify-email', { state: { fromRegister: true, email: regRes.email } });
+                } else {
+                    navigate('/setup-company', { state: { fromRegister: true, email: regRes.email } });
+                }
+                return;
             } else {
-                res = await authApi.login({
+                const res = await authApi.login({
                     login_identifier: form.login_identifier,
                     password: form.password,
                 });
-            }
 
-            // Check if multi-tenant selection is needed
-            if ('requires_tenant_selection' in res && res.requires_tenant_selection) {
-                setTenantSelection(res.tenants);
-                setLoading(false);
-                return;
-            }
+                // Check if multi-tenant selection is needed
+                if ('requires_tenant_selection' in res && res.requires_tenant_selection) {
+                    setTenantSelection(res.tenants);
+                    setLoading(false);
+                    return;
+                }
 
-            const tokenRes = res as TokenResponse;
-            setAuth(tokenRes.user, tokenRes.access_token);
+                const tokenRes = res as TokenResponse;
+                setAuth(tokenRes.user, tokenRes.access_token);
 
-            if (tokenRes.user && !tokenRes.user.tenant_id) {
-                navigate('/setup-company');
-            } else {
-                navigate('/');
+                if (tokenRes.user && !tokenRes.user.tenant_id) {
+                    navigate('/setup-company');
+                } else {
+                    navigate('/');
+                }
             }
         } catch (err: any) {
             const msg = err.message || '';

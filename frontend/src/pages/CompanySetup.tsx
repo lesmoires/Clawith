@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
 import { tenantApi, authApi } from '../services/api';
@@ -7,10 +7,15 @@ import { tenantApi, authApi } from '../services/api';
 export default function CompanySetup() {
     const { t, i18n } = useTranslation();
     const navigate = useNavigate();
-    const { user, setAuth } = useAuthStore();
+    const location = useLocation();
+    const { user, setAuth, logout } = useAuthStore();
     const [allowCreate, setAllowCreate] = useState(true);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+
+    // Check if coming from registration flow
+    const fromRegister = (location.state as any)?.fromRegister;
+    const registerEmail = (location.state as any)?.email;
 
     // Join company form
     const [inviteCode, setInviteCode] = useState('');
@@ -24,19 +29,20 @@ export default function CompanySetup() {
         }).catch(() => {});
     }, []);
 
-    // If user already has a company, redirect home
+    // If user already has a company and not from registration, redirect home
     useEffect(() => {
-        if (user?.tenant_id) {
+        if (user?.tenant_id && !fromRegister) {
             navigate('/');
         }
-    }, [user, navigate]);
+    }, [user, navigate, fromRegister]);
 
     const refreshUser = async () => {
         try {
             const me = await authApi.me();
             const token = useAuthStore.getState().token;
             if (token) setAuth(me, token);
-        } catch { /* ignore */ }
+            return me;
+        } catch { return null; }
     };
 
     const handleJoin = async (e: React.FormEvent) => {
@@ -45,8 +51,15 @@ export default function CompanySetup() {
         setLoading(true);
         try {
             await tenantApi.join(inviteCode);
-            await refreshUser();
-            navigate('/');
+
+            if (fromRegister) {
+                // In registration flow: go to verify email
+                navigate('/verify-email', { state: { email: registerEmail || user?.email, fromRegister: true } });
+            } else {
+                // Normal flow: refresh user and go home
+                await refreshUser();
+                navigate('/');
+            }
         } catch (err: any) {
             setError(err.message || 'Failed to join company');
         } finally {
@@ -60,9 +73,15 @@ export default function CompanySetup() {
         setLoading(true);
         try {
             await tenantApi.selfCreate({ name: companyName });
-            await refreshUser();
-            // Navigate to Enterprise Settings to configure LLM models
-            navigate('/enterprise');
+
+            if (fromRegister) {
+                // In registration flow: go to verify email
+                navigate('/verify-email', { state: { email: registerEmail || user?.email, fromRegister: true } });
+            } else {
+                // Normal flow: refresh user and go to Enterprise Settings
+                await refreshUser();
+                navigate('/enterprise');
+            }
         } catch (err: any) {
             setError(err.message || 'Failed to create company');
         } finally {
@@ -73,6 +92,11 @@ export default function CompanySetup() {
     const toggleLang = () => {
         i18n.changeLanguage(i18n.language === 'zh' ? 'en' : 'zh');
     };
+
+    // If not from registration and user already has tenant, don't show
+    if (!fromRegister && user?.tenant_id) {
+        return null;
+    }
 
     return (
         <div className="company-setup-page">

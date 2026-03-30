@@ -25,6 +25,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     if (!token) return <Navigate to="/login" replace />;
     // Force company setup for users without a tenant
     if (user && !user.tenant_id) return <Navigate to="/setup-company" replace />;
+    
+    // Force email verification if not active/verified
+    if (user && !user.is_active) return <Navigate to="/verify-email" state={{ email: user.email }} replace />;
+    
     return <>{children}</>;
 }
 

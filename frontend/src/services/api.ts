@@ -134,7 +134,7 @@ export function uploadFileWithProgress(
 // ─── Auth ─────────────────────────────────────────────
 export const authApi = {
     register: (data: { username?: string; email: string; password: string; display_name: string; invitation_code?: string; provider?: string; provider_code?: string }) =>
-        request<TokenResponse>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+        request<{ user_id: string; email: string; access_token: string; message: string; user?: any; needs_company_setup: boolean }>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
 
     login: (data: { login_identifier: string; password: string; tenant_id?: string }) =>
         request<TokenResponse | { requires_tenant_selection: boolean; login_identifier: string; tenants: any[] }>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
@@ -151,7 +151,7 @@ export const authApi = {
         request<User>('/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
 
     verifyEmail: (token: string) =>
-        request<{ ok: boolean; message: string }>('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) }),
+        request<{ ok: boolean; message: string; access_token: string; user: User; needs_company_setup: boolean }>('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) }),
 
     resendVerification: (email: string) =>
         request<{ ok: boolean; message: string }>('/auth/resend-verification', { method: 'POST', body: JSON.stringify({ email }) }),

@@ -10,7 +10,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import create_access_token, get_current_user, hash_password, verify_password
+from app.core.security import create_access_token, get_authenticated_user, get_current_user, hash_password, verify_password
 from app.database import get_db
 from app.models.user import User
 from app.schemas.schemas import (
@@ -27,6 +27,14 @@ from app.schemas.schemas import (
     UserUpdate,
     VerifyEmailRequest,
     ResendVerificationRequest,
+    NeedsVerificationResponse,
+    RegisterInitRequest,
+    RegisterInitResponse,
+    RegisterCompleteRequest,
+    RegisterCompleteResponse,
+    SSORegisterRequest,
+    TenantChoice,
+    MultiTenantResponse,
 )
 from sqlalchemy.orm import selectinload
 
@@ -87,106 +95,229 @@ async def _send_verification_email_task(
     )
 
     try:
-        raw_token, expires_at = await create_email_verification_token(user.id, user.email)
-        base_url = settings.PUBLIC_BASE_URL or "http://localhost:3000"
-        verify_url = await build_email_verification_url(base_url, raw_token)
+        raw_code, expires_at = await create_email_verification_token(user.id, user.email)
         expiry_minutes = int((expires_at - datetime.now(timezone.utc)).total_seconds() // 60)
 
         background_tasks.add_task(
             send_verification_email,
             user.email,
             user.display_name or user.username,
-            verify_url,
+            raw_code,
             expiry_minutes,
+            tenant_id=user.tenant_id,
         )
     except Exception as exc:
         logger.warning(f"Failed to send verification email for {user.email}: {exc}")
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=Any, status_code=status.HTTP_201_CREATED)
 async def register(
     data: UserRegister,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Register a new user account.
+    """Legacy registration endpoint - kept for backward compatibility.
 
-    The first user to register becomes the platform admin automatically and is
-    assigned to the default company as org_admin. Subsequent users register
-    without a company — they must create or join one via /tenants/self-create
-    or /tenants/join.
-
-    Supports optional SSO registration by providing provider + provider_code.
+    For new implementations, use:
+    - /register/init - Step 1: Initialize registration
+    - /register/sso - SSO registration
+    - /verify-email - Step 3: Verify email
     """
     from app.config import get_settings
     settings = get_settings()
 
     # Handle SSO registration if provider info provided
     if data.provider and data.provider_code:
-        from app.services.auth_registry import auth_provider_registry
-        from app.services.registration_service import registration_service
+        return await _handle_sso_register(data, db)
 
-        # Get provider
-        auth_provider = await auth_provider_registry.get_provider(db, data.provider)
-        if not auth_provider:
-            raise HTTPException(status_code=400, detail=f"Provider '{data.provider}' not supported")
+    # Regular username/password registration - delegate to new flow
+    return await _handle_normal_register(data, background_tasks, db, settings)
 
-        # Perform SSO registration
-        user, is_new, error = await registration_service.register_with_sso(
-            db, data.provider, data.provider_code, auth_provider
-        )
 
-        if error:
-            raise HTTPException(status_code=400, detail=error)
+@router.post("/register/init", response_model=RegisterInitResponse, status_code=status.HTTP_201_CREATED)
+async def register_init(
+    data: RegisterInitRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """Step 1: Initialize registration with account credentials.
 
-        # If no tenant, check for email domain match
-        if not user.tenant_id and data.email:
-            tenant, _ = await registration_service.get_tenant_for_registration(db, email=data.email)
-            if tenant:
-                user.tenant_id = tenant.id
+    Creates a new user with email_verified=False and no tenant.
+    Returns a temporary token for company selection.
+    """
+    from app.config import get_settings
+    settings = get_settings()
+    from app.services.registration_service import registration_service
 
-        # Generate token
-        token = create_access_token(str(user.id), user.role)
+    logger.info(f"[REGISTER_INIT] Starting registration for email={data.email}")
 
-        return TokenResponse(
-            access_token=token,
-            user=UserOut.model_validate(user),
-            needs_company_setup=user.tenant_id is None,
-        )
-
-    # Regular username/password registration
-    # Check existing within resolved tenant (standard check)
-    existing_query = select(User).where(
-        (User.username == data.username) |
-        (User.email.ilike(data.email))
-    )
-    existing_result = await db.execute(existing_query)
-    existing_user = existing_result.scalars().first()
-
-    if existing_user:
-        if existing_user.is_active:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username or email already exists")
-        else:
-            # Requirement 2: Check for ANY user with same email that is inactive
-            # If found, resend verification email instead of creating new user
-            await _send_verification_email_task(existing_user, background_tasks, settings)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered but not verified. A new verification email has been sent. Please check your inbox."
-            )
-
-    # Check if this is the first user (→ platform admin + default company org_admin)
+    # Check if this is the first user (platform admin setup)
     from sqlalchemy import func
     user_count_result = await db.execute(select(func.count()).select_from(User))
     is_first_user = user_count_result.scalar() == 0
+    logger.info(f"[REGISTER_INIT] is_first_user={is_first_user}")
 
-    # Resolve tenant and role
+    # Check if email already exists (any tenant or no tenant)
+    existing_query = select(User).where(User.email.ilike(data.email))
+    existing_result = await db.execute(existing_query)
+    existing_user = existing_result.scalar_one_or_none()
+
+    if existing_user:
+        logger.info(f"[REGISTER_INIT] Email exists: email_verified={existing_user.email_verified}")
+        if not existing_user.email_verified:
+            # Verify password if user exists
+            if not verify_password(data.password, existing_user.password_hash):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Email already registered. Incorrect password."
+                )
+
+            # Resend verification for unverified user
+            await _send_verification_email_task(existing_user, background_tasks, settings)
+            # Return token for company selection
+            token = create_access_token(str(existing_user.id), existing_user.role)
+            return RegisterInitResponse(
+                user_id=existing_user.id,
+                email=existing_user.email,
+                access_token=token,
+                user=UserOut.model_validate(existing_user),
+                message="Email already registered but not verified. Verification code resent.",
+                needs_company_setup=existing_user.tenant_id is None,
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email already registered and verified"
+            )
+
+    # Determine role
+    role = "platform_admin" if is_first_user else "member"
+
+    # For first user: auto-create default tenant
     tenant_uuid = None
-    role = "member"
-    quota_defaults: dict = {}
+    if is_first_user:
+        from app.models.tenant import Tenant
+        default = await db.execute(select(Tenant).where(Tenant.slug == "default"))
+        tenant = default.scalar_one_or_none()
+        if not tenant:
+            tenant = Tenant(name="Default", slug="default", im_provider="web_only")
+            db.add(tenant)
+            await db.flush()
+        tenant_uuid = tenant.id
+        logger.info(f"[REGISTER_INIT] First user - assigned to default tenant={tenant_uuid}")
 
+    logger.info(f"[REGISTER_INIT] Creating user: role={role}, tenant_id={tenant_uuid}")
+
+    # Create user (unverified, no tenant for non-first users)
+    user = User(
+        username=data.username,
+        email=data.email,
+        password_hash=hash_password(data.password),
+        display_name=data.display_name or data.username,
+        role=role,
+        tenant_id=tenant_uuid,  # Only first user gets tenant immediately
+        is_active=False,  # Inactive until email verified
+        email_verified=False,
+    )
+    db.add(user)
+    await db.flush()
+    logger.info(f"[REGISTER_INIT] User created: user_id={user.id}")
+
+    # Create Participant identity
+    from app.models.participant import Participant
+    db.add(Participant(
+        type="user", ref_id=user.id,
+        display_name=user.display_name, avatar_url=user.avatar_url,
+    ))
+    await db.flush()
+
+    # Seed default agents for first user
+    if is_first_user:
+        await db.commit()
+        try:
+            from app.services.agent_seeder import seed_default_agents
+            await seed_default_agents()
+        except Exception as e:
+            logger.warning(f"Failed to seed default agents: {e}")
+
+    # Generate temporary token for company selection
+    token = create_access_token(str(user.id), user.role)
+
+    # Send verification email
+    await _send_verification_email_task(user, background_tasks, settings)
+    logger.info(f"[REGISTER_INIT] Verification email sent to {user.email}")
+
+    return RegisterInitResponse(
+        user_id=user.id,
+        email=user.email,
+        access_token=token,
+        user=UserOut.model_validate(user),
+        message="Registration initiated. Please check your email for verification code.",
+        needs_company_setup=user.tenant_id is None,
+    )
+
+
+@router.post("/register/sso", response_model=TokenResponse)
+async def register_sso(
+    data: SSORegisterRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """SSO registration - completely separate from normal registration flow.
+
+    This endpoint handles OAuth-based registration/login via external providers.
+    """
+    from app.services.auth_registry import auth_provider_registry
     from app.services.registration_service import registration_service
 
+    logger.info(f"[REGISTER_SSO] Starting SSO registration: provider={data.provider}")
+
+    # Get provider
+    auth_provider = await auth_provider_registry.get_provider(db, data.provider)
+    if not auth_provider:
+        raise HTTPException(status_code=400, detail=f"Provider '{data.provider}' not supported")
+
+    # Perform SSO registration
+    user, is_new, error = await registration_service.register_with_sso(
+        db, data.provider, data.code, auth_provider
+    )
+
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
+    # If no tenant, check for email domain match
+    if not user.tenant_id and user.email:
+        tenant, _ = await registration_service.get_tenant_for_registration(
+            db, email=user.email, invitation_code=data.invitation_code
+        )
+        if tenant:
+            user.tenant_id = tenant.id
+            await db.flush()
+
+    # Generate token
+    token = create_access_token(str(user.id), user.role)
+
+    logger.info(f"[REGISTER_SSO] SSO successful: user_id={user.id}, is_new={is_new}")
+
+    return TokenResponse(
+        access_token=token,
+        user=UserOut.model_validate(user),
+        needs_company_setup=user.tenant_id is None,
+    )
+
+
+async def _handle_normal_register(data: UserRegister, background_tasks: BackgroundTasks, db: AsyncSession, settings):
+    """Legacy normal registration handler."""
+    logger.info(f"[REGISTER_LEGACY] email={data.email}")
+
+    from app.services.registration_service import registration_service
+    from sqlalchemy import func
+
+    # Check if first user
+    user_count_result = await db.execute(select(func.count()).select_from(User))
+    is_first_user = user_count_result.scalar() == 0
+
+    # Resolve tenant
+    tenant_uuid = None
     if is_first_user:
         from app.models.tenant import Tenant
         default = await db.execute(select(Tenant).where(Tenant.slug == "default"))
@@ -197,46 +328,47 @@ async def register(
             await db.flush()
         tenant_uuid = tenant.id
         role = "platform_admin"
-        quota_defaults = {
-            "quota_message_limit": tenant.default_message_limit,
-            "quota_message_period": tenant.default_message_period,
-            "quota_max_agents": tenant.default_max_agents,
-            "quota_agent_ttl_hours": tenant.default_agent_ttl_hours,
-        }
     else:
-        # Try to resolve tenant via invitation code or email domain
         tenant, _ = await registration_service.get_tenant_for_registration(
             db, email=data.email, invitation_code=data.invitation_code
         )
         if tenant:
             tenant_uuid = tenant.id
-            quota_defaults = {
-                "quota_message_limit": tenant.default_message_limit,
-                "quota_message_period": tenant.default_message_period,
-                "quota_max_agents": tenant.default_max_agents,
-                "quota_agent_ttl_hours": tenant.default_agent_ttl_hours,
-            }
+        role = "member"
 
-    # Requirement 1: Check if user is bound to an OrgMember
-    is_active = True
-    if not is_first_user:
-        # Check if user matches any OrgMember in the resolved tenant
-        is_bound = False
-        if tenant_uuid:
-            from app.models.org import OrgMember
-            member_query = select(OrgMember).where(
-                OrgMember.email.ilike(data.email),
-                OrgMember.tenant_id == tenant_uuid,
-                OrgMember.user_id == None
+    # Check for existing user in same tenant
+    existing_query = select(User).where(
+        User.email.ilike(data.email),
+        User.tenant_id == tenant_uuid
+    )
+    existing_result = await db.execute(existing_query)
+    existing_user = existing_result.scalar_one_or_none()
+
+    if existing_user:
+        if not existing_user.email_verified:
+            # Verify password
+            if not verify_password(data.password, existing_user.password_hash):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Email already registered. Incorrect password."
+                )
+            
+            await _send_verification_email_task(existing_user, background_tasks, settings)
+            # Return token for company selection (requirement: allow self_create/join even if unverified)
+            token = create_access_token(str(existing_user.id), existing_user.role)
+            return RegisterInitResponse(
+                user_id=existing_user.id,
+                email=existing_user.email,
+                access_token=token,
+                user=UserOut.model_validate(existing_user),
+                message="Email already registered but not verified. Verification code resent.",
+                needs_company_setup=existing_user.tenant_id is None,
             )
-            member_result = await db.execute(member_query)
-            if member_result.scalar_one_or_none():
-                is_bound = True
-        
-        # If not bound, set is_active=False (direct registration)
-        if not is_bound:
-            is_active = False
+        else:
+            raise HTTPException(status_code=409, detail="Email already registered")
 
+    # Create user
+    is_active = is_first_user
     user = User(
         username=data.username,
         email=data.email,
@@ -245,15 +377,12 @@ async def register(
         role=role,
         tenant_id=tenant_uuid,
         is_active=is_active,
-        **quota_defaults,
+        email_verified=False,
     )
     db.add(user)
     await db.flush()
 
-    # Bind to OrgMember if exists (linking platform user to organization structure)
-    await registration_service.bind_org_member(db, user)
-
-    # Auto-create Participant identity for the new user
+    # Create Participant
     from app.models.participant import Participant
     db.add(Participant(
         type="user", ref_id=user.id,
@@ -261,36 +390,46 @@ async def register(
     ))
     await db.flush()
 
-    # Seed default agents after first user (platform admin) registration
+    # Seed default agents for first user
     if is_first_user:
-        await db.commit()  # commit user first so seeder can find the admin
+        await db.commit()
         try:
             from app.services.agent_seeder import seed_default_agents
             await seed_default_agents()
         except Exception as e:
             logger.warning(f"Failed to seed default agents: {e}")
 
-    needs_setup = tenant_uuid is None
-    token = create_access_token(str(user.id), user.role)
+    # Send verification email
+    await _send_verification_email_task(user, background_tasks, settings)
 
-    # Send email verification for non-SSO registrations
-    if not data.provider:
-        await _send_verification_email_task(user, background_tasks, settings)
-
-    return TokenResponse(
-        access_token=token,
+    return RegisterInitResponse(
+        user_id=user.id,
+        email=user.email,
+        access_token=create_access_token(str(user.id), user.role),
         user=UserOut.model_validate(user),
-        needs_company_setup=needs_setup,
+        message="Registration successful. Please verify your email.",
+        needs_company_setup=user.tenant_id is None,
     )
 
 
+async def _handle_sso_register(data: UserRegister, db: AsyncSession):
+    """Legacy SSO registration handler - delegates to new SSO endpoint logic."""
+    # Redirect to new SSO flow
+    sso_data = SSORegisterRequest(
+        provider=data.provider,
+        code=data.provider_code,
+        invitation_code=data.invitation_code
+    )
+    return await register_sso(sso_data, db)
 
-@router.post("/login", response_model=TokenResponse)
-async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
-    """Login with email and password. Supports multi-tenant selection when email matches multiple users."""
+
+
+@router.post("/login", response_model=Any)
+async def login(data: UserLogin, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    """Login with email and password. Supports multi-tenant selection."""
     from app.models.tenant import Tenant
 
-    # Query all users by email (login_identifier)
+    # 1. Query all users by email
     query = select(User).where(User.email.ilike(data.login_identifier))
     result = await db.execute(query)
     all_users = list(result.scalars().all())
@@ -298,82 +437,95 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
     if not all_users:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    # If no tenant_id provided and multiple users exist, return tenant selection
-    if not data.tenant_id and len(all_users) > 1:
-        # Get tenant info for all users
-        tenant_ids = [u.tenant_id for u in all_users if u.tenant_id]
-        tenants_map = {}
-        if tenant_ids:
-            tenants_result = await db.execute(
-                select(Tenant).where(Tenant.id.in_(tenant_ids))
-            )
-            tenants_map = {str(t.id): t for t in tenants_result.scalars().all()}
-
-        tenant_choices = []
-        for u in all_users:
-            tenant = tenants_map.get(str(u.tenant_id)) if u.tenant_id else None
-            tenant_choices.append(TenantChoice(
-                tenant_id=u.tenant_id,
-                tenant_name=tenant.name if tenant else "Default",
-                tenant_slug=tenant.slug if tenant else "",
-            ))
-
-        return MultiTenantResponse(
-            requires_tenant_selection=True,
-            login_identifier=data.login_identifier,
-            tenants=tenant_choices,
-        )
-
-    # Filter by tenant_id if provided
-    users = all_users
-    if data.tenant_id:
-        users = [u for u in all_users if u.tenant_id == data.tenant_id]
-        if not users:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="This account does not belong to this organization.",
-            )
-
-    # Verify password against any matching user
-    user = None
-    for u in users:
-        if verify_password(data.password, u.password_hash):
-            user = u
-            break
-
-    if not user:
+    # 2. Filter users with matching passwords
+    valid_users = [u for u in all_users if verify_password(data.password, u.password_hash)]
+    if not valid_users:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    # Check if user is active
-    if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
 
-    # Check if user's company is disabled
+    # 4. Check for usable accounts (at least one must be active or unverified)
+    if not any(u.is_active or not u.email_verified for u in valid_users):
+         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your account has been disabled.")
+
+    # 5. Handle Tenant Selection and Company Setup (Requirement 1)
+    if not data.tenant_id:
+        # If multiple accounts exist (including one with tenant_id=None), return selection list
+        if len(valid_users) > 1:
+            tenant_ids = [u.tenant_id for u in valid_users if u.tenant_id]
+            tenants_map = {}
+            if tenant_ids:
+                tenants_result = await db.execute(
+                    select(Tenant).where(Tenant.id.in_(tenant_ids))
+                )
+                tenants_map = {str(t.id): t for t in tenants_result.scalars().all()}
+
+            tenant_choices = []
+            for u in valid_users:
+                tenant = tenants_map.get(str(u.tenant_id)) if u.tenant_id else None
+                tenant_choices.append(TenantChoice(
+                    tenant_id=u.tenant_id,
+                    tenant_name=tenant.name if tenant else "Create or Join Organization",
+                    tenant_slug=tenant.slug if tenant else "",
+                ))
+
+            return MultiTenantResponse(
+                requires_tenant_selection=True,
+                login_identifier=data.login_identifier,
+                tenants=tenant_choices,
+            )
+
+        # Only one valid user found
+        user = valid_users[0]
+    else:
+        # Specific tenant requested
+        # Platform admin is allowed to log into any tenant
+        is_platform_admin = any(u.role == "platform_admin" for u in valid_users)
+        
+        if is_platform_admin:
+            # Platform admin can "impersonate" or login into specific tenants
+            user = next((u for u in valid_users if u.role == "platform_admin"), valid_users[0])
+            # If they chose a tenant, and they have an account in it, use that. 
+            # Otherwise use their platform_admin account but acknowledge the tenant selection?
+            # Actually, standard logic:
+            tenant_specific_user = next((u for u in valid_users if u.tenant_id == data.tenant_id), None)
+            user = tenant_specific_user or user
+        else:
+            user = next((u for u in valid_users if u.tenant_id == data.tenant_id), None)
+            if not user:
+                 raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="This account does not belong to the selected organization.",
+                )
+
+    # 6. Final checks for the selected user
+    if not user.email_verified:
+        from app.config import get_settings
+        await _send_verification_email_task(user, background_tasks, get_settings())
+        token = create_access_token(str(user.id), user.role)
+        return TokenResponse(
+            access_token=token,
+            user=UserOut.model_validate(user),
+            needs_company_setup=user.tenant_id is None,
+        )
+
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This specific account is disabled.")
+
     if user.tenant_id:
-        from app.models.tenant import Tenant
         t_result = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
         tenant = t_result.scalar_one_or_none()
         if tenant and not tenant.is_active:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Your company has been disabled. Please contact the platform administrator.",
+                detail="Your organization has been disabled. Please contact the platform administrator.",
             )
 
-    # Tenant-scoped login: when accessing from a company-specific domain,
-    # only allow users who belong to that company (platform_admin exempt)
-    if data.tenant_id and user.role != "platform_admin":
-        if str(user.tenant_id) != str(data.tenant_id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="This account does not belong to this organization.",
-            )
-
-    needs_setup = user.tenant_id is None
+    # 7. Generate Token
     token = create_access_token(str(user.id), user.role)
     return TokenResponse(
         access_token=token,
         user=UserOut.model_validate(user),
-        needs_company_setup=needs_setup,
+        needs_company_setup=user.tenant_id is None,
     )
 
 
@@ -399,33 +551,37 @@ async def forgot_password(
     }
 
     result = await db.execute(select(User).where(User.email == data.email))
-    user = result.scalar_one_or_none()
-    if not user or not user.is_active:
+    users = result.scalars().all()
+    
+    if not users:
         return generic_response
 
-    try:
-        from app.services.password_reset_service import build_password_reset_url, create_password_reset_token
-        from app.services.system_email_service import (
-            get_system_email_config,
-            run_background_email_job,
-            send_password_reset_email,
-        )
+    # Loop through all matching users and send reset email if active
+    for user in users:
+        if not user.is_active:
+            continue
 
-        get_system_email_config()
-        raw_token, expires_at = await create_password_reset_token(user.id)
+        try:
+            from app.services.password_reset_service import build_password_reset_url, create_password_reset_token
+            from app.services.system_email_service import (
+                send_password_reset_email,
+            )
 
-        reset_url = await build_password_reset_url(db, raw_token)
-        expiry_minutes = int((expires_at - datetime.now(timezone.utc)).total_seconds() // 60)
-        background_tasks.add_task(
-            run_background_email_job,
-            send_password_reset_email,
-            user.email,
-            user.display_name or user.username,
-            reset_url,
-            expiry_minutes,
-        )
-    except Exception as exc:
-        logger.warning(f"Failed to process password reset email for {data.email}: {exc}")
+            raw_token, expires_at = await create_password_reset_token(user.id)
+
+            reset_url = await build_password_reset_url(db, raw_token)
+            expiry_minutes = int((expires_at - datetime.now(timezone.utc)).total_seconds() // 60)
+            
+            background_tasks.add_task(
+                send_password_reset_email,
+                user.email,
+                user.display_name or user.username,
+                reset_url,
+                expiry_minutes,
+                tenant_id=user.tenant_id,
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to process password reset email for {data.email} (User ID: {user.id}): {exc}")
 
     return generic_response
 
@@ -445,13 +601,24 @@ async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(
     if not user or not user.is_active:
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
 
-    user.password_hash = hash_password(data.new_password)
+    new_hash = hash_password(data.new_password)
+    user.password_hash = new_hash
+    
+    # Sync password for all matching accounts of this email (active and inactive)
+    from sqlalchemy import update
+    await db.execute(
+        update(User)
+        .where(User.email.ilike(user.email))
+        .values(password_hash=new_hash)
+    )
+    
     await db.flush()
+    await db.commit()
     return {"ok": True}
 
 
 @router.get("/me", response_model=UserOut)
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(current_user: User = Depends(get_authenticated_user)):
     """Get current user profile."""
     return UserOut.model_validate(current_user)
 
@@ -531,8 +698,19 @@ async def change_password(
     if not verify_password(old_password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
 
-    current_user.password_hash = hash_password(new_password)
+    new_hash = hash_password(new_password)
+    current_user.password_hash = new_hash
+    
+    # Sync password for all active accounts of this email
+    from sqlalchemy import update
+    await db.execute(
+        update(User)
+        .where(User.email.ilike(current_user.email), User.is_active == True)
+        .values(password_hash=new_hash)
+    )
+    
     await db.flush()
+    await db.commit()
     return {"ok": True}
 
 
@@ -703,7 +881,10 @@ async def unbind_identity(
 
 @router.post("/verify-email")
 async def verify_email(data: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
-    """Verify email address using a token from the verification email."""
+    """Verify email address using a token from the verification email.
+
+    On success, returns user info and access token to allow immediate login.
+    """
     from app.services.email_verification_service import consume_email_verification_token
 
     token_data = await consume_email_verification_token(data.token)
@@ -724,9 +905,28 @@ async def verify_email(data: VerifyEmailRequest, db: AsyncSession = Depends(get_
 
     user.email_verified = True
     user.is_active = True
+    
+    # Sync password for all active accounts of this email
+    from sqlalchemy import update
+    await db.execute(
+        update(User)
+        .where(User.email.ilike(email), User.is_active == True)
+        .values(password_hash=user.password_hash)
+    )
+    
     await db.flush()
+    await db.commit()
 
-    return {"ok": True, "message": "Email verified successfully"}
+    # Generate token for immediate login
+    token = create_access_token(str(user.id), user.role)
+
+    return {
+        "ok": True,
+        "message": "Email verified successfully",
+        "access_token": token,
+        "user": UserOut.model_validate(user),
+        "needs_company_setup": user.tenant_id is None,
+    }
 
 
 @router.post("/resend-verification")

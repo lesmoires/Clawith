@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func as sqla_func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import get_current_user, require_role
+from app.core.security import get_current_user, require_role, get_authenticated_user
 from app.database import get_db
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -69,10 +69,12 @@ def _slugify(name: str) -> str:
 @router.post("/self-create", response_model=TenantOut, status_code=status.HTTP_201_CREATED)
 async def self_create_company(
     data: TenantCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_authenticated_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new company (self-service). The creator becomes org_admin."""
+    """Create a new company (self-service). The creator becomes org_admin.
+
+    Allows unverified users to create company during registration flow."""
     # Must not already belong to a company
     if current_user.tenant_id is not None:
         raise HTTPException(status_code=400, detail="You already belong to a company")
@@ -119,10 +121,12 @@ class JoinResponse(BaseModel):
 @router.post("/join", response_model=JoinResponse)
 async def join_company(
     data: JoinRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_authenticated_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Join an existing company using an invitation code."""
+    """Join an existing company using an invitation code.
+
+    Allows unverified users to join company during registration flow."""
     if current_user.tenant_id is not None:
         raise HTTPException(status_code=400, detail="You already belong to a company")
 
@@ -202,14 +206,21 @@ async def resolve_tenant_by_domain(
     """Resolve a tenant by its sso_domain or subdomain slug.
 
     Lookup precedence:
-    1. Exact match on tenant.sso_domain (e.g. "acme.clawith.ai")
-    2. Extract slug from "{slug}.clawith.ai" and match tenant.slug
+    1. Exact match on tenant.sso_domain (e.g. "acme.clawith.ai" or "192.168.1.1:3000")
+    2. Match on tenant.sso_domain without port (if input domain has port)
+    3. Extract slug from "{slug}.clawith.ai" and match tenant.slug
     """
     # 1. Try exact sso_domain match first
     result = await db.execute(select(Tenant).where(Tenant.sso_domain == domain))
     tenant = result.scalar_one_or_none()
 
-    # 2. Fallback: extract slug from subdomain pattern
+    # 2. Try match without port if domain has one
+    if not tenant and ":" in domain:
+        domain_no_port = domain.split(":")[0]
+        result = await db.execute(select(Tenant).where(Tenant.sso_domain == domain_no_port))
+        tenant = result.scalar_one_or_none()
+
+    # 3. Fallback: extract slug from subdomain pattern
     if not tenant:
         import re
         m = re.match(r"^([a-z0-9][a-z0-9\-]*[a-z0-9])\.clawith\.ai$", domain.lower())
