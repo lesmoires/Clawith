@@ -1051,13 +1051,17 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "agentbay_browser_navigate",
-            "description": "使用 AgentBay 浏览器环境访问指定 URL。可用于网页抓取、截图等。需要先配置 AgentBay 通道。Tip: after navigating, use browser_observe to identify elements, then browser_type/browser_click to interact. IMPORTANT: Do NOT call navigate again after clicking or typing just to take a screenshot — that will refresh the page and lose all your progress. Use agentbay_browser_screenshot instead.",
+            "description": "使用 AgentBay 浏览器环境访问指定 URL。访问后会自动截图以便你观察当前页面状态。Tip: after navigating, use browser_observe to identify elements, then browser_type/browser_click to interact. IMPORTANT: Do NOT call navigate again after clicking or typing — that will refresh the page and lose all your progress. Use agentbay_browser_screenshot instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "url": {"type": "string", "description": "要访问的网址，如 https://example.com"},
                     "wait_for": {"type": "string", "description": "等待特定元素出现的选择器（可选）"},
-                    "screenshot": {"type": "boolean", "description": "是否截图并返回图片", "default": False},
+                    "save_to_workspace": {
+                        "type": "boolean",
+                        "description": "Set to true ONLY when this screenshot is important evidence or a final result the user explicitly asked to see in their file manager. Default false: screenshot is used only for your internal analysis and is NOT shown to the user or saved to disk.",
+                        "default": False,
+                    },
                 },
                 "required": ["url"],
             }
@@ -1070,7 +1074,13 @@ AGENT_TOOLS = [
             "description": "Take a screenshot of the CURRENT browser page without navigating anywhere. Use this after clicking, typing, or submitting a form to verify the result — it preserves the current page state. Never call browser_navigate just to take a screenshot.",
             "parameters": {
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "save_to_workspace": {
+                        "type": "boolean",
+                        "description": "Set to true ONLY when this screenshot is important evidence or a final result the user explicitly asked to see in their file manager. Default false: screenshot is used only for your internal analysis and is NOT shown to the user or saved to disk.",
+                        "default": False,
+                    },
+                },
             }
         }
     },
@@ -6027,48 +6037,72 @@ async def _list_published_pages(agent_id: uuid.UUID) -> str:
 # ─── AgentBay Tool Handlers ─────────────────────────────────────
 
 async def _agentbay_browser_navigate(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
-    """AgentBay 浏览器导航。"""
+    """AgentBay browser navigation.
+
+    After navigating, always captures a screenshot.  Whether that screenshot is
+    stored to disk or kept only in memory depends on save_to_workspace:
+      - False (default): bytes are held in the process-level memory cache;
+        the returned sentinel [ImageID: ...] is consumed by vision_inject.py
+        in the same request cycle and then discarded — zero disk writes.
+      - True: screenshot is written to workspace/ so the user can see it in
+        their file manager, and a Markdown link is included in the return value.
+    """
     if not agent_id:
         return "❌ AgentBay 工具需要 agent 上下文"
 
     from app.services.agentbay_client import get_agentbay_client_for_agent
 
     url = arguments.get("url", "")
-    screenshot = arguments.get("screenshot", False)
     wait_for = arguments.get("wait_for", "")
+    save_to_workspace = arguments.get("save_to_workspace", False)
 
     try:
         client = await get_agentbay_client_for_agent(agent_id, "browser")
-        result = await client.browser_navigate(url, wait_for=wait_for, screenshot=screenshot)
+        # Always request a screenshot for navigation so the model can observe the result
+        result = await client.browser_navigate(url, wait_for=wait_for, screenshot=True)
 
-        # 格式化返回结果
+        # Build text parts from the navigation result
         parts = [f"✅ 已访问: {url}"]
         if result.get("title"):
             parts.append(f"标题: {result['title']}")
         if result.get("content"):
-            content = result["content"][:3000]  # 限制长度
+            content = result["content"][:3000]
             parts.append(f"内容:\n{content}")
-        logger.info(f"[AgentBay] Browser navigate result: {result['title']}")
+        logger.info(f"[AgentBay] Browser navigate result: {result.get('title')}")
+
         screenshot_data = result.get("screenshot")
-        if screenshot and screenshot_data:
-            import time
-            rel_path = f"workspace/screenshot_{int(time.time())}.png"
-            screenshot_path = ws / rel_path
-            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
-            # data from agent.screenshot can be base64 string or bytes.
+        if screenshot_data:
+            import base64 as _base64
+            # Normalise to raw bytes regardless of whether it's a data URL or plain b64
             if isinstance(screenshot_data, str):
-                import base64
                 if screenshot_data.startswith("data:image"):
                     screenshot_data = screenshot_data.split(",", 1)[1]
-                screenshot_data = base64.b64decode(screenshot_data)
-            screenshot_path.write_bytes(screenshot_data)
-            
-            # 告诉大模型可以直接用 Markdown 显示出来
-            parts.append(
-                f"截图: 已保存至 `{rel_path}`。\n\n"
-                f"⚠️ 要在聊天框里向用户展示该截图，请必须在回复中包含以下原样 Markdown 语法：\n"
-                f"![浏览器截图](/api/agents/{agent_id}/files/download?path={rel_path})"
-            )
+                raw_bytes = _base64.b64decode(screenshot_data)
+            elif isinstance(screenshot_data, bytes):
+                raw_bytes = screenshot_data
+            else:
+                raw_bytes = None
+
+            if raw_bytes:
+                if save_to_workspace:
+                    # Persist to workspace/ so the user can see the file
+                    import time as _time
+                    rel_path = f"workspace/screenshot_{int(_time.time())}.png"
+                    screenshot_path = ws / rel_path
+                    screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+                    screenshot_path.write_bytes(raw_bytes)
+                    parts.append(
+                        f"截图已保存至 `{rel_path}`。\n"
+                        f"Include this Markdown in your reply to show it to the user:\n"
+                        f"![Browser Screenshot](/api/agents/{agent_id}/files/download?path={rel_path})"
+                    )
+                    logger.info(f"[AgentBay] Browser navigate screenshot saved to {rel_path}")
+                else:
+                    # Store in memory only — vision_inject.py will consume it
+                    from app.services.vision_inject import store_temp_screenshot
+                    img_id = store_temp_screenshot(raw_bytes)
+                    parts.append(f"Internal screenshot captured for analysis. [ImageID: {img_id}]")
+                    logger.info(f"[AgentBay] Browser navigate screenshot stored in memory (id={img_id})")
 
         return "\n\n".join(parts)
 
@@ -6080,15 +6114,22 @@ async def _agentbay_browser_navigate(agent_id: Optional[uuid.UUID], ws: Path, ar
 
 
 async def _agentbay_browser_screenshot(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
-    """Take a screenshot of the current browser page without navigating.
+    """Take a screenshot of the CURRENT browser page without navigating.
 
-    This is the correct way to verify the result of a click, type, or form submit.
-    Do NOT call browser_navigate again just to take a screenshot — that refreshes the page.
+    Correct way to observe the result of a click, type, or form submit — never
+    call browser_navigate again just to screenshot, that refreshes the page.
+
+    By default (save_to_workspace=False) the image is held in the process-level
+    memory cache and consumed once by the LLM vision pipeline — no disk write,
+    nothing shown in the user's file manager or chat history.
+    Set save_to_workspace=True to persist and display the image.
     """
     if not agent_id:
         return "❌ AgentBay 工具需要 agent 上下文"
 
     from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    save_to_workspace = arguments.get("save_to_workspace", False)
 
     try:
         client = await get_agentbay_client_for_agent(agent_id, "browser")
@@ -6098,22 +6139,36 @@ async def _agentbay_browser_screenshot(agent_id: Optional[uuid.UUID], ws: Path, 
         if not screenshot_data:
             return "❌ 截图失败：未返回图像数据"
 
-        import time, base64
-        rel_path = f"workspace/screenshot_{int(time.time())}.png"
-        screenshot_path = ws / rel_path
-        screenshot_path.parent.mkdir(parents=True, exist_ok=True)
-
+        import base64 as _base64
+        # Normalise to raw bytes
         if isinstance(screenshot_data, str):
             if screenshot_data.startswith("data:image"):
                 screenshot_data = screenshot_data.split(",", 1)[1]
-            screenshot_data = base64.b64decode(screenshot_data)
-        screenshot_path.write_bytes(screenshot_data)
+            raw_bytes = _base64.b64decode(screenshot_data)
+        elif isinstance(screenshot_data, bytes):
+            raw_bytes = screenshot_data
+        else:
+            return "❌ 截图失败：未知数据格式"
 
-        return (
-            f"✅ 当前页面截图已保存至 `{rel_path}`。\n\n"
-            f"⚠️ 要在聊天框里向用户展示该截图，请必须在回复中包含以下原样 Markdown 语法：\n"
-            f"![浏览器截图](/api/agents/{agent_id}/files/download?path={rel_path})"
-        )
+        if save_to_workspace:
+            # Persist to workspace/ so the user can see the file
+            import time as _time
+            rel_path = f"workspace/screenshot_{int(_time.time())}.png"
+            screenshot_path = ws / rel_path
+            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+            screenshot_path.write_bytes(raw_bytes)
+            logger.info(f"[AgentBay] Browser screenshot saved to workspace: {rel_path}")
+            return (
+                f"✅ 截图已保存至 `{rel_path}`。\n"
+                f"Include this Markdown in your reply to show it to the user:\n"
+                f"![Browser Screenshot](/api/agents/{agent_id}/files/download?path={rel_path})"
+            )
+        else:
+            # Store in memory only — vision_inject.py will consume it for LLM vision
+            from app.services.vision_inject import store_temp_screenshot
+            img_id = store_temp_screenshot(raw_bytes)
+            logger.info(f"[AgentBay] Browser screenshot stored in memory (id={img_id})")
+            return f"Internal screenshot captured for analysis. [ImageID: {img_id}]"
 
     except RuntimeError as e:
         return f"❌ {str(e)}"
@@ -6554,23 +6609,59 @@ def _save_screenshot_to_workspace(agent_id: uuid.UUID, ws: Path, data) -> str:
 
 
 async def _agentbay_computer_screenshot(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
-    """Take a screenshot of the AgentBay cloud desktop."""
+    """Take a screenshot of the AgentBay cloud desktop.
+
+    By default (save_to_workspace=False) the image is held in the process-level
+    memory cache for LLM vision analysis only — no disk write, nothing shown in
+    the user's file manager or chat history.
+    Set save_to_workspace=True to persist and display the image.
+    """
     if not agent_id:
         return "AgentBay tools require agent context"
 
     from app.services.agentbay_client import get_agentbay_client_for_agent
 
+    save_to_workspace = arguments.get("save_to_workspace", False)
+
     try:
         client = await get_agentbay_client_for_agent(agent_id, "computer")
         result = await client.computer_screenshot()
 
-        if result.get("success") and result.get("data"):
-            screenshot_info = _save_screenshot_to_workspace(agent_id, ws, result["data"])
-            if screenshot_info:
-                return f"Desktop screenshot captured.\n\n{screenshot_info}"
-            return "Screenshot captured but could not save to workspace."
-        else:
+        if not (result.get("success") and result.get("data")):
             return f"Screenshot failed: {result.get('error_message', 'Unknown error')}"
+
+        raw_data = result["data"]
+
+        # Normalise to raw bytes regardless of SDK return format
+        import base64 as _base64
+        if isinstance(raw_data, str):
+            if raw_data.startswith("data:image"):
+                raw_data = raw_data.split(",", 1)[1]
+            raw_bytes = _base64.b64decode(raw_data)
+        elif isinstance(raw_data, bytes):
+            raw_bytes = raw_data
+        else:
+            return "Screenshot captured but data format is unrecognised."
+
+        if save_to_workspace:
+            # Persist to workspace/ for user visibility
+            import time as _time
+            rel_path = f"workspace/desktop-screenshot-{int(_time.time())}.png"
+            screenshot_path = ws / rel_path
+            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+            screenshot_path.write_bytes(raw_bytes)
+            logger.info(f"[AgentBay] Desktop screenshot saved to workspace: {rel_path}")
+            return (
+                f"Desktop screenshot saved to `{rel_path}`.\n"
+                f"Include this Markdown in your reply to show it to the user:\n"
+                f"![Desktop Screenshot](/api/agents/{agent_id}/files/download?path={rel_path})"
+            )
+        else:
+            # Store in memory only — vision_inject.py will consume it for LLM vision
+            from app.services.vision_inject import store_temp_screenshot
+            img_id = store_temp_screenshot(raw_bytes)
+            logger.info(f"[AgentBay] Desktop screenshot stored in memory (id={img_id})")
+            return f"Internal desktop screenshot captured for analysis. [ImageID: {img_id}]"
 
     except RuntimeError as e:
         return f"{str(e)}. Please configure AgentBay in Agent settings."
