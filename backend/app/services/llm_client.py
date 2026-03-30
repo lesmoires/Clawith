@@ -1388,6 +1388,17 @@ class AnthropicClient(LLMClient):
             "anthropic-beta": "prompt-caching-2024-07-31",
         }
 
+    def _normalize_base_url(self) -> str:
+        """Normalize base URL by stripping trailing API paths."""
+        url = self.base_url.rstrip("/")
+        if url.endswith("/v1/messages"):
+            url = url[: -len("/v1/messages")]
+        elif url.endswith("/v1/chat/completions"):
+            url = url[: -len("/v1/chat/completions")]
+        elif url.endswith("/v1"):
+            url = url[: -len("/v1")]
+        return url
+
     def _build_payload(
         self,
         messages: list[LLMMessage],
@@ -1482,7 +1493,7 @@ class AnthropicClient(LLMClient):
         **kwargs: Any,
     ) -> LLMResponse:
         """Non-streaming completion."""
-        url = f"{self.base_url.rstrip('/')}/v1/messages"
+        url = f"{self._normalize_base_url()}/v1/messages"
         payload = self._build_payload(messages, tools, temperature, max_tokens, stream=False, **kwargs)
 
         client = await self._get_client()
@@ -1545,7 +1556,7 @@ class AnthropicClient(LLMClient):
         **kwargs: Any,
     ) -> LLMResponse:
         """Streaming completion."""
-        url = f"{self.base_url.rstrip('/')}/v1/messages"
+        url = f"{self._normalize_base_url()}/v1/messages"
         payload = self._build_payload(messages, tools, temperature, max_tokens, stream=True, **kwargs)
 
         full_content = ""
