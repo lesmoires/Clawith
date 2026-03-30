@@ -493,4 +493,68 @@ class FeishuService:
             )
             return resp.json()
 
+    # --- Docs API ---
+    async def read_feishu_doc(self, app_id: str, app_secret: str, document_id: str) -> dict:
+        """Get pure text content of a new-version Feishu Doc (docx)."""
+        tenant_token = await self.get_tenant_access_token(app_id, app_secret)
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"https://open.feishu.cn/open-apis/docx/v1/documents/{document_id}/raw_content",
+                headers={"Authorization": f"Bearer {tenant_token}"}
+            )
+            return resp.json()
+
+    async def create_feishu_doc(self, app_id: str, app_secret: str, folder_token: str | None = None, title: str = "Untitled Document") -> dict:
+        """Create a new Feishu Doc (docx)."""
+        tenant_token = await self.get_tenant_access_token(app_id, app_secret)
+        body = {"title": title}
+        if folder_token:
+            body["folder_token"] = folder_token
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                "https://open.feishu.cn/open-apis/docx/v1/documents",
+                json=body,
+                headers={"Authorization": f"Bearer {tenant_token}"}
+            )
+            return resp.json()
+
+    async def append_feishu_doc(self, app_id: str, app_secret: str, document_id: str, content: str) -> dict:
+        """Append text to the end of a Feishu Doc (document_id is also the root block_id)."""
+        tenant_token = await self.get_tenant_access_token(app_id, app_secret)
+        # Convert plain text to a text block
+        body = {
+            "children": [
+                {
+                    "block_type": 2, # Text block (paragraph)
+                    "text": {
+                        "elements": [
+                            {
+                                "text_run": {
+                                    "content": content
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"https://open.feishu.cn/open-apis/docx/v1/documents/{document_id}/blocks/{document_id}/children",
+                json=body,
+                headers={"Authorization": f"Bearer {tenant_token}"}
+            )
+            return resp.json()
+
+    async def append_feishu_doc_blocks(self, app_id: str, app_secret: str, document_id: str, block_id: str, blocks: list) -> dict:
+        """Append pre-parsed Markdown blocks to a Feishu doc block (e.g., body_block_id)."""
+        tenant_token = await self.get_tenant_access_token(app_id, app_secret)
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                f"https://open.feishu.cn/open-apis/docx/v1/documents/{document_id}/blocks/{block_id}/children",
+                json={"children": blocks},
+                headers={"Authorization": f"Bearer {tenant_token}"}
+            )
+            return resp.json()
+
 feishu_service = FeishuService()

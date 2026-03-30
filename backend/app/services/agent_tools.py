@@ -5203,6 +5203,94 @@ async def _bitable_delete_record(agent_id: uuid.UUID, arguments: dict) -> str:
 
 # ─── Feishu Document Tools ──────────────────────────────────────────
 
+async def _resolve_docx_document_token(agent_id: uuid.UUID, parsed_url: dict) -> str | None:
+    doc_token = parsed_url.get("document_token")
+    if doc_token:
+        return doc_token
+    wiki_token = parsed_url.get("wiki_token")
+    if wiki_token:
+        cred = await _get_feishu_token(agent_id)
+        if cred:
+            _, token = cred
+            node_info = await _feishu_wiki_get_node(wiki_token, token)
+            if node_info and node_info.get("obj_token"):
+                return node_info["obj_token"]
+    return None
+
+async def _feishu_read_doc(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Read full text content of a Feishu Docx."""
+    url = arguments.get("url", "")
+    parsed = _parse_feishu_url(url)
+    doc_token = await _resolve_docx_document_token(agent_id, parsed)
+    if not doc_token:
+        return "Failed: Could not extract Document token from the URL."
+        
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
+        return "Failed: Feishu app credentials not configured for this agent."
+        
+    from app.services.feishu_service import feishu_service
+    try:
+        resp = await feishu_service.read_feishu_doc(app_id, app_secret, doc_token)
+        err = _check_feishu_err(resp)
+        if err: return err
+        
+        content = resp.get("data", {}).get("content", "")
+        if not content:
+            return "OK: Document is empty or content is unavailable."
+        return f"OK: Document Content:\n{content}"
+    except Exception as e:
+        return f"Failed: {str(e)[:300]}"
+
+async def _feishu_create_doc(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Create a new blank Feishu Docx."""
+    title = arguments.get("title", "Untitled Document")
+    folder_token = arguments.get("folder_token", "")
+    
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
+        return "Failed: Feishu app credentials not configured for this agent."
+        
+    from app.services.feishu_service import feishu_service
+    try:
+        resp = await feishu_service.create_feishu_doc(app_id, app_secret, folder_token or None, title)
+        err = _check_feishu_err(resp)
+        if err: return err
+        
+        doc = resp.get("data", {}).get("document", {})
+        doc_id = doc.get("document_id")
+        url = f"https://open.feishu.cn/docx/{doc_id}"
+        return f"OK: Document created perfectly. Document ID: {doc_id}\nURL: {url}"
+    except Exception as e:
+        return f"Failed: {str(e)[:300]}"
+
+async def _feishu_append_doc(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Append text to the bottom of a Feishu Docx."""
+    url = arguments.get("url", "")
+    content = arguments.get("content", "")
+    if not content:
+        return "Failed: Content to append cannot be empty."
+        
+    parsed = _parse_feishu_url(url)
+    doc_token = await _resolve_docx_document_token(agent_id, parsed)
+    if not doc_token:
+        return "Failed: Could not extract Document token from the URL."
+        
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
+        return "Failed: Feishu app credentials not configured for this agent."
+        
+    from app.services.feishu_service import feishu_service
+    try:
+        # Feishu uses the document_id as the root block_id to append entirely to the document
+        resp = await feishu_service.append_feishu_doc(app_id, app_secret, doc_token, content)
+        err = _check_feishu_err(resp)
+        if err: return err
+        
+        return "OK: Content appended successfully to the end of the document."
+    except Exception as e:
+        return f"Failed: {str(e)[:300]}"
+
 # ─── Feishu Wiki Tools ───────────────────────────────────────────────────────
 
 async def _feishu_wiki_get_node(token_str: str, auth_token: str) -> dict | None:
@@ -5305,21 +5393,26 @@ async def _feishu_wiki_list(agent_id: uuid.UUID, arguments: dict) -> str:
 
 
 async def _feishu_doc_read(agent_id: uuid.UUID, arguments: dict) -> str:
-    import httpx
     document_token = arguments.get("document_token", "").strip()
     if not document_token:
-        return "❌ Missing required argument 'document_token'"
+        url = arguments.get("url", "")
+        parsed = _parse_feishu_url(url)
+        document_token = parsed.get("document_token", parsed.get("wiki_token", ""))
+        
+    if not document_token:
+        return "Failed: Missing required argument 'document_token'"
     max_chars = min(int(arguments.get("max_chars", 6000)), 20000)
 
-    creds = await _get_feishu_token(agent_id)
-    if not creds:
-        return "❌ Agent has no Feishu channel configured."
-    _, token = creds
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
+        return "Failed: Feishu app credentials not configured for this agent."
 
-    # Auto-detect wiki node tokens: try get_node first and use obj_token for reading
+    from app.services.feishu_service import feishu_service
+    tenant_token = await feishu_service.get_tenant_access_token(app_id, app_secret)
+    
     read_token = document_token
     wiki_hint = ""
-    node_info = await _feishu_wiki_get_node(document_token, token)
+    node_info = await _feishu_wiki_get_node(document_token, tenant_token)
     if node_info and node_info.get("obj_token"):
         read_token = node_info["obj_token"]
         if node_info.get("has_child"):
@@ -5328,90 +5421,82 @@ async def _feishu_doc_read(agent_id: uuid.UUID, arguments: dict) -> str:
                 "使用 `feishu_wiki_list` 工具（传入相同的 node_token）可以查看所有子页面列表。"
             )
 
-    async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.get(
-            f"https://open.feishu.cn/open-apis/docx/v1/documents/{read_token}/raw_content",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"lang": 0},
-        )
+    try:
+        resp = await feishu_service.read_feishu_doc(app_id, app_secret, read_token)
+        err = _check_feishu_err(resp)
+        if err: return err
+        
+        content = resp.get("data", {}).get("content", "")
+        if not content:
+            return f"📄 Document '{document_token}' is empty.{wiki_hint}"
 
-    data = resp.json()
-    if data.get("code") != 0:
-        return f"❌ Failed to read document: {data.get('msg')} (code {data.get('code')})"
+        truncated = ""
+        if len(content) > max_chars:
+            content = content[:max_chars]
+            truncated = f"\n\n_(Truncated to {max_chars} chars)_"
 
-    content = data.get("data", {}).get("content", "")
-    if not content:
-        return f"📄 Document '{document_token}' is empty.{wiki_hint}"
-
-    truncated = ""
-    if len(content) > max_chars:
-        content = content[:max_chars]
-        truncated = f"\n\n_(Truncated to {max_chars} chars)_"
-
-    return f"📄 **Document content** (`{document_token}`):\n\n{content}{truncated}{wiki_hint}"
+        return f"📄 **Document content** (`{document_token}`):\n\n{content}{truncated}{wiki_hint}"
+    except Exception as e:
+        return f"Failed: {str(e)[:300]}"
 
 
 async def _feishu_doc_create(agent_id: uuid.UUID, arguments: dict) -> str:
-    import httpx
     title = arguments.get("title", "").strip()
     if not title:
-        return "❌ Missing required argument 'title'"
+        return "Failed: Missing required argument 'title'"
 
-    creds = await _get_feishu_token(agent_id)
-    if not creds:
-        return "❌ Agent has no Feishu channel configured."
-    _, token = creds
-    headers = {"Authorization": f"Bearer {token}"}
-
-    body: dict = {"title": title}
-    if arguments.get("folder_token"):
-        body["folder_token"] = arguments["folder_token"]
-
-    async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.post(
-            "https://open.feishu.cn/open-apis/docx/v1/documents",
-            json=body,
-            headers=headers,
-        )
-
-    data = resp.json()
-    if data.get("code") != 0:
-        return f"❌ Failed to create document: {data.get('msg')} (code {data.get('code')})"
-
-    doc_token = data.get("data", {}).get("document", {}).get("document_id", "")
-    doc_url = f"https://bytedance.larkoffice.com/docx/{doc_token}"
-
-    # Auto-share with the Feishu sender so they can access the document
-    share_note = ""
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
+        return "Failed: Feishu app credentials not configured for this agent."
+        
+    folder_token = arguments.get("folder_token")
+    
+    from app.services.feishu_service import feishu_service
     try:
-        sender_open_id = channel_feishu_sender_open_id.get(None)
-        if sender_open_id and doc_token:
-            async with httpx.AsyncClient(timeout=10) as client:
-                share_resp = await client.post(
-                    f"https://open.feishu.cn/open-apis/drive/v1/permissions/{doc_token}/members",
-                    params={"type": "docx", "need_notification": "false"},
-                    json={
-                        "member_type": "openid",
-                        "member_id": sender_open_id,
-                        "perm": "full_access",
-                    },
-                    headers=headers,
-                )
-            sr = share_resp.json()
-            if sr.get("code") == 0:
-                share_note = "\n✅ 已自动为你开通访问权限。"
-            else:
-                share_note = f"\n⚠️ 自动授权失败（{sr.get('code')}），你可能需要手动在飞书前端打开文档。"
-    except Exception as _e:
-        share_note = f"\n⚠️ 自动授权异常: {_e}"
+        resp = await feishu_service.create_feishu_doc(app_id, app_secret, folder_token, title)
+        err = _check_feishu_err(resp)
+        if err: return err
+        
+        doc = resp.get("data", {}).get("document", {})
+        doc_token = doc.get("document_id", "")
+        doc_url = f"https://open.feishu.cn/docx/{doc_token}"
+        
+        # Auto-share with the Feishu sender so they can access the document
+        share_note = ""
+        try:
+            from app.api.websocket_chat import channel_feishu_sender_open_id
+            sender_open_id = channel_feishu_sender_open_id.get(None)
+            if sender_open_id and doc_token:
+                import httpx
+                tenant_token = await feishu_service.get_tenant_access_token(app_id, app_secret)
+                async with httpx.AsyncClient(timeout=10) as client:
+                    share_resp = await client.post(
+                        f"https://open.feishu.cn/open-apis/drive/v1/permissions/{doc_token}/members",
+                        params={"type": "docx", "need_notification": "false"},
+                        json={
+                            "member_type": "openid",
+                            "member_id": sender_open_id,
+                            "perm": "full_access",
+                        },
+                        headers={"Authorization": f"Bearer {tenant_token}"},
+                    )
+                sr = share_resp.json()
+                if sr.get("code") == 0:
+                    share_note = "\n✅ 已自动为你开通访问权限。"
+                else:
+                    share_note = f"\n⚠️ 自动授权失败（{sr.get('code')}），你可能需要手动在飞书前端搜索此文件。"
+        except Exception as _e:
+            share_note = f"\n⚠️ 自动授权异常: {_e}"
 
-    return (
-        f"✅ 文档创建成功！{share_note}\n"
-        f"标题：{title}\n"
-        f"Token：{doc_token}\n"
-        f"🔗 访问链接：{doc_url}\n"
-        f"下一步：调用 feishu_doc_append(document_token=\"{doc_token}\", content=\"...\") 写入正文内容。"
-    )
+        return (
+            f"✅ 文档创建成功！{share_note}\n"
+            f"标题：{title}\n"
+            f"Token：{doc_token}\n"
+            f"🔗 访问链接：{doc_url}\n"
+            f"下一步：调用 feishu_doc_append(document_token=\"{doc_token}\", content=\"...\") 写入正文内容。"
+        )
+    except Exception as e:
+        return f"Failed: {str(e)[:300]}"
 
 
 def _parse_inline_markdown(text: str) -> list[dict]:
@@ -5575,53 +5660,62 @@ def _markdown_to_feishu_blocks(markdown: str) -> list[dict]:
 
 
 async def _feishu_doc_append(agent_id: uuid.UUID, arguments: dict) -> str:
-    import httpx
     document_token = arguments.get("document_token", "").strip()
+    if not document_token:
+        url = arguments.get("url", "")
+        parsed = _parse_feishu_url(url)
+        document_token = parsed.get("document_token", parsed.get("wiki_token", ""))
+        
     content = arguments.get("content", "").strip()
     if not document_token:
-        return "❌ Missing required argument 'document_token'"
+        return "Failed: Missing required argument 'document_token'"
     if not content:
-        return "❌ Missing required argument 'content'"
+        return "Failed: Missing required argument 'content'"
 
-    creds = await _get_feishu_token(agent_id)
-    if not creds:
-        return "❌ Agent has no Feishu channel configured."
-    _, token = creds
-    headers = {"Authorization": f"Bearer {token}"}
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
+        return "Failed: Feishu app credentials not configured for this agent."
+
+    from app.services.feishu_service import feishu_service
+    tenant_token = await feishu_service.get_tenant_access_token(app_id, app_secret)
 
     # For wiki node tokens, use the obj_token for the docx API
-    node_info = await _feishu_wiki_get_node(document_token, token)
+    node_info = await _feishu_wiki_get_node(document_token, tenant_token)
     docx_token = node_info["obj_token"] if (node_info and node_info.get("obj_token")) else document_token
 
-    async with httpx.AsyncClient(timeout=20) as client:
-        meta = (await client.get(
-            f"https://open.feishu.cn/open-apis/docx/v1/documents/{docx_token}",
-            headers=headers,
-        )).json()
-        if meta.get("code") != 0:
-            return f"❌ Cannot access document: {meta.get('msg')}"
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=20) as client:
+            meta_resp = (await client.get(
+                f"https://open.feishu.cn/open-apis/docx/v1/documents/{docx_token}",
+                headers={"Authorization": f"Bearer {tenant_token}"},
+            )).json()
+            err = _check_feishu_err(meta_resp)
+            if err: return err
 
-        body_block_id = (
-            meta.get("data", {}).get("document", {}).get("body", {}).get("block_id")
-            or docx_token
+            body_block_id = (
+                meta_resp.get("data", {}).get("document", {}).get("body", {}).get("block_id")
+                or docx_token
+            )
+
+            children = _markdown_to_feishu_blocks(content)
+
+            result = (await client.post(
+                f"https://open.feishu.cn/open-apis/docx/v1/documents/{docx_token}/blocks/{body_block_id}/children",
+                json={"children": children, "index": -1}, # -1 appends to end
+                headers={"Authorization": f"Bearer {tenant_token}"},
+            )).json()
+
+            err = _check_feishu_err(result)
+            if err: return err
+
+        doc_url = f"https://open.feishu.cn/docx/{docx_token}"
+        return (
+            f"✅ 已写入 {len(children)} 个段落到文档。\n"
+            f"🔗 文档直链（原文发给用户，勿修改）：{doc_url}"
         )
-
-        children = _markdown_to_feishu_blocks(content)
-
-        result = (await client.post(
-            f"https://open.feishu.cn/open-apis/docx/v1/documents/{docx_token}/blocks/{body_block_id}/children",
-            json={"children": children, "index": -1},
-            headers=headers,
-        )).json()
-
-    if result.get("code") != 0:
-        return f"❌ Failed to append: {result.get('msg')} (code {result.get('code')})"
-
-    doc_url = f"https://bytedance.larkoffice.com/docx/{docx_token}"
-    return (
-        f"✅ 已写入 {len(children)} 个段落到文档。\n"
-        f"🔗 文档直链（原文发给用户，勿修改）：{doc_url}"
-    )
+    except Exception as e:
+        return f"Failed: {str(e)[:300]}"
 
 
 # ─── Feishu Document Share ────────────────────────────────────────────────────
