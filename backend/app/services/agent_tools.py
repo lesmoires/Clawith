@@ -6493,7 +6493,11 @@ async def _agentbay_browser_navigate(agent_id: Optional[uuid.UUID], ws: Path, ar
                     # Store in memory only — vision_inject.py will consume it
                     from app.services.vision_inject import store_temp_screenshot
                     img_id = store_temp_screenshot(raw_bytes)
-                    parts.append(f"Internal screenshot captured for analysis. [ImageID: {img_id}]")
+                    parts.append(
+                        f"Internal screenshot captured for analysis. [ImageID: {img_id}]\n"
+                        f"NOTE: This screenshot is for YOUR eyes only (LLM vision). The user CANNOT see it. "
+                        f"If the user asked to SEE a screenshot, call this tool again with save_to_workspace=true."
+                    )
                     logger.info(f"[AgentBay] Browser navigate screenshot stored in memory (id={img_id})")
 
         return "\n\n".join(parts)
@@ -6560,7 +6564,11 @@ async def _agentbay_browser_screenshot(agent_id: Optional[uuid.UUID], ws: Path, 
             from app.services.vision_inject import store_temp_screenshot
             img_id = store_temp_screenshot(raw_bytes)
             logger.info(f"[AgentBay] Browser screenshot stored in memory (id={img_id})")
-            return f"Internal screenshot captured for analysis. [ImageID: {img_id}]"
+            return (
+                f"Internal screenshot captured for analysis. [ImageID: {img_id}]\n"
+                f"NOTE: This screenshot is for YOUR eyes only (LLM vision). The user CANNOT see it. "
+                f"If the user asked to SEE a screenshot, call this tool again with save_to_workspace=true."
+            )
 
     except RuntimeError as e:
         return f"❌ {str(e)}"
@@ -7053,7 +7061,11 @@ async def _agentbay_computer_screenshot(agent_id: Optional[uuid.UUID], ws: Path,
             from app.services.vision_inject import store_temp_screenshot
             img_id = store_temp_screenshot(raw_bytes)
             logger.info(f"[AgentBay] Desktop screenshot stored in memory (id={img_id})")
-            return f"Internal desktop screenshot captured for analysis. [ImageID: {img_id}]"
+            return (
+                f"Internal desktop screenshot captured for analysis. [ImageID: {img_id}]\n"
+                f"NOTE: This screenshot is for YOUR eyes only (LLM vision). The user CANNOT see it. "
+                f"If the user asked to SEE a screenshot, call this tool again with save_to_workspace=true."
+            )
 
     except RuntimeError as e:
         return f"{str(e)}. Please configure AgentBay in Agent settings."
