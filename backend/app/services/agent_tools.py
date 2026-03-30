@@ -4916,7 +4916,284 @@ def _iso_to_ts(iso_str: str) -> float:
     raise ValueError(f"Cannot parse datetime: {iso_str!r}")
 
 
-# ─── Feishu Document Tools ────────────────────────────────────────────────────
+async def _get_feishu_credentials(agent_id: uuid.UUID) -> tuple[str, str]:
+    """Retrieve Feishu app_id and app_secret for an agent.
+    1. Try Agent-specific ChannelConfig
+    2. Fallback to global settings (.env)
+    """
+    from app.models.channel_config import ChannelConfig
+    from app.config import get_settings
+    
+    settings = get_settings()
+    app_id = settings.FEISHU_APP_ID
+    app_secret = settings.FEISHU_APP_SECRET
+    
+    try:
+        async with async_session() as db:
+            result = await db.execute(
+                select(ChannelConfig).where(ChannelConfig.agent_id == agent_id, ChannelConfig.channel_type == "feishu")
+            )
+            config = result.scalar_one_or_none()
+            if config and config.app_id and config.app_secret:
+                app_id = config.app_id
+                app_secret = config.app_secret
+    except Exception:
+        pass
+        
+    return app_id, app_secret
+
+
+def _parse_feishu_url(url: str) -> dict:
+    """Parse various Feishu URLs to extract tokens.
+    Supports Bitable (table, view) and Docx.
+    """
+    import re
+    result = {}
+    
+    # Bitable URL regex: e.g., https://example.feishu.cn/base/{app_token}?table={table_id}&view={view_id}
+    base_match = re.search(r'/base/([a-zA-Z0-9_]+)', url)
+    if base_match:
+        result['app_token'] = base_match.group(1)
+        
+    table_match = re.search(r'table=([a-zA-Z0-9_]+)', url)
+    if table_match:
+        result['table_id'] = table_match.group(1)
+    
+    # support URL with /tblxxxxxx
+    if not 'table_id' in result:
+        tbl_match = re.search(r'/(tbl[a-zA-Z0-9_]+)', url)
+        if tbl_match:
+            result['table_id'] = tbl_match.group(1)
+            
+    view_match = re.search(r'view=([a-zA-Z0-9_]+)', url)
+    if view_match:
+        result['view_id'] = view_match.group(1)
+        
+    # Docx URL regex
+    docx_match = re.search(r'/docx/([a-zA-Z0-9_]+)', url)
+    if docx_match:
+        result['document_token'] = docx_match.group(1)
+        
+    # Wiki URL regex
+    wiki_match = re.search(r'/wiki/([a-zA-Z0-9_]+)', url)
+    if wiki_match:
+        result['wiki_token'] = wiki_match.group(1)
+        
+    return result
+
+
+# ─── Feishu Bitable Tools ──────────────────────────────────────────
+
+async def _resolve_bitable_app_token(agent_id: uuid.UUID, parsed_url: dict) -> str | None:
+    app_token = parsed_url.get("app_token")
+    if app_token:
+        return app_token
+    wiki_token = parsed_url.get("wiki_token")
+    if wiki_token:
+        cred = await _get_feishu_token(agent_id)
+        if cred:
+            _, token = cred
+            node_info = await _feishu_wiki_get_node(wiki_token, token)
+            if node_info and node_info.get("obj_token"):
+                return node_info["obj_token"]
+    return None
+
+async def _bitable_list_tables(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all tables in a Feishu Bitable app."""
+    url = arguments.get("url", "")
+    parsed = _parse_feishu_url(url)
+    app_token = await _resolve_bitable_app_token(agent_id, parsed)
+    if not app_token:
+        return "Failed: Could not extract Bitable app_token from the URL (also could not resolve wiki_token)."
+        
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    if not app_id or not app_secret:
+        return "Failed: Feishu app credentials not configured for this agent."
+        
+    from app.services.feishu_service import feishu_service
+    try:
+        tables = await feishu_service.bitable_list_tables(app_id, app_secret, app_token)
+        if not tables:
+            return "OK: No tables found in this Bitable."
+        lines = [f"- {t['name']} (ID: {t['table_id']})" for t in tables]
+        return "OK: Tables in this Bitable:\n" + "\n".join(lines)
+    except Exception as e:
+        if "403" in str(e) or "Permission Denied" in str(e):
+            return (
+                "Failed: Permission denied (403). "
+                "The bot app does not have access to this Bitable. "
+                "Please ask the document owner to add the bot app as a collaborator: "
+                "open the Bitable -> click '...' (top-right) -> 'More' -> 'Add document app', "
+                "then add the bot and retry."
+            )
+        return f"Failed: {str(e)[:300]}"
+
+async def _bitable_list_fields(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all fields (columns) in a specific Bitable table."""
+    url = arguments.get("url", "")
+    table_id = arguments.get("table_id", "")
+    
+    parsed = _parse_feishu_url(url)
+    app_token = await _resolve_bitable_app_token(agent_id, parsed)
+    table_id = table_id or parsed.get("table_id")
+    
+    if not app_token:
+        return "Failed: Could not extract Bitable app_token from the URL."
+    if not table_id:
+        return "Failed: table_id is required. Provide it as a parameter or include it in the URL."
+        
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    from app.services.feishu_service import feishu_service
+    try:
+        fields = await feishu_service.bitable_list_fields(app_id, app_secret, app_token, table_id)
+        if not fields:
+            return "OK: No fields found in this table."
+        lines = [f"- {f['field_name']} (type: {f['type']}, ID: {f['field_id']})" for f in fields]
+        return "OK: Fields in this table:\n" + "\n".join(lines)
+    except Exception as e:
+        if "403" in str(e):
+            return (
+                "Failed: Permission denied (403). "
+                "Please ask the document owner to add the bot app as a collaborator: "
+                "open the Bitable -> click '...' (top-right) -> 'More' -> 'Add document app', "
+                "then add the bot and retry."
+            )
+        return f"Failed: {str(e)[:300]}"
+
+async def _bitable_query_records(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Query records (rows) from a Bitable table, with optional FQL filter."""
+    url = arguments.get("url", "")
+    table_id = arguments.get("table_id", "")
+    filter_info = arguments.get("filter_info", "")
+    max_results = arguments.get("max_results", 100)
+    
+    parsed = _parse_feishu_url(url)
+    app_token = await _resolve_bitable_app_token(agent_id, parsed)
+    table_id = table_id or parsed.get("table_id")
+    
+    if not app_token or not table_id:
+        return "Failed: Could not resolve app_token or table_id from the provided parameters/URL."
+        
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    from app.services.feishu_service import feishu_service
+    try:
+        import json
+        records = await feishu_service.bitable_query_records(app_id, app_secret, app_token, table_id, filter_info, max_results)
+        if not records:
+            return "OK: No matching records found."
+        lines = []
+        for r in records:
+            lines.append(f"Record {r['record_id']}: {json.dumps(r['fields'], ensure_ascii=False)}")
+        return "OK: Query results:\n" + "\n".join(lines)
+    except Exception as e:
+        if "403" in str(e):
+            return (
+                "Failed: Permission denied (403). "
+                "Please ask the document owner to add the bot app as a collaborator: "
+                "open the Bitable -> click '...' (top-right) -> 'More' -> 'Add document app', "
+                "then add the bot and retry."
+            )
+        return f"Failed: {str(e)[:300]}"
+
+async def _bitable_create_record(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Create a new record (row) in a Bitable table."""
+    url = arguments.get("url", "")
+    table_id = arguments.get("table_id", "")
+    fields_str = arguments.get("fields", "{}")
+    
+    parsed = _parse_feishu_url(url)
+    app_token = await _resolve_bitable_app_token(agent_id, parsed)
+    table_id = table_id or parsed.get("table_id")
+    
+    if not app_token or not table_id:
+        return "Failed: Could not resolve app_token or table_id from the provided parameters/URL."
+        
+    import json
+    try:
+        fields = json.loads(fields_str)
+    except json.JSONDecodeError:
+        return "Failed: The 'fields' parameter is not valid JSON."
+        
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    from app.services.feishu_service import feishu_service
+    try:
+        record = await feishu_service.bitable_create_record(app_id, app_secret, app_token, table_id, fields)
+        return f"OK: Record created. Record ID: {record['record_id']}\nFields: {json.dumps(record['fields'], ensure_ascii=False)}"
+    except Exception as e:
+        if "403" in str(e):
+            return (
+                "Failed: Permission denied (403). "
+                "Please ask the document owner to add the bot app as a collaborator: "
+                "open the Bitable -> click '...' (top-right) -> 'More' -> 'Add document app', "
+                "then add the bot and retry."
+            )
+        return f"Failed: {str(e)[:300]}"
+
+async def _bitable_update_record(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update an existing record in a Bitable table by record_id."""
+    url = arguments.get("url", "")
+    table_id = arguments.get("table_id", "")
+    record_id = arguments.get("record_id", "")
+    fields_str = arguments.get("fields", "{}")
+    
+    parsed = _parse_feishu_url(url)
+    app_token = await _resolve_bitable_app_token(agent_id, parsed)
+    table_id = table_id or parsed.get("table_id")
+    
+    if not app_token or not table_id or not record_id:
+        return "Failed: Missing required parameters. Need app_token (from URL), table_id, and record_id."
+        
+    import json
+    try:
+        fields = json.loads(fields_str)
+    except json.JSONDecodeError:
+        return "Failed: The 'fields' parameter is not valid JSON."
+        
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    from app.services.feishu_service import feishu_service
+    try:
+        record = await feishu_service.bitable_update_record(app_id, app_secret, app_token, table_id, record_id, fields)
+        return f"OK: Record updated. Record ID: {record['record_id']}\nFields: {json.dumps(record['fields'], ensure_ascii=False)}"
+    except Exception as e:
+        if "403" in str(e):
+            return (
+                "Failed: Permission denied (403). "
+                "Please ask the document owner to add the bot app as a collaborator: "
+                "open the Bitable -> click '...' (top-right) -> 'More' -> 'Add document app', "
+                "then add the bot and retry."
+            )
+        return f"Failed: {str(e)[:300]}"
+
+async def _bitable_delete_record(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Delete a record from a Bitable table by record_id."""
+    url = arguments.get("url", "")
+    table_id = arguments.get("table_id", "")
+    record_id = arguments.get("record_id", "")
+    
+    parsed = _parse_feishu_url(url)
+    app_token = await _resolve_bitable_app_token(agent_id, parsed)
+    table_id = table_id or parsed.get("table_id")
+    
+    if not app_token or not table_id or not record_id:
+        return "Failed: Missing required parameters. Need app_token (from URL), table_id, and record_id."
+        
+    app_id, app_secret = await _get_feishu_credentials(agent_id)
+    from app.services.feishu_service import feishu_service
+    try:
+        await feishu_service.bitable_delete_record(app_id, app_secret, app_token, table_id, record_id)
+        return f"OK: Record {record_id} deleted successfully."
+    except Exception as e:
+        if "403" in str(e):
+            return (
+                "Failed: Permission denied (403). "
+                "Please ask the document owner to add the bot app as a collaborator: "
+                "open the Bitable -> click '...' (top-right) -> 'More' -> 'Add document app', "
+                "then add the bot and retry."
+            )
+        return f"Failed: {str(e)[:300]}"
+
+
+# ─── Feishu Document Tools ──────────────────────────────────────────
 
 # ─── Feishu Wiki Tools ───────────────────────────────────────────────────────
 

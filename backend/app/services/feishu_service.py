@@ -26,15 +26,26 @@ class FeishuService:
         self._app_access_token: str | None = None
 
     async def get_app_access_token(self) -> str:
-        """Get or refresh the app-level access token."""
+        """Get or refresh the app-level access token. Deprecated: Use get_tenant_access_token instead."""
+        return await self.get_tenant_access_token(self.app_id, self.app_secret)
+        
+    async def get_tenant_access_token(self, app_id: str = None, app_secret: str = None) -> str:
+        """Get or refresh the app-level access token (tenant_access_token)."""
+        target_app_id = app_id or self.app_id
+        target_app_secret = app_secret or self.app_secret
+        
         async with httpx.AsyncClient() as client:
             resp = await client.post(FEISHU_APP_TOKEN_URL, json={
-                "app_id": self.app_id,
-                "app_secret": self.app_secret,
+                "app_id": target_app_id,
+                "app_secret": target_app_secret,
             })
             data = resp.json()
-            self._app_access_token = data.get("app_access_token", "")
-            return self._app_access_token
+            
+            token = data.get("tenant_access_token") or data.get("app_access_token", "")
+            if not app_id: # only cache default app token
+                self._app_access_token = token
+                
+            return token
 
     async def exchange_code_for_user(self, code: str) -> dict:
         """Exchange OAuth authorization code for user info.
@@ -414,5 +425,72 @@ class FeishuService:
             )
             return resp.json()
 
+    # --- Bitable (多维表格) API ---
+
+    async def bitable_list_tables(self, app_id: str, app_secret: str, app_token: str) -> dict:
+        """List all tables in a Bitable app."""
+        tenant_token = await self.get_tenant_access_token(app_id, app_secret)
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                f"https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables",
+                headers={"Authorization": f"Bearer {tenant_token}"}
+            )
+            return resp.json()
+
+    async def bitable_list_fields(self, app_id: str, app_secret: str, app_token: str, table_id: str) -> dict:
+        """List all fields in a specific table."""
+        tenant_token = await self.get_tenant_access_token(app_id, app_secret)
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                f"https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/fields",
+                headers={"Authorization": f"Bearer {tenant_token}"}
+            )
+            return resp.json()
+
+    async def bitable_query_records(self, app_id: str, app_secret: str, app_token: str, table_id: str, filters: dict | None = None) -> dict:
+        """Query records in a specific table."""
+        tenant_token = await self.get_tenant_access_token(app_id, app_secret)
+        body = {}
+        if filters:
+            body = filters
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records/search",
+                json=body,
+                headers={"Authorization": f"Bearer {tenant_token}"}
+            )
+            return resp.json()
+
+    async def bitable_create_record(self, app_id: str, app_secret: str, app_token: str, table_id: str, fields: dict) -> dict:
+        """Create a new record in a specific table."""
+        tenant_token = await self.get_tenant_access_token(app_id, app_secret)
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records",
+                json={"fields": fields},
+                headers={"Authorization": f"Bearer {tenant_token}"}
+            )
+            return resp.json()
+
+    async def bitable_update_record(self, app_id: str, app_secret: str, app_token: str, table_id: str, record_id: str, fields: dict) -> dict:
+        """Update an existing record in a specific table."""
+        tenant_token = await self.get_tenant_access_token(app_id, app_secret)
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.put(
+                f"https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records/{record_id}",
+                json={"fields": fields},
+                headers={"Authorization": f"Bearer {tenant_token}"}
+            )
+            return resp.json()
+            
+    async def bitable_delete_record(self, app_id: str, app_secret: str, app_token: str, table_id: str, record_id: str) -> dict:
+        """Delete an existing record in a specific table."""
+        tenant_token = await self.get_tenant_access_token(app_id, app_secret)
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.delete(
+                f"https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records/{record_id}",
+                headers={"Authorization": f"Bearer {tenant_token}"}
+            )
+            return resp.json()
 
 feishu_service = FeishuService()
