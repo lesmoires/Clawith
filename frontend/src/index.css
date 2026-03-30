@@ -1768,19 +1768,27 @@ select:focus {
   gap: var(--space-3);
   padding: var(--space-4) 0;
   border-top: 1px solid var(--border-subtle);
+  /* Anchor buttons to the bottom edge as the textarea grows taller */
+  align-items: flex-end;
 }
 
 .chat-input {
   flex: 1;
-  height: 40px;
+  /* Use min-height so textarea can grow beyond a single line */
+  min-height: 40px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
   border-radius: 10px;
+  /* Horizontal padding only; vertical padding is set inline as the element is now a textarea */
   padding: 0 14px;
   font-size: 14px;
   color: var(--text-primary);
   transition: border-color 150ms ease, box-shadow 150ms ease;
   outline: none;
+  /* Align with the upload/send buttons when the textarea is a single line */
+  align-self: center;
+  /* Preserve newlines for multiline display in the textarea */
+  white-space: pre-wrap;
 }
 
 .chat-input::placeholder {

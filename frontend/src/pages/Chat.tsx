@@ -370,11 +370,25 @@ export default function Chat() {
         setAttachedFile(null);
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !isWaiting && !streaming) {
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        // Ctrl+Enter (or Cmd+Enter on Mac) to send; plain Enter inserts a newline
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing && !isWaiting && !streaming) {
             e.preventDefault();
             sendMessage();
         }
+    };
+
+    /**
+     * Auto-resize the textarea height to fit content, with a max of 5 visible rows.
+     * Called on every input change so the box grows/shrinks naturally.
+     */
+    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setInput(e.target.value);
+        const el = e.target;
+        // Reset height first so shrinking works correctly
+        el.style.height = 'auto';
+        // Cap at ~5 lines (line-height ~22px * 5 + padding)
+        el.style.height = Math.min(el.scrollHeight, 130) + 'px';
     };
 
     const hasLiveData = !!(liveState.desktop || liveState.browser || liveState.code);
@@ -570,13 +584,21 @@ export default function Chat() {
                     >
                         {uploading ? Icons.loader : Icons.clip}
                     </button>
-                    <input
+                    <textarea
                         className="chat-input"
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
+                        onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
                         placeholder={attachedFile ? t('agent.chat.askAboutFile', { name: attachedFile.name }) : t('chat.placeholder')}
                         disabled={!connected}
+                        rows={1}
+                        style={{
+                            resize: 'none',
+                            overflow: 'hidden',
+                            lineHeight: '22px',
+                            paddingTop: '8px',
+                            paddingBottom: '8px',
+                        }}
                     />
                     {(streaming || isWaiting) ? (
                         <button className="btn btn-stop-generation" onClick={() => { if (wsRef.current?.readyState === WebSocket.OPEN) { wsRef.current.send(JSON.stringify({ type: 'abort' })); setStreaming(false); setIsWaiting(false); } }} title={t('chat.stop', 'Stop')}>
