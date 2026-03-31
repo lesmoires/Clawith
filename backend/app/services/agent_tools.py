@@ -925,29 +925,29 @@ AGENT_TOOLS = [
             },
         },
     },
+    # ── Feishu Drive Share (collaborator management for all file types) ──
     {
         "type": "function",
         "function": {
             "name": "feishu_drive_share",
             "description": (
-                "Manage collaborators and permissions for any Feishu Drive file "
-                "(documents, bitables, spreadsheets, folders, etc.). "
+                "Manage Feishu Drive file collaborators and permissions. "
+                "Supports ALL file types: docx, bitable, sheet, doc, folder, mindnote, slides. "
                 "Can add or remove collaborators with viewer/editor/full_access roles, "
                 "or get the current collaborator list. "
-                "Accepts colleague names (auto-searched) or open_ids directly. "
-                "Use doc_type to specify the file type (default: 'docx')."
+                "Accepts colleague names (auto-searched) or open_ids directly."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "document_token": {
                         "type": "string",
-                        "description": "Feishu file token (from feishu_doc_create, bitable_create_app, or file URL)",
+                        "description": "File token (from feishu_doc_create, bitable_create_app, or URL)",
                     },
                     "doc_type": {
                         "type": "string",
-                        "enum": ["docx", "bitable", "sheet", "doc", "folder", "mindnote", "slides", "file"],
-                        "description": "Type of the file. Default: 'docx'. Use 'bitable' for Bitable, 'sheet' for Spreadsheet, etc.",
+                        "enum": ["docx", "bitable", "sheet", "doc", "folder", "mindnote", "slides"],
+                        "description": "File type. Default: 'docx'. Use 'bitable' for Bitable, 'sheet' for Spreadsheet, etc.",
                     },
                     "action": {
                         "type": "string",
@@ -974,7 +974,7 @@ AGENT_TOOLS = [
             },
         },
     },
-    # ── Feishu Drive Delete Tool ───────────────────────────────────
+    # ── Feishu Drive Delete (delete files from cloud space) ──
     {
         "type": "function",
         "function": {
@@ -982,20 +982,20 @@ AGENT_TOOLS = [
             "description": (
                 "Delete a file or folder from Feishu Drive (cloud space). "
                 "The file will be moved to the recycle bin, not permanently deleted. "
-                "Supports all Feishu file types: documents, bitables, spreadsheets, folders, etc. "
-                "You must specify both the file token and its type."
+                "For folders, the deletion is asynchronous. "
+                "Requires ownership + parent folder edit permission, or parent folder full_access."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_token": {
                         "type": "string",
-                        "description": "The token of the file to delete (from file URL or previous tool results)",
+                        "description": "Token of the file or folder to delete (from URL or previous tool output)",
                     },
                     "file_type": {
                         "type": "string",
                         "enum": ["file", "docx", "bitable", "folder", "doc", "sheet", "mindnote", "shortcut", "slides"],
-                        "description": "Type of the file to delete: 'docx' for documents, 'bitable' for Bitable, 'sheet' for spreadsheets, 'folder' for folders, etc.",
+                        "description": "Type of the file to delete. Use 'docx' for documents, 'bitable' for multitable, 'sheet' for spreadsheets, 'file' for uploaded files, 'folder' for folders.",
                     },
                 },
                 "required": ["file_token", "file_type"],
@@ -1806,7 +1806,7 @@ async def execute_tool(
         elif tool_name == "feishu_doc_append":
             result = await _feishu_doc_append(agent_id, arguments)
         # ── Feishu Calendar Tools ──
-        elif tool_name in ("feishu_drive_share", "feishu_doc_share"):
+        elif tool_name in ("feishu_drive_share", "feishu_doc_share"):  # backward compat
             result = await _feishu_drive_share(agent_id, arguments)
         elif tool_name == "feishu_drive_delete":
             result = await _feishu_drive_delete(agent_id, arguments)
@@ -6023,13 +6023,13 @@ async def _feishu_doc_append(agent_id: uuid.UUID, arguments: dict) -> str:
         return f"Failed: {str(e)[:300]}"
 
 
-# ─── Feishu Document Share ────────────────────────────────────────────────────
+# ─── Feishu Drive Share (all file types) ──────────────────────────────────────
 
 async def _feishu_drive_share(agent_id: uuid.UUID, arguments: dict) -> str:
-    """Manage collaborators for any Feishu Drive file.
-    Supports all Drive file types (docx, bitable, sheet, doc, folder, etc.)
-    via the official Drive permissions API.
-    Also handles Wiki node documents via Wiki space members API.
+    """Manage Feishu Drive file collaborators.
+    Supports all file types: docx, bitable, sheet, doc, folder, mindnote, slides.
+    Automatically handles both regular files (Drive permissions API)
+    and Wiki node documents (Wiki space members API).
     """
     import httpx
     import re as _re
@@ -6037,7 +6037,7 @@ async def _feishu_drive_share(agent_id: uuid.UUID, arguments: dict) -> str:
     document_token = (arguments.get("document_token") or "").strip()
     action = (arguments.get("action") or "list").strip()
     permission = (arguments.get("permission") or "edit").strip()
-    # doc_type supports all Feishu Drive file types: docx, bitable, sheet, doc, folder, etc.
+    # doc_type defaults to 'docx' for backward compatibility
     doc_type = (arguments.get("doc_type") or "docx").strip()
 
     if not document_token:
@@ -6217,9 +6217,8 @@ async def _feishu_drive_share(agent_id: uuid.UUID, arguments: dict) -> str:
 
 async def _feishu_drive_delete(agent_id: uuid.UUID, arguments: dict) -> str:
     """Delete a file or folder from Feishu Drive (cloud space).
-    Uses the official DELETE /drive/v1/files/{file_token} API.
-    Files are moved to recycle bin, not permanently deleted.
-    Folder deletion is asynchronous and returns a task_id.
+    The file is moved to the recycle bin, not permanently deleted.
+    For folders, the deletion is asynchronous and returns a task_id.
     """
     import httpx
 
@@ -6229,63 +6228,68 @@ async def _feishu_drive_delete(agent_id: uuid.UUID, arguments: dict) -> str:
     if not file_token:
         return "❌ Missing required argument 'file_token'"
     if not file_type:
-        return "❌ Missing required argument 'file_type'"
+        return "❌ Missing required argument 'file_type'. Valid values: file, docx, bitable, folder, doc, sheet, mindnote, shortcut, slides"
 
-    # Validate file_type against Feishu's supported types
     valid_types = {"file", "docx", "bitable", "folder", "doc", "sheet", "mindnote", "shortcut", "slides"}
     if file_type not in valid_types:
-        return f"❌ Invalid file_type '{file_type}'. Must be one of: {', '.join(sorted(valid_types))}"
+        return f"❌ Invalid file_type '{file_type}'. Valid values: {', '.join(sorted(valid_types))}"
 
     app_id, app_secret = await _get_feishu_credentials(agent_id)
     if not app_id or not app_secret:
         return "❌ Agent has no Feishu channel configured."
     from app.services.feishu_service import feishu_service
     token = await feishu_service.get_tenant_access_token(app_id, app_secret)
-    headers = {"Authorization": f"Bearer {token}"}
+
+    # Type label mapping for user-friendly output
+    type_labels = {
+        "file": "文件", "docx": "文档", "bitable": "多维表格",
+        "folder": "文件夹", "doc": "旧版文档", "sheet": "电子表格",
+        "mindnote": "思维笔记", "shortcut": "快捷方式", "slides": "幻灯片",
+    }
+    type_label = type_labels.get(file_type, file_type)
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.delete(
                 f"https://open.feishu.cn/open-apis/drive/v1/files/{file_token}",
-                headers=headers,
                 params={"type": file_type},
+                headers={"Authorization": f"Bearer {token}"},
             )
         data = resp.json()
         code = data.get("code", -1)
 
         if code == 0:
-            # Folder deletion is async and returns a task_id
+            # Folder deletion returns a task_id for async tracking
             task_id = data.get("data", {}).get("task_id")
-            type_labels = {
-                "file": "file", "docx": "document", "bitable": "Bitable",
-                "folder": "folder", "doc": "document (legacy)", "sheet": "spreadsheet",
-                "mindnote": "mindnote", "shortcut": "shortcut", "slides": "slides",
-            }
-            label = type_labels.get(file_type, file_type)
-            msg = f"✅ Successfully deleted {label} `{file_token}` (moved to recycle bin)."
             if task_id:
-                msg += f"\n📋 Folder deletion is async. Task ID: `{task_id}`"
-            return msg
+                return (
+                    f"✅ 已提交{type_label}删除任务（异步执行中）。\n"
+                    f"📋 任务 ID: `{task_id}`\n"
+                    f"文件夹删除为异步操作，文件会被移至回收站。"
+                )
+            return f"✅ {type_label} `{file_token}` 已删除（移至回收站）。"
 
-        # Handle specific error codes
+        # Error handling with specific codes
+        msg = data.get("msg", "Unknown error")
         if code == 1061003:
-            return f"❌ File not found: `{file_token}` (type: {file_type})"
-        if code == 1061004:
+            return f"❌ 未找到文件 `{file_token}`。请确认文件 token 和类型是否正确。"
+        elif code == 1061004:
             return (
-                f"❌ Permission denied (code {code})\n"
-                "To delete a file, you need one of:\n"
-                "- File owner + parent folder edit permission\n"
-                "- Parent folder owner or full_access permission"
+                f"❌ 权限不足（code {code}）\n"
+                "需要满足以下条件之一：\n"
+                "• 文件所有者 + 父文件夹编辑权限\n"
+                "• 父文件夹的所有者或 full_access 权限\n"
+                "同时需要在飞书开放平台开通：drive:drive 或 space:document:delete"
             )
-        if code == 1061007:
-            return f"❌ File `{file_token}` has already been deleted."
-        if code == 1061045:
-            return "❌ Rate limited. Please wait a moment and try again."
-
-        return f"❌ Failed to delete: {data.get('msg')} (code {code})"
+        elif code == 1061007:
+            return f"❌ 文件 `{file_token}` 已被删除。"
+        elif code == 1061045:
+            return f"⚠️ 接口频率限制，请稍后重试。（每秒最多 5 次）"
+        else:
+            return f"❌ 删除{type_label}失败：{msg} (code {code})"
 
     except Exception as e:
-        return f"❌ Error calling Feishu Drive delete API: {e}"
+        return f"❌ 删除文件异常: {str(e)[:300]}"
 
 
 # ─── Feishu Calendar Tools ────────────────────────────────────────────────────
