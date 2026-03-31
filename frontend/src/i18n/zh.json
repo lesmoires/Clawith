@@ -134,7 +134,8 @@
     "companyName": "公司名称",
     "create": "创建",
     "myCompany": "我的公司",
-    "logout": "退出"
+    "logout": "退出",
+    "language": "语言"
   },
   "dashboard": {
     "greeting": {

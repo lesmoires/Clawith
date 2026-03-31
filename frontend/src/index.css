@@ -330,7 +330,9 @@ select:focus {
   max-height: 100vh;
   z-index: 10;
   transition: width var(--transition-default);
-  overflow: hidden;
+  /* Allow account language submenu to extend to the right; vertical scroll stays in .sidebar-scrollable */
+  overflow-x: visible;
+  overflow-y: hidden;
 }
 
 .sidebar-top {
@@ -545,19 +547,95 @@ select:focus {
   background: var(--bg-tertiary);
 }
 
-/* Account dropdown menu */
-.account-dropdown {
+/* Account dropdown: main menu full width; language submenu cascades to the right (no squeeze) */
+.account-menus-container {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 0;
   right: 0;
+  z-index: 100;
+}
+
+.account-dropdown {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   padding: 4px;
   box-shadow: var(--shadow-lg);
-  z-index: 100;
   animation: accountDropdownIn 0.15s ease;
+}
+
+.account-lang-submenu {
+  min-width: 148px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 4px;
+  box-shadow: var(--shadow-lg);
+  animation: accountDropdownIn 0.15s ease;
+}
+
+/* Portaled to document.body so it layers above main content (not clipped by sidebar) */
+.account-lang-submenu-portal {
+  position: fixed;
+  z-index: 9500;
+}
+
+.account-lang-submenu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  text-align: left;
+}
+
+.account-lang-submenu-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.account-lang-submenu-item.is-active {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.account-dropdown-language-hover-wrap {
+  width: 100%;
+}
+
+.account-dropdown-item.language-menu-trigger {
+  gap: 10px;
+}
+
+.account-dropdown-item.language-menu-trigger > .language-menu-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.account-dropdown-item.language-menu-trigger > .language-menu-chevron {
+  margin-left: auto;
+}
+
+.account-dropdown-item .language-menu-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  pointer-events: none;
 }
 
 @keyframes accountDropdownIn {
@@ -671,7 +749,7 @@ select:focus {
 }
 
 .sidebar.collapsed .sidebar-footer-user-info,
-.sidebar.collapsed .account-dropdown,
+.sidebar.collapsed .account-menus-container,
 .sidebar.collapsed .sidebar-account-row > svg {
   display: none;
 }
