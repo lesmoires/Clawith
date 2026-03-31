@@ -7,7 +7,7 @@ from alembic import op
 
 
 revision = "add_agent_credentials"
-down_revision = None
+down_revision = "add_tool_source"
 branch_labels = None
 depends_on = None
 
