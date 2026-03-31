@@ -435,8 +435,8 @@ export default function AgentCredentials({ agentId }: Props) {
                                 />
                                 <span className="credential-field-help">
                                     Paste cookies exported from{' '}
-                                    <a href="https://chromewebstore.google.com/detail/editthiscookie/fngmhnnpilhplaeedifhccceomclgfbg" target="_blank" rel="noopener noreferrer">
-                                        EditThisCookie
+                                    <a href="https://cookie-editor.com" target="_blank" rel="noopener noreferrer">
+                                        Cookie-Editor
                                     </a>
                                     {' '}or similar browser extension. Must be a JSON array.
                                 </span>
