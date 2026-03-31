@@ -647,11 +647,37 @@ async def get_category_config(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get shared configuration for a tool category (stored in ChannelConfig)."""
+    """Get shared configuration for a tool category.
+
+    Returns both global_config (company-level, from Tool.config) and
+    agent_config (agent-level override, from ChannelConfig) separately.
+    Sensitive fields in global_config are masked for display.
+    Company-level values always take precedence at runtime.
+    """
     from app.core.permissions import check_agent_access
     from app.models.channel_config import ChannelConfig
 
     await check_agent_access(db, current_user, agent_id)
+
+    # ── 1. Load company-level (global) config from Tool.config ──────────────
+    tool_result = await db.execute(
+        select(Tool).where(
+            Tool.category == category,
+            Tool.enabled == True,
+        ).limit(1)
+    )
+    global_tool = tool_result.scalar_one_or_none()
+    raw_global = _decrypt_sensitive_fields(global_tool.config or {}) if global_tool else {}
+
+    # Mask sensitive fields for UI display
+    masked_global = dict(raw_global)
+    for key in SENSITIVE_FIELD_KEYS:
+        val = masked_global.get(key)
+        if val and isinstance(val, str):
+            suffix = val[-4:] if len(val) > 4 else val
+            masked_global[key] = f"****{suffix}"
+
+    # ── 2. Load agent-level config from ChannelConfig ───────────────────────
     result = await db.execute(
         select(ChannelConfig).where(
             ChannelConfig.agent_id == agent_id,
@@ -659,40 +685,35 @@ async def get_category_config(
         )
     )
     config = result.scalar_one_or_none()
-    
+
     config_id = None
-    is_configured = False
-    decrypted_config = {}
-    
+    is_configured = bool(raw_global) or config is not None
+    raw_agent: dict = {}
+
     if config:
         config_id = str(config.id)
-        is_configured = config.is_configured
-        
-        # If it's encrypted, decrypt it for the UI
-        full_config = {
+        full_agent = {
             "api_key": config.app_secret,
-            **(config.extra_config or {})
+            **(config.extra_config or {}),
         }
-        decrypted_config = _decrypt_sensitive_fields(full_config)
-    else:
-        # Fallback to global Tool.config for this category (Company Settings)
-        from app.models.tool import Tool
-        tool_result = await db.execute(
-            select(Tool).where(
-                Tool.category == category,
-                Tool.enabled == True,
-            ).limit(1)
-        )
-        global_tool = tool_result.scalar_one_or_none()
-        if global_tool and global_tool.config:
-            decrypted_config = _decrypt_sensitive_fields(global_tool.config)
+        raw_agent = _decrypt_sensitive_fields(full_agent)
+        # Remove None values produced by missing app_secret
+        raw_agent = {k: v for k, v in raw_agent.items() if v is not None}
+
+    # ── 3. Build effective config for backward-compat display ───────────────
+    # Company fields always win (agent cannot override what company has set)
+    effective_config = {**raw_agent, **raw_global}
 
     return {
         "id": config_id,
         "agent_id": str(agent_id),
         "category": category,
         "is_configured": is_configured,
-        "config": decrypted_config
+        # Legacy field (backward-compat): full effective config for display
+        "config": effective_config,
+        # New fields for richer UI: show global and agent configs separately
+        "global_config": masked_global,
+        "agent_config": raw_agent,
     }
 
 
