@@ -277,10 +277,10 @@ async def get_platform_timeseries(
                 DATE(created_at) AS d,
                 user_id
             FROM chat_sessions
-            WHERE created_at >= :range_start AND created_at <= :range_end
+            WHERE created_at >= :range_start::timestamptz AND created_at <= :range_end::timestamptz
         ),
         day_series AS (
-            SELECT generate_series(:series_start, :series_end, '1 day'::interval)::date AS d
+            SELECT generate_series(:series_start::date, :series_end::date, '1 day'::interval)::date AS d
         )
         SELECT
             ds.d,
