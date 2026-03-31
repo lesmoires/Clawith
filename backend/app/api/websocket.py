@@ -586,7 +586,23 @@ async def websocket_chat(
             content = data.get("content", "")
             display_content = data.get("display_content", "")  # User-facing display text
             file_name = data.get("file_name", "")  # Original file name for attachment display
+            file_bytes = data.get("file_bytes")  # Base64 encoded file content
             logger.info(f"[WS] Received: {content[:50]}")
+
+            # ── PDF Auto-Conversion for Vision Models ──
+            if file_name and file_name.lower().endswith('.pdf') and file_bytes and getattr(llm_model, 'supports_vision', False):
+                # Convert PDF to image for visual analysis
+                import base64
+                from app.services.pdf_renderer import pdf_to_base64_image
+                try:
+                    pdf_data = base64.b64decode(file_bytes)
+                    img_data = await pdf_to_base64_image(pdf_data, page=0, zoom=2.0)
+                    if img_data:
+                        content += f"\n[image_data:{img_data}]"
+                        logger.info(f"[WS] PDF converted to image for vision model: {file_name}")
+                except Exception as e:
+                    logger.warning(f"[WS] PDF→image conversion failed: {e}")
+                    # Fallback: keep as file attachment
 
             if not content:
                 continue
