@@ -468,10 +468,10 @@ export default function AgentCredentials({ agentId }: Props) {
 /* ── Styles ── */
 const credentialStyles = `
 .credentials-section {
-    margin-top: 24px;
+    margin-top: 12px;
     padding: 20px;
-    background: var(--card-bg, #1a1a2e);
-    border: 1px solid var(--border-primary, rgba(255,255,255,0.08));
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
     border-radius: 10px;
 }
 
@@ -488,14 +488,14 @@ const credentialStyles = `
     gap: 8px;
     font-size: 14px;
     font-weight: 600;
-    color: var(--text-primary, #e0e0e0);
+    color: var(--text-primary);
 }
 
 .credentials-count {
     font-size: 11px;
     font-weight: 500;
-    color: var(--text-tertiary, #888);
-    background: var(--bg-tertiary, rgba(255,255,255,0.06));
+    color: var(--text-tertiary);
+    background: var(--bg-tertiary);
     padding: 1px 7px;
     border-radius: 10px;
 }
@@ -507,29 +507,29 @@ const credentialStyles = `
     padding: 5px 12px;
     font-size: 12px;
     font-weight: 500;
-    color: var(--text-secondary, #b0b0b0);
+    color: var(--text-secondary);
     background: transparent;
-    border: 1px solid var(--border-primary, rgba(255,255,255,0.1));
+    border: 1px solid var(--border-default);
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.15s;
 }
 .credentials-add-btn:hover {
-    background: var(--bg-hover, rgba(255,255,255,0.06));
-    color: var(--text-primary, #e0e0e0);
-    border-color: var(--border-hover, rgba(255,255,255,0.15));
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--border-default);
 }
 
 .credentials-desc {
     font-size: 12px;
-    color: var(--text-tertiary, #888);
+    color: var(--text-tertiary);
     margin: 0 0 16px 0;
     line-height: 1.5;
 }
 
 .credentials-error {
     font-size: 12px;
-    color: #ff3b30;
+    color: var(--error);
     margin-bottom: 12px;
 }
 
@@ -540,7 +540,7 @@ const credentialStyles = `
     gap: 8px;
     padding: 32px;
     font-size: 13px;
-    color: var(--text-tertiary, #888);
+    color: var(--text-tertiary);
 }
 
 .credentials-list {
@@ -552,13 +552,13 @@ const credentialStyles = `
 .credential-card {
     position: relative;
     padding: 12px 14px;
-    background: var(--bg-secondary, rgba(255,255,255,0.03));
-    border: 1px solid var(--border-primary, rgba(255,255,255,0.06));
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
     border-radius: 8px;
     transition: border-color 0.15s;
 }
 .credential-card:hover {
-    border-color: var(--border-hover, rgba(255,255,255,0.12));
+    border-color: var(--border-default);
 }
 
 .credential-card-top {
@@ -571,7 +571,7 @@ const credentialStyles = `
 .credential-platform {
     font-size: 13px;
     font-weight: 600;
-    color: var(--text-primary, #e0e0e0);
+    color: var(--text-primary);
 }
 
 .credential-status-badge {
@@ -585,7 +585,7 @@ const credentialStyles = `
 
 .credential-display-name {
     font-size: 12px;
-    color: var(--text-secondary, #b0b0b0);
+    color: var(--text-secondary);
     margin-bottom: 6px;
 }
 
@@ -601,8 +601,8 @@ const credentialStyles = `
     align-items: center;
     gap: 4px;
     font-size: 11px;
-    color: var(--text-tertiary, #888);
-    background: var(--bg-tertiary, rgba(255,255,255,0.04));
+    color: var(--text-tertiary);
+    background: var(--bg-tertiary);
     padding: 2px 8px;
     border-radius: 4px;
 }
@@ -622,17 +622,17 @@ const credentialStyles = `
     background: transparent;
     border: 1px solid transparent;
     border-radius: 6px;
-    color: var(--text-tertiary, #888);
+    color: var(--text-tertiary);
     cursor: pointer;
     transition: all 0.15s;
 }
 .credential-action-btn:hover {
-    background: var(--bg-hover, rgba(255,255,255,0.06));
-    border-color: var(--border-primary, rgba(255,255,255,0.1));
-    color: var(--text-primary, #e0e0e0);
+    background: var(--bg-tertiary);
+    border-color: var(--border-subtle);
+    color: var(--text-primary);
 }
 .credential-action-danger:hover {
-    color: #ff3b30;
+    color: var(--error);
     background: rgba(255, 59, 48, 0.08);
 }
 
@@ -646,7 +646,7 @@ const credentialStyles = `
     border: 1px solid rgba(255, 59, 48, 0.15);
     border-radius: 6px;
     font-size: 12px;
-    color: var(--text-secondary, #b0b0b0);
+    color: var(--text-secondary);
 }
 .credential-delete-actions {
     display: flex;
@@ -656,22 +656,22 @@ const credentialStyles = `
     font-size: 12px;
     padding: 4px 10px;
     border-radius: 4px;
-    border: 1px solid var(--border-primary, rgba(255,255,255,0.1));
+    border: 1px solid var(--border-default);
     background: transparent;
-    color: var(--text-secondary, #b0b0b0);
+    color: var(--text-secondary);
     cursor: pointer;
 }
 .credential-delete-yes {
-    background: #ff3b30 !important;
+    background: var(--error) !important;
     color: #fff !important;
-    border-color: #ff3b30 !important;
+    border-color: var(--error) !important;
 }
 
 /* ── Modal ── */
 .credential-modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
@@ -682,12 +682,12 @@ const credentialStyles = `
 .credential-modal {
     width: 480px;
     max-height: 85vh;
-    background: var(--card-bg, #1a1a2e);
-    border: 1px solid var(--border-primary, rgba(255,255,255,0.1));
+    background: var(--bg-primary);
+    border: 1px solid var(--border-default);
     border-radius: 12px;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
 }
 
 .credential-modal-header {
@@ -695,13 +695,13 @@ const credentialStyles = `
     align-items: center;
     justify-content: space-between;
     padding: 16px 20px;
-    border-bottom: 1px solid var(--border-primary, rgba(255,255,255,0.06));
+    border-bottom: 1px solid var(--border-subtle);
 }
 .credential-modal-header h3 {
     margin: 0;
     font-size: 15px;
     font-weight: 600;
-    color: var(--text-primary, #e0e0e0);
+    color: var(--text-primary);
 }
 .credential-modal-close {
     display: flex;
@@ -712,11 +712,11 @@ const credentialStyles = `
     background: transparent;
     border: none;
     border-radius: 6px;
-    color: var(--text-tertiary, #888);
+    color: var(--text-tertiary);
     cursor: pointer;
 }
 .credential-modal-close:hover {
-    background: var(--bg-hover, rgba(255,255,255,0.06));
+    background: var(--bg-tertiary);
 }
 
 .credential-modal-body {
@@ -727,7 +727,7 @@ const credentialStyles = `
 
 .credential-form-error {
     font-size: 12px;
-    color: #ff3b30;
+    color: var(--error);
     background: rgba(255, 59, 48, 0.08);
     padding: 8px 12px;
     border-radius: 6px;
@@ -743,12 +743,12 @@ const credentialStyles = `
 .credential-field-label {
     font-size: 12px;
     font-weight: 500;
-    color: var(--text-secondary, #b0b0b0);
+    color: var(--text-secondary);
 }
 .credential-field-hint {
     font-weight: 400;
     font-size: 11px;
-    color: var(--text-tertiary, #888);
+    color: var(--text-tertiary);
     margin-left: 6px;
 }
 .credential-field input,
@@ -756,9 +756,9 @@ const credentialStyles = `
 .credential-field textarea {
     padding: 8px 10px;
     font-size: 13px;
-    color: var(--text-primary, #e0e0e0);
-    background: var(--bg-secondary, rgba(255,255,255,0.04));
-    border: 1px solid var(--border-primary, rgba(255,255,255,0.1));
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-default);
     border-radius: 6px;
     outline: none;
     font-family: inherit;
@@ -767,7 +767,8 @@ const credentialStyles = `
 .credential-field input:focus,
 .credential-field select:focus,
 .credential-field textarea:focus {
-    border-color: var(--accent, #6366f1);
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px var(--accent-subtle);
 }
 .credential-field textarea {
     font-family: 'SF Mono', 'Fira Code', monospace;
@@ -777,11 +778,11 @@ const credentialStyles = `
 }
 .credential-field-help {
     font-size: 11px;
-    color: var(--text-tertiary, #888);
+    color: var(--text-tertiary);
     line-height: 1.4;
 }
 .credential-field-help a {
-    color: var(--accent, #6366f1);
+    color: var(--accent-text);
     text-decoration: none;
 }
 .credential-field-help a:hover {
@@ -793,26 +794,26 @@ const credentialStyles = `
     justify-content: flex-end;
     gap: 8px;
     padding: 12px 20px;
-    border-top: 1px solid var(--border-primary, rgba(255,255,255,0.06));
+    border-top: 1px solid var(--border-subtle);
 }
 .credential-btn-cancel {
     padding: 7px 16px;
     font-size: 13px;
-    color: var(--text-secondary, #b0b0b0);
+    color: var(--text-secondary);
     background: transparent;
-    border: 1px solid var(--border-primary, rgba(255,255,255,0.1));
+    border: 1px solid var(--border-default);
     border-radius: 6px;
     cursor: pointer;
 }
 .credential-btn-cancel:hover {
-    background: var(--bg-hover, rgba(255,255,255,0.06));
+    background: var(--bg-tertiary);
 }
 .credential-btn-save {
     padding: 7px 20px;
     font-size: 13px;
     font-weight: 600;
     color: #fff;
-    background: var(--accent, #6366f1);
+    background: var(--accent-primary);
     border: none;
     border-radius: 6px;
     cursor: pointer;

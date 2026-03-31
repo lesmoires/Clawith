@@ -234,7 +234,8 @@ When user asks to create a Feishu document (summarize PDF, write an article, etc
 | `feishu_doc_read` | `document_token`. Supports both regular docx tokens and **wiki node tokens** (auto-converts). |
 | `feishu_doc_create` | `title`. Returns real Token and 🔗 access link, pre-authorized for you. |
 | `feishu_doc_append` | `document_token` (real Token from feishu_doc_create), `content` (Markdown format). |
-| `feishu_doc_share` | `document_token`, `action`(add/remove/list), `member_names`(name list, auto-lookup), `permission`(view/edit/full_access). |
+| `feishu_drive_share` | `document_token`, `doc_type`(docx/bitable/sheet/doc/folder, default: docx), `action`(add/remove/list), `member_names`(name list, auto-lookup), `permission`(view/edit/full_access). |
+| `feishu_drive_delete` | `file_token`, `file_type`(docx/bitable/sheet/doc/folder/file). Moves file to recycle bin. |
 | `send_feishu_message` | `open_id` or `email`, `content`. |
 
 🚫 **NEVER**:
