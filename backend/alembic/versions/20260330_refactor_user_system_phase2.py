@@ -1,7 +1,7 @@
 """Refactor user system to global Identities - Phase 2 (Consolidated & Idempotent)
  
 Revision ID: 440261f5594f
-Revises: add_tool_source
+Revises: add_agent_credentials
 Create Date: 2026-03-30
 """
 import uuid
@@ -14,7 +14,7 @@ from sqlalchemy import inspect
  
 # revision identifiers, used by Alembic.
 revision: str = '440261f5594f'
-down_revision: Union[str, None] = 'add_tool_source'
+down_revision: Union[str, None] = 'add_agent_credentials'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
  
