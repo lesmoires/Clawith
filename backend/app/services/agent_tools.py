@@ -42,8 +42,12 @@ _TOOL_CONFIG_CACHE_TTL_SECONDS = 60
 SENSITIVE_FIELD_KEYS = {"api_key", "private_key", "auth_code", "password", "secret", "atlassian_api_key"}
 
 
-def _decrypt_sensitive_fields(config: dict) -> dict:
-    """Decrypt sensitive fields in config dict."""
+def _decrypt_sensitive_fields(config: dict, config_schema: dict | None = None) -> dict:
+    """Decrypt sensitive fields in config dict.
+
+    When config_schema is provided, also decrypts fields with type='password'
+    (e.g. smithery_api_key) that are not in the hardcoded SENSITIVE_FIELD_KEYS.
+    """
     if not config:
         return config
 
@@ -53,7 +57,16 @@ def _decrypt_sensitive_fields(config: dict) -> dict:
     settings = get_settings()
     result = dict(config)
 
-    for key in SENSITIVE_FIELD_KEYS:
+    # Build the set of sensitive keys: hardcoded + schema-derived
+    sensitive_keys = set(SENSITIVE_FIELD_KEYS)
+    if config_schema:
+        for field in config_schema.get("fields", []):
+            if field.get("type") == "password":
+                key = field.get("key", "")
+                if key:
+                    sensitive_keys.add(key)
+
+    for key in sensitive_keys:
         if key in result and result[key]:
             value = result[key]
             if isinstance(value, str) and value:
