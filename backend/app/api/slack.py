@@ -231,22 +231,17 @@ async def slack_event_webhook(
     creator_id = agent_obj.creator_id if agent_obj else agent_id
     ctx_size = agent_obj.context_window_size if agent_obj else 20
 
-    # Find-or-create platform user for this Slack sender
-    from app.models.user import User as _User
-    from app.core.security import hash_password as _hp
-    import uuid as _uuid2
-    _slack_username = f"slack_{sender_id}"
-    query = select(_User).where(_User.username == _slack_username)
-    if agent_obj and agent_obj.tenant_id:
-        query = query.where(_User.tenant_id == agent_obj.tenant_id)
+    # Find-or-create platform user for this Slack sender via unified service
+    from app.services.channel_user_service import channel_user_service
+    from app.models.agent import Agent as AgentModel
+    agent_r = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
+    agent_obj = agent_r.scalar_one_or_none()
 
-    _u_r = await db.execute(query)
-    _u = _u_r.scalar_one_or_none()
-
-
-    # Resolve real display name from Slack API
+    # Resolve real display name and email from Slack API
     _bot_token_for_info = config.app_secret or ""
     _slack_real_name = ""
+    _slack_email = ""
+    _slack_avatar = ""
     if _bot_token_for_info and sender_id:
         try:
             import httpx as _httpx_info
@@ -265,26 +260,29 @@ async def slack_event_webhook(
                         or _info_data.get("user", {}).get("real_name")
                         or ""
                     )
+                    _slack_email = _profile.get("email", "")
+                    _slack_avatar = _profile.get("image_512") or _profile.get("image_original") or _profile.get("image_192") or ""
         except Exception as _e_info:
             logger.error(f"[Slack] Failed to fetch user info for {sender_id}: {_e_info}")
 
-    if not _u:
-        _u = _User(
-            username=_slack_username,
-            email=f"{_slack_username}@slack.local",
-            password_hash=_hp(_uuid2.uuid4().hex),
-            display_name=_slack_real_name or f"Slack User {sender_id[:8]}",
-            role="member",
-            tenant_id=agent_obj.tenant_id if agent_obj else None,
-            registration_source="slack",
-        )
+    _extra_info = {
+        "name": _slack_real_name or f"Slack User {sender_id[:8]}",
+        "email": _slack_email,
+        "avatar_url": _slack_avatar,
+    }
+    platform_user = await channel_user_service.resolve_channel_user(
+        db=db,
+        agent=agent_obj,
+        channel_type="slack",
+        external_user_id=sender_id,
+        extra_info=_extra_info,
+    )
 
+    # Update display_name if we now have the real name
+    if _slack_real_name and platform_user.display_name and platform_user.display_name.startswith("Slack User "):
+        platform_user.display_name = _slack_real_name
         await db.flush()
-    elif _slack_real_name and _u.display_name.startswith("Slack User "):
-        # Update display_name if we now have the real name
-        _u.display_name = _slack_real_name
-        await db.flush()
-    platform_user_id = _u.id
+    platform_user_id = platform_user.id
 
     # Find-or-create session for this Slack conversation
     sess = await find_or_create_channel_session(

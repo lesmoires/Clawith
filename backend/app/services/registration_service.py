@@ -161,7 +161,7 @@ class RegistrationService:
         """
         # Ensure unique display name / username within tenant if needed
         # (Using display_name or identity info)
-        name = display_name or identity.display_name or identity.username or "User"
+        name = display_name or identity.username or "User"
 
         # Create tenant-user record
         # is_active matches identity verification status by default, 

@@ -89,16 +89,16 @@ class Settings(BaseSettings):
     # Jina AI (Reader + Search APIs)
     JINA_API_KEY: str = ""
 
-        # System email (platform-owned outbound mail)
-    SYSTEM_EMAIL_FROM_ADDRESS: str = "yaojin@dataelem.com"
+    # System email (platform-owned outbound mail)
+    SYSTEM_EMAIL_FROM_ADDRESS: str = ""
     SYSTEM_EMAIL_FROM_NAME: str = "Clawith"
-    SYSTEM_SMTP_HOST: str = "smtphz.qiye.163.com"
-    SYSTEM_SMTP_PORT: int = 994
-    SYSTEM_SMTP_USERNAME: str = "yaojin@dataelem.com"
-    SYSTEM_SMTP_PASSWORD: str = "b%Kg88HnV%2KC@P#"
+    SYSTEM_SMTP_HOST: str = ""
+    SYSTEM_SMTP_PORT: int = 465
+    SYSTEM_SMTP_USERNAME: str = ""
+    SYSTEM_SMTP_PASSWORD: str = ""
     SYSTEM_SMTP_SSL: bool = True
     SYSTEM_SMTP_TIMEOUT_SECONDS: int = 15
-    
+
 
     # Sandbox configuration
     SANDBOX_TYPE: SandboxType = SandboxType.SUBPROCESS

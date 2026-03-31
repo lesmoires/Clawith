@@ -239,7 +239,14 @@ class ChannelUserService:
         extra_info: dict[str, Any],
         tenant_id: uuid.UUID | None,
     ) -> User:
-        """Create a new User for channel identity (lazy registration)."""
+        """Create a new Identity + User for channel identity (lazy registration).
+
+        Creates a global Identity first, then a tenant-scoped User linked to it.
+        This ensures compatibility with the Phase 2 user model where username,
+        email, and password_hash live on the Identity table.
+        """
+        from app.models.user import Identity
+
         # Generate username and email
         email = extra_info.get("email")
         name = extra_info.get("name") or f"{channel_type.capitalize()} {external_user_id[:8]}"
@@ -250,26 +257,42 @@ class ChannelUserService:
             username = f"{channel_type}_{external_user_id[:12]}"
 
         # Ensure unique username within tenant
-        query = select(User).where(User.username == username)
-        if tenant_id:
-            query = query.where(User.tenant_id == tenant_id)
-
-        existing = await db.execute(query)
+        existing = await db.execute(
+            select(Identity).where(Identity.username == username)
+        )
         if existing.scalar_one_or_none():
             username = f"{username}_{external_user_id[:6]}"
 
         email = email or f"{username}@{channel_type}.local"
 
+        # Step 1: Find or create global Identity
+        identity = None
+        if email and email != f"{username}@{channel_type}.local":
+            # Try to find existing identity by real email
+            res = await db.execute(
+                select(Identity).where(Identity.email.ilike(email))
+            )
+            identity = res.scalar_one_or_none()
+
+        if not identity:
+            identity = Identity(
+                email=email,
+                username=username,
+                password_hash=hash_password(uuid.uuid4().hex),
+                phone=extra_info.get("mobile"),
+            )
+            db.add(identity)
+            await db.flush()
+
+        # Step 2: Create tenant-scoped User linked to Identity
         user = User(
-            username=username,
-            email=email,
-            password_hash=hash_password(uuid.uuid4().hex),
+            identity_id=identity.id,
             display_name=name,
             avatar_url=extra_info.get("avatar_url"),
-            primary_mobile=extra_info.get("mobile"),
             role="member",
             registration_source=channel_type,
             tenant_id=tenant_id,
+            is_active=True,
         )
         db.add(user)
         await db.flush()

@@ -293,30 +293,24 @@ async def discord_interaction_webhook(
                 creator_id = agent_obj.creator_id if agent_obj else agent_id
                 ctx_size = agent_obj.context_window_size if agent_obj else 20
 
-                # Find-or-create platform user for this Discord sender
-                from app.models.user import User as _User
-                from app.core.security import hash_password as _hp
-                import uuid as _uuid
-                _username = f"discord_{sender_id}"
-                query = select(_User).where(_User.username == _username)
-                if agent_obj and agent_obj.tenant_id:
-                    query = query.where(_User.tenant_id == agent_obj.tenant_id)
+                # Find-or-create platform user for this Discord sender via unified service
+                from app.services.channel_user_service import channel_user_service
                 
-                _u_r = await bg_db.execute(query)
-                _platform_user = _u_r.scalar_one_or_none()
-                if not _platform_user:
-                    _discord_username = body.get("member", {}).get("user", {}).get("username") or body.get("user", {}).get("username", "")
-                    _display = _discord_username or f"Discord User {sender_id[:8]}"
-                    _platform_user = _User(
-                        username=_username,
-                        email=f"{_username}@discord.local",
-                        password_hash=_hp(_uuid.uuid4().hex),
-                        display_name=_display,
-                        role="member",
-                        tenant_id=agent_obj.tenant_id if agent_obj else None,
-                        registration_source="discord",
-                    )
-                    bg_db.add(_platform_user)
+                _discord_username = body.get("member", {}).get("user", {}).get("username") or body.get("user", {}).get("username", "")
+                _display = _discord_username or f"Discord User {sender_id[:8]}"
+                _extra_info = {"name": _display}
+                
+                _platform_user = await channel_user_service.resolve_channel_user(
+                    db=bg_db,
+                    agent=agent_obj,
+                    channel_type="discord",
+                    external_user_id=sender_id,
+                    extra_info=_extra_info,
+                )
+                
+                # Update display_name if we now have a better name
+                if _discord_username and _platform_user.display_name and _platform_user.display_name.startswith("Discord User ") and _platform_user.display_name != _discord_username:
+                    _platform_user.display_name = _discord_username
                     await bg_db.flush()
                 platform_user_id = _platform_user.id
 

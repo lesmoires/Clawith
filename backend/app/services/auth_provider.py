@@ -461,18 +461,56 @@ class WeComAuthProvider(BaseAuthProvider):
                 params={"access_token": access_token, "code": code},
             )
             user_data = user_resp.json()
-            logger.info(f"WeCom user auth info: {user_data}")
-            return user_data
+            userid = user_data.get("UserId")
+            if not userid:
+                logger.error(f"WeCom user auth info missing UserId: {user_data}")
+                return {}
+
+            # Fetch detailed user info
+            detail_res = await client.get(
+                "https://qyapi.weixin.qq.com/cgi-bin/user/get",
+                params={"access_token": access_token, "userid": userid},
+            )
+            detail_data = detail_res.json()
+            if detail_data.get("errcode") == 0:
+                logger.info(f"WeCom user detail fetched for userid {userid}")
+            else:
+                logger.warning(f"WeCom user detail fetch failed: {detail_data}")
+
+            # Pack all info into the access_token string to satisfy BaseAuthProvider interface
+            import json
+            packed_token = json.dumps({
+                "access_token": access_token,
+                "userid": userid,
+                "detail": detail_data
+            })
+            
+            return {"access_token": packed_token}
 
     async def get_user_info(self, access_token: str) -> ExternalUserInfo:
-        # WeCom returns user info in the token exchange response
-        logger.info("WeCom get_user_info called (user info usually handled in exchange_code)")
-        return ExternalUserInfo(
-            provider_type=self.provider_type,
-            provider_user_id="",
-            name="",
-            raw_data={"wecom": "user_info_in_token_response"},
-        )
+        import json
+        try:
+            data = json.loads(access_token)
+            userid = data.get("userid", "")
+            detail = data.get("detail", {})
+            
+            return ExternalUserInfo(
+                provider_type=self.provider_type,
+                provider_user_id=userid,
+                name=detail.get("name") or f"WeCom {userid}",
+                email=detail.get("email") or detail.get("biz_mail") or "",
+                avatar_url=detail.get("avatar") or "",
+                mobile=detail.get("mobile") or "",
+                raw_data=detail,
+            )
+        except Exception as e:
+            logger.error(f"WeCom get_user_info error: {e}")
+            return ExternalUserInfo(
+                provider_type=self.provider_type,
+                provider_user_id="",
+                name="",
+                raw_data={"error": str(e)},
+            )
 
 
 class MicrosoftTeamsAuthProvider(BaseAuthProvider):

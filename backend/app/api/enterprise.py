@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -160,7 +160,7 @@ async def remove_llm_model(
         raise HTTPException(status_code=404, detail="Model not found")
 
     # Check if any agents reference this model
-    from sqlalchemy import or_, update
+    from sqlalchemy import or_
     ref_result = await db.execute(
         select(Agent.name).where(
             or_(Agent.primary_model_id == model_id, Agent.fallback_model_id == model_id)
@@ -583,7 +583,7 @@ async def _sync_tenant_sso_state(db: AsyncSession, tenant_id: uuid.UUID):
             # IP mode: first clear ALL other tenants' sso_domain, then set for this tenant
             # (unique constraint - only one tenant can hold the IP domain)
             await db.execute(
-                __import__('sqlalchemy', fromlist=['update']).update(Tenant)
+                update(Tenant)
                 .where(Tenant.id != tenant_id)
                 .values(sso_domain=None, sso_enabled=False)
             )

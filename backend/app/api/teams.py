@@ -432,32 +432,27 @@ async def teams_event_webhook(
 
         logger.info(f"Teams: Message from={sender_id}, conversation={conversation_id}: {user_text[:80]}")
 
-        # Find-or-create platform user for this Teams sender
-        from app.models.user import User as _User
-        _teams_username = f"teams_{sender_id}"
-        query = select(_User).where(_User.username == _teams_username)
-        if agent_obj and agent_obj.tenant_id:
-            query = query.where(_User.tenant_id == agent_obj.tenant_id)
-            
-        _u_r = await db.execute(query)
-        _platform_user = _u_r.scalar_one_or_none()
+        # Load agent (must happen before user resolution for tenant_id)
+        agent_r = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
+        agent_obj = agent_r.scalar_one_or_none()
+        ctx_size = agent_obj.context_window_size if agent_obj else 20
 
-        if not _platform_user:
-            _platform_user = _User(
-                username=_teams_username,
-                email=f"{_teams_username}@teams.local",
-                password_hash=_hp(uuid.uuid4().hex),
-                display_name=sender_name,
-                role="member",
-                tenant_id=agent_obj.tenant_id if agent_obj else None,
-                registration_source="teams",
-            )
-            db.add(_platform_user)
+        # Find-or-create platform user for this Teams sender via unified service
+        from app.services.channel_user_service import channel_user_service
+        _extra_info = {"name": sender_name}
+        platform_user = await channel_user_service.resolve_channel_user(
+            db=db,
+            agent=agent_obj,
+            channel_type="teams",
+            external_user_id=sender_id,
+            extra_info=_extra_info,
+        )
+
+        # Update display_name if we now have a better name
+        if sender_name and platform_user.display_name and platform_user.display_name.startswith("Teams User ") and sender_name != platform_user.display_name:
+            platform_user.display_name = sender_name
             await db.flush()
-        elif _platform_user.display_name.startswith("Teams User ") and sender_name != _platform_user.display_name:
-            _platform_user.display_name = sender_name
-            await db.flush()
-        platform_user_id = _platform_user.id
+        platform_user_id = platform_user.id
 
         # Detect group vs P2P chat
         _conv_type = activity.get("conversation", {}).get("conversationType", "")
@@ -475,12 +470,6 @@ async def teams_event_webhook(
             group_name=activity.get("conversation", {}).get("name") or (f"Teams Group {conversation_id[:8]}" if _is_group_teams else None),
         )
         session_conv_id = str(sess.id)
-
-        # Load history
-        agent_r = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
-        agent_obj = agent_r.scalar_one_or_none()
-        ctx_size = agent_obj.context_window_size if agent_obj else 20
-
         history_r = await db.execute(
             select(ChatMessage)
             .where(ChatMessage.agent_id == agent_id, ChatMessage.conversation_id == session_conv_id)

@@ -186,7 +186,6 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
     agent_local_now = now_in_timezone(agent_tz_name)
     now_str = agent_local_now.strftime(f"%Y-%m-%d %H:%M:%S ({agent_tz_name})")
     parts = [f"You are {agent_name}, an enterprise digital employee."]
-    parts.append(f"\n## Current Time\n{now_str}")
     parts.append(f"Your timezone is **{agent_tz_name}**. When setting cron triggers, use this timezone for time references.")
 
     if role_description:
@@ -391,6 +390,8 @@ You have access to Atlassian tools via the Rovo MCP server. **Always call them v
     if relationships and "暂无" not in relationships and "None yet" not in relationships:
         parts.append(f"\n## Relationships\n{relationships}")
 
+    dynamic_parts = []
+
     # --- Focus (working memory) ---
     focus = (
         _read_file_safe(ws_root / "focus.md", 3000)
@@ -400,7 +401,7 @@ You have access to Atlassian tools via the Rovo MCP server. **Always call them v
     if focus and focus.strip() not in ("# Focus", "# Agenda", "（暂无）"):
         if focus.startswith("# "):
             focus = "\n".join(focus.split("\n")[1:]).strip()
-        parts.append(f"\n## Focus\n{focus}")
+        dynamic_parts.append(f"\n## Focus\n{focus}")
 
     # --- Active Triggers ---
     try:
@@ -422,7 +423,7 @@ You have access to Atlassian tools via the Rovo MCP server. **Always call them v
                     reason_str = (t.reason or "")[:500]
                     ref_str = f" (focus: {t.focus_ref})" if t.focus_ref else ""
                     lines.append(f"\n- **{t.name}** [{t.type}]{ref_str}\n  Config: `{config_str}`\n  Reason: {reason_str}")
-                parts.append("\n## Active Triggers\n" + "\n".join(lines))
+                dynamic_parts.append("\n## Active Triggers\n" + "\n".join(lines))
     except Exception:
         pass
 
@@ -550,6 +551,10 @@ You have internet access through these tools — **use them proactively when you
 🚫 **NEVER say you cannot access the internet or search the web.** You HAVE these capabilities — use them.""")
 
 
+
+    # Append dynamic parts (Time, Focus, Triggers) at the very end to maximize cache hits
+    parts.extend(dynamic_parts)
+    parts.append(f"\n## Current Time\n{now_str}")
 
     # Inject current user identity
     if current_user_name:
