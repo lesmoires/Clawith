@@ -101,11 +101,23 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
         } catch (e) { console.error(e); }
     };
 
+    // Sensitive field keys that should not be pre-filled from masked global config
+    const SENSITIVE_KEYS = new Set(['api_key', 'private_key', 'auth_code', 'password', 'secret']);
+
     const openConfig = (tool: any) => {
         setConfigTool(tool);
-        const merged = { ...(tool.global_config || {}), ...(tool.agent_config || {}) };
+        // Build merged config: start with global defaults, overlay agent overrides.
+        // For sensitive fields, only use agent_config values (global ones are masked
+        // like "****xxxx" and should not pre-fill the input).
+        const globalCfg = tool.global_config || {};
+        const agentCfg = tool.agent_config || {};
+        const merged: Record<string, any> = {};
+        for (const [k, v] of Object.entries(globalCfg)) {
+            if (!SENSITIVE_KEYS.has(k)) merged[k] = v;
+        }
+        Object.assign(merged, agentCfg);
         setConfigData(merged);
-        setConfigJson(JSON.stringify(tool.agent_config || {}, null, 2));
+        setConfigJson(JSON.stringify(agentCfg, null, 2));
     };
 
     const openCategoryConfig = async (category: string) => {
@@ -139,7 +151,14 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                 setConfigCategory(null);
             } else {
                 const hasSchema = configTool.config_schema?.fields?.length > 0;
-                const payload = hasSchema ? configData : JSON.parse(configJson || '{}');
+                const raw = hasSchema ? configData : JSON.parse(configJson || '{}');
+                // Strip empty sensitive fields so untouched password inputs
+                // don't overwrite the inherited company-level key with ''
+                const payload: Record<string, any> = {};
+                for (const [k, v] of Object.entries(raw)) {
+                    if (SENSITIVE_KEYS.has(k) && (v === '' || v === undefined || v === null)) continue;
+                    payload[k] = v;
+                }
                 await fetch(`/api/tools/agents/${agentId}/tool-config/${configTool.id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -414,7 +433,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                                                         </label>
                                                     ) : field.type === 'password' ? (
                                                         <>
-                                                        <input type="password" autoComplete="new-password" className="form-input" value={configData[field.key] ?? ''} placeholder={field.placeholder || t('admin.leaveBlankDefault', 'Leave blank to use global default')} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))} />
+                                                        <input type="password" autoComplete="new-password" className="form-input" value={configData[field.key] ?? ''} placeholder={configTool?.global_config?.[field.key] ? `Using company key (${configTool.global_config[field.key]})` : (field.placeholder || t('admin.leaveBlankDefault', 'Leave blank to use global default'))} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))} />
                                                         {/* Per-provider help text for auth_code */}
                                                         {field.key === 'auth_code' && (() => {
                                                             const providerField = configTool?.config_schema?.fields?.find((f: any) => f.key === 'email_provider');
