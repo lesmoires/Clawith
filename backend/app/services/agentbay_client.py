@@ -565,11 +565,12 @@ class AgentBayClient:
 
 
 # ─── Session Cache for Tool Executions ──────────────────────────
-# Key: (agent_id, image_type) so browser and code sessions coexist.
-# Previously keyed by agent_id only, which caused browser session
-# to be destroyed when code session was created and vice versa.
+# Key: (agent_id, session_id, image_type) so each ChatSession gets
+# its own independent AgentBay instance for browser/computer/code.
+# Previously keyed by (agent_id, image_type) which meant all users
+# of the same Agent shared one browser/desktop — causing conflicts.
 
-_agentbay_sessions: dict[tuple[uuid.UUID, str], tuple[AgentBayClient, datetime]] = {}
+_agentbay_sessions: dict[tuple[uuid.UUID, str, str], tuple[AgentBayClient, datetime]] = {}
 _AGENTBAY_SESSION_TIMEOUT = timedelta(minutes=5)
 
 
@@ -649,17 +650,23 @@ async def test_agentbay_channel(agent_id: uuid.UUID, current_user, db) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-async def get_agentbay_client_for_agent(agent_id: uuid.UUID, image_type: str) -> AgentBayClient:
+async def get_agentbay_client_for_agent(agent_id: uuid.UUID, image_type: str, session_id: str = "") -> AgentBayClient:
     """Get or create AgentBay client for agent.
 
-    Sessions are cached per (agent_id, image_type) so that an agent
-    can hold both a browser and a code session simultaneously.
-    Switching between browser and code operations no longer destroys
-    the other session.
+    Sessions are cached per (agent_id, session_id, image_type) so that each
+    ChatSession gets its own independent AgentBay instance. Multiple users
+    chatting with the same Agent will each have isolated browser/desktop/code
+    environments.
+
+    Args:
+        agent_id: The agent UUID.
+        image_type: One of 'browser', 'computer', 'code'.
+        session_id: The ChatSession ID. Defaults to '' for backward compat
+                    (e.g. test_agentbay_channel, single-session callers).
     """
 
     now = datetime.now()
-    cache_key = (agent_id, image_type)
+    cache_key = (agent_id, session_id, image_type)
 
     if cache_key in _agentbay_sessions:
         client, last_used = _agentbay_sessions[cache_key]
@@ -669,7 +676,7 @@ async def get_agentbay_client_for_agent(agent_id: uuid.UUID, image_type: str) ->
             return client
         else:
             # Session expired, close and remove
-            logger.info(f"[AgentBay] Session expired for {image_type}, closing")
+            logger.info(f"[AgentBay] Session expired for {image_type} (session={session_id[:8]}), closing")
             await client.close_session()
             del _agentbay_sessions[cache_key]
 
@@ -700,7 +707,7 @@ async def get_agentbay_client_for_agent(agent_id: uuid.UUID, image_type: str) ->
         # Read OS preference from tool config (default: windows)
         os_type = (tool_config or {}).get("os_type", "windows")
         computer_image = "windows_latest" if os_type == "windows" else "linux_latest"
-        logger.info(f"[AgentBay] Creating computer session with OS: {os_type} (image: {computer_image})")
+        logger.info(f"[AgentBay] Creating computer session with OS: {os_type} (image: {computer_image}) for session={session_id[:8]}")
         await client.create_session(computer_image)
     else:
         await client.create_session("code_latest")
@@ -718,6 +725,6 @@ async def cleanup_agentbay_sessions():
     ]
     for cache_key in expired:
         client, _ = _agentbay_sessions.pop(cache_key)
-        agent_id, image_type = cache_key
-        logger.info(f"[AgentBay] Cleaning up expired {image_type} session for agent {agent_id}")
+        agent_id, session_id, image_type = cache_key
+        logger.info(f"[AgentBay] Cleaning up expired {image_type} session for agent {agent_id} (session={session_id[:8]})")
         await client.close_session()

@@ -42,7 +42,20 @@ class ConnectionManager:
     async def send_message(self, agent_id: str, message: dict):
         if agent_id in self.active_connections:
             for ws, _sid in self.active_connections[agent_id]:
-                await ws.send_json(message)
+                try:
+                    await ws.send_json(message)
+                except Exception:
+                    pass
+
+    async def send_to_session(self, agent_id: str, session_id: str, message: dict):
+        """Send message only to WebSocket connections matching the given session_id."""
+        if agent_id in self.active_connections:
+            for ws, sid in self.active_connections[agent_id]:
+                if sid == session_id:
+                    try:
+                        await ws.send_json(message)
+                    except Exception:
+                        pass
 
     def get_active_session_ids(self, agent_id: str) -> list[str]:
         """Return distinct session IDs for all active WS connections of an agent."""
@@ -103,6 +116,7 @@ async def call_llm(
     role_description: str,
     agent_id=None,
     user_id=None,
+    session_id: str = "",
     on_chunk=None,
     on_tool_call=None,
     on_thinking=None,
@@ -351,6 +365,7 @@ async def call_llm(
                 tool_name, args,
                 agent_id=agent_id,
                 user_id=user_id or agent_id,
+                session_id=session_id,
             )
             logger.debug(f"[LLM] Tool result: {result[:100]}")
 
@@ -745,12 +760,12 @@ async def websocket_chat(
                                 if env:
                                     tool_result = data.get("result", "") or ""
                                     if env == "desktop":
-                                        b64_url = await get_desktop_screenshot(agent_id)
+                                        b64_url = await get_desktop_screenshot(agent_id, session_id=conv_id)
                                         if b64_url:
                                             data["live_preview"] = {"env": env, "screenshot_url": b64_url}
                                             logger.info(f"[WS][LivePreview] Embedded {env} base64 in tool_call")
                                     elif env == "browser":
-                                        b64_url = await get_browser_snapshot(agent_id)
+                                        b64_url = await get_browser_snapshot(agent_id, session_id=conv_id)
                                         if b64_url:
                                             data["live_preview"] = {"env": env, "screenshot_url": b64_url}
                                             logger.info(f"[WS][LivePreview] Embedded {env} base64 in tool_call")
@@ -802,6 +817,7 @@ async def websocket_chat(
                         role_description,
                         agent_id=agent_id,
                         user_id=user_id,
+                        session_id=conv_id,
                         on_chunk=stream_to_ws,
                         on_tool_call=tool_call_to_ws,
                         on_thinking=thinking_to_ws,
@@ -884,6 +900,7 @@ async def websocket_chat(
                                 role_description,
                                 agent_id=agent_id,
                                 user_id=user_id,
+                                session_id=conv_id,
                                 on_chunk=stream_to_ws,
                                 on_tool_call=tool_call_to_ws,
                                 on_thinking=thinking_to_ws,
