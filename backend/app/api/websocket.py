@@ -576,6 +576,9 @@ async def websocket_chat(
     manager.active_connections[agent_id_str].append((websocket, conv_id))
     logger.info(f"[WS] Ready! Agent={agent_name}")
 
+    # Send session_id to frontend so Take Control can reference the correct session
+    await websocket.send_json({"type": "connected", "session_id": conv_id})
+
     # Build conversation context from history
     # IMPORTANT: Include tool_call messages so the LLM maintains tool-calling behavior.
     # Without them, Claude sees user→assistant-text patterns and learns to skip tools.

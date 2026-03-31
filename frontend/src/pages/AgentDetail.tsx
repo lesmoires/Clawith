@@ -11,6 +11,7 @@ import MarkdownRenderer from '../components/MarkdownRenderer';
 import PromptModal from '../components/PromptModal';
 import OpenClawSettings from './OpenClawSettings';
 import AgentBayLivePanel, { LivePreviewState } from '../components/AgentBayLivePanel';
+import AgentCredentials from '../components/AgentCredentials';
 import { activityApi, agentApi, channelApi, enterpriseApi, fileApi, scheduleApi, skillApi, taskApi, triggerApi, uploadFileWithProgress } from '../services/api';
 import { useAppStore } from '../stores';
 import { useAuthStore } from '../stores';
@@ -1291,6 +1292,7 @@ function AgentDetailInner() {
     const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
     const [liveState, setLiveState] = useState<LivePreviewState>({});
     const [livePanelVisible, setLivePanelVisible] = useState(false);
+    const [wsSessionId, setWsSessionId] = useState<string>('');
     const [sessionListCollapsed, setSessionListCollapsed] = useState(false);
     const [chatInput, setChatInput] = useState('');
     const [wsConnected, setWsConnected] = useState(false);
@@ -1504,6 +1506,12 @@ function AgentDetailInner() {
                 setIsWaiting(false);
                 if (['thinking', 'chunk', 'tool_call'].includes(d.type)) setIsStreaming(true);
                 if (['done', 'error', 'quota_exceeded'].includes(d.type)) setIsStreaming(false);
+            }
+
+            // Capture session_id from the 'connected' message for Take Control
+            if (d.type === 'connected' && d.session_id) {
+                if (isActiveRuntime) setWsSessionId(d.session_id);
+                return;
             }
 
             if (d.type === 'thinking') {
@@ -3841,6 +3849,8 @@ function AgentDetailInner() {
                                         liveState={liveState}
                                         visible={livePanelVisible}
                                         onToggle={() => setLivePanelVisible(v => !v)}
+                                        agentId={id}
+                                        sessionId={wsSessionId}
                                     />
                                 )}
                             </div>
@@ -4362,6 +4372,9 @@ function AgentDetailInner() {
                                         </div>
                                     );
                                 })()}
+
+                                {/* Credentials Management — for AgentBay cookie injection */}
+                                <AgentCredentials agentId={id!} />
 
                                 {/* Welcome Message */}
                                 {(() => {

@@ -1663,6 +1663,17 @@ async def execute_tool(
     if tool_name.startswith("agentbay_"):
         arguments["_session_id"] = session_id
 
+        # Take Control lock: block automatic tool execution while a human
+        # is manually controlling the browser/desktop session. This prevents
+        # input collisions between human clicks and agent-initiated actions.
+        from app.api.agentbay_control import is_session_locked
+        if is_session_locked(str(agent_id), session_id):
+            return (
+                "⏸️ A human operator is currently controlling this browser session "
+                "(Take Control mode). Please wait for them to finish before retrying "
+                "browser/computer operations."
+            )
+
     try:
         if tool_name == "list_files":
             result = _list_files(ws, arguments.get("path", ""), tenant_id=_agent_tenant_id)

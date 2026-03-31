@@ -75,6 +75,7 @@ export default function Chat() {
     const [attachedFile, setAttachedFile] = useState<{ name: string; text: string; path?: string; imageUrl?: string } | null>(null);
     const [liveState, setLiveState] = useState<LivePreviewState>({});
     const [livePanelVisible, setLivePanelVisible] = useState(false);
+    const [wsSessionId, setWsSessionId] = useState<string>('');
     const wsRef = useRef<WebSocket | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -173,6 +174,12 @@ export default function Chat() {
                 }
                 if (['error', 'quota_exceeded'].includes(data.type)) {
                     setStreaming(false);
+                }
+
+                // Capture session_id from the 'connected' message for Take Control
+                if (data.type === 'connected' && data.session_id) {
+                    setWsSessionId(data.session_id);
+                    return;
                 }
 
                 // ── AgentBay live preview events ──
@@ -647,6 +654,8 @@ export default function Chat() {
                         liveState={liveState}
                         visible={livePanelVisible}
                         onToggle={() => setLivePanelVisible(v => !v)}
+                        agentId={id}
+                        sessionId={wsSessionId}
                     />
                 )}
             </div>
