@@ -128,7 +128,8 @@
     "companyName": "Company Name",
     "create": "Create",
     "myCompany": "My Company",
-    "logout": "Log out"
+    "logout": "Log out",
+    "language": "Language"
   },
   "dashboard": {
     "greeting": {

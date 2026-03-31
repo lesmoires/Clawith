@@ -16,6 +16,8 @@ import { activityApi, agentApi, channelApi, enterpriseApi, fileApi, scheduleApi,
 import { useAppStore } from '../stores';
 import { useAuthStore } from '../stores';
 import { copyToClipboard } from '../utils/clipboard';
+import { formatFileSize } from '../utils/formatFileSize';
+import { IconPaperclip, IconSend } from '@tabler/icons-react';
 
 const TABS = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'approvals', 'settings'] as const;
 
@@ -1296,11 +1298,10 @@ function AgentDetailInner() {
     const [sessionListCollapsed, setSessionListCollapsed] = useState(false);
     const [chatInput, setChatInput] = useState('');
     const [wsConnected, setWsConnected] = useState(false);
-    const [uploading, setUploading] = useState(false);
     const [isWaiting, setIsWaiting] = useState(false);
     const [isStreaming, setIsStreaming] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState(-1);
-    const uploadAbortRef = useRef<(() => void) | null>(null);
+    const [chatUploadDrafts, setChatUploadDrafts] = useState<{ id: string; name: string; percent: number; previewUrl?: string; sizeBytes: number }[]>([]);
+    const chatUploadAbortRef = useRef<Map<string, () => void>>(new Map());
     const [attachedFiles, setAttachedFiles] = useState<{ name: string; text: string; path?: string; imageUrl?: string }[]>([]);
     const wsRef = useRef<WebSocket | null>(null);
     const chatEndRef = useRef<HTMLDivElement>(null);
@@ -1788,12 +1789,6 @@ function AgentDetailInner() {
         }));
 
         setChatInput('');
-        // Reset textarea height to single line after sending
-        requestAnimationFrame(() => {
-            if (chatInputRef.current) {
-                chatInputRef.current.style.height = 'auto';
-            }
-        });
         setAttachedFiles([]);
     };
 
@@ -1806,28 +1801,51 @@ function AgentDetailInner() {
             return;
         }
 
-        setUploading(true); setUploadProgress(0);
-        try {
-            const uploadPromises = allowedFiles.map(file => {
-                const { promise } = uploadFileWithProgress(
-                    `/chat/upload`,
-                    file,
-                    () => { }, // Avoid updating progress per file to prevent flickering, could implement total progress
-                    id ? { agent_id: id } : undefined,
+        const baseTime = Date.now();
+        const newDrafts = allowedFiles.map((file, i) => ({
+            id: `up-${baseTime}-${i}-${file.name}`,
+            name: file.name,
+            percent: 0,
+            previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+            sizeBytes: file.size,
+        }));
+        setChatUploadDrafts((prev) => [...prev, ...newDrafts]);
+
+        const runOne = async (file: File, draft: (typeof newDrafts)[0]) => {
+            const { promise, abort } = uploadFileWithProgress(
+                `/chat/upload`,
+                file,
+                (pct) => {
+                    setChatUploadDrafts((prev) =>
+                        prev.map((d) => (d.id === draft.id ? { ...d, percent: pct >= 101 ? 100 : pct } : d)),
+                    );
+                },
+                id ? { agent_id: id } : undefined,
+            );
+            chatUploadAbortRef.current.set(draft.id, abort);
+            try {
+                const data = await promise;
+                if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+                setChatUploadDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+                chatUploadAbortRef.current.delete(draft.id);
+                setAttachedFiles((prev) =>
+                    [...prev, {
+                        name: data.filename,
+                        text: data.extracted_text,
+                        path: data.workspace_path,
+                        imageUrl: data.image_data_url || undefined,
+                    }].slice(0, 10),
                 );
-                return promise;
-            });
-            const results = await Promise.all(uploadPromises);
-            const newAttached = results.map(data => ({
-                name: data.filename, text: data.extracted_text, path: data.workspace_path, imageUrl: data.image_data_url || undefined
-            }));
-            setAttachedFiles(prev => [...prev, ...newAttached].slice(0, 10));
-        } catch (err: any) {
-            if (err?.message !== 'Upload cancelled') alert(t('agent.upload.failed'));
-        } finally {
-            setUploading(false); setUploadProgress(-1); uploadAbortRef.current = null;
-            if (fileInputRef.current) fileInputRef.current.value = '';
-        }
+            } catch (err: any) {
+                if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+                setChatUploadDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+                chatUploadAbortRef.current.delete(draft.id);
+                if (err?.message !== 'Upload cancelled') alert(t('agent.upload.failed'));
+            }
+        };
+
+        await Promise.all(allowedFiles.map((file, i) => runOne(file, newDrafts[i])));
+        if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     // Clipboard paste handler — auto-upload pasted images
@@ -1855,25 +1873,50 @@ function AgentDetailInner() {
             return;
         }
 
-        setUploading(true); setUploadProgress(0);
-        try {
-            const uploadPromises = allowedFiles.map(file => {
-                const { promise } = uploadFileWithProgress(
-                    `/chat/upload`,
-                    file,
-                    () => { },
-                    id ? { agent_id: id } : undefined,
+        const baseTime = Date.now();
+        const newDrafts = allowedFiles.map((file, i) => ({
+            id: `paste-${baseTime}-${i}-${file.name}`,
+            name: file.name,
+            percent: 0,
+            previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+            sizeBytes: file.size,
+        }));
+        setChatUploadDrafts((prev) => [...prev, ...newDrafts]);
+
+        const runOne = async (file: File, draft: (typeof newDrafts)[0]) => {
+            const { promise, abort } = uploadFileWithProgress(
+                `/chat/upload`,
+                file,
+                (pct) => {
+                    setChatUploadDrafts((prev) =>
+                        prev.map((d) => (d.id === draft.id ? { ...d, percent: pct >= 101 ? 100 : pct } : d)),
+                    );
+                },
+                id ? { agent_id: id } : undefined,
+            );
+            chatUploadAbortRef.current.set(draft.id, abort);
+            try {
+                const data = await promise;
+                if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+                setChatUploadDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+                chatUploadAbortRef.current.delete(draft.id);
+                setAttachedFiles((prev) =>
+                    [...prev, {
+                        name: data.filename,
+                        text: data.extracted_text,
+                        path: data.workspace_path,
+                        imageUrl: data.image_data_url || undefined,
+                    }].slice(0, 10),
                 );
-                return promise;
-            });
-            const results = await Promise.all(uploadPromises);
-            const newAttached = results.map(data => ({
-                name: data.filename, text: data.extracted_text, path: data.workspace_path, imageUrl: data.image_data_url || undefined
-            }));
-            setAttachedFiles(prev => [...prev, ...newAttached].slice(0, 10));
-        } catch (err: any) {
-            if (err?.message !== 'Upload cancelled') alert(t('agent.upload.failed'));
-        } finally { setUploading(false); setUploadProgress(-1); uploadAbortRef.current = null; }
+            } catch (err: any) {
+                if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+                setChatUploadDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+                chatUploadAbortRef.current.delete(draft.id);
+                if (err?.message !== 'Upload cancelled') alert(t('agent.upload.failed'));
+            }
+        };
+
+        await Promise.all(allowedFiles.map((file, i) => runOne(file, newDrafts[i])));
     };
 
     // Expandable activity log
@@ -3455,7 +3498,6 @@ function AgentDetailInner() {
                                             <div style={{ padding: '20px 12px', fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('agent.chat.noSessionsYet')}<br />{t('agent.chat.clickToStart')}</div>
                                         ) : sessions.map((s: any) => {
                                             const isActive = activeSession?.id === s.id;
-                                            const isOwn = s.user_id === String(currentUser?.id);
                                             const channelLabel: Record<string, string> = {
                                                 feishu: t('common.channels.feishu'),
                                                 discord: t('common.channels.discord'),
@@ -3475,7 +3517,6 @@ function AgentDetailInner() {
                                                         {chLabel && <span style={{ fontSize: '9px', padding: '1px 4px', borderRadius: '3px', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', flexShrink: 0 }}>{chLabel}</span>}
                                                     </div>
                                                     <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                        {isOwn && isActive && wsConnected && <span className="status-dot running" style={{ width: '5px', height: '5px', flexShrink: 0 }} />}
                                                         {s.last_message_at
                                                             ? new Date(s.last_message_at).toLocaleString(i18n.language === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                                                             : new Date(s.created_at).toLocaleString(i18n.language === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric' })}
@@ -3745,100 +3786,126 @@ function AgentDetailInner() {
                                                 Connecting...
                                             </div>
                                         ) : null}
-                                        {attachedFiles.length > 0 && (
-                                            <div style={{ padding: '6px 16px', background: 'var(--bg-elevated)', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                                {attachedFiles.map((file, idx) => (
-                                                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', background: 'var(--bg-secondary)', padding: '4px 6px', borderRadius: '4px', border: '1px solid var(--border-subtle)', maxWidth: '200px' }}>
-                                                        {file.imageUrl ? (
-                                                            <img src={file.imageUrl} alt={file.name} style={{ width: '20px', height: '20px', borderRadius: '4px', objectFit: 'cover' }} />
-                                                        ) : (
-                                                            <span>📎</span>
-                                                        )}
-                                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
-                                                        <button onClick={() => setAttachedFiles(prev => prev.filter((_, i) => i !== idx))} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '14px', padding: '0 2px' }} title="Remove file">✕</button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        <div style={{ display: 'flex', gap: '8px', padding: '6px 12px', borderTop: '1px solid var(--border-subtle)' }}>
-                                            <input type="file" multiple ref={fileInputRef} onChange={handleChatFile} style={{ display: 'none' }} />
-                                            <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()} disabled={!wsConnected || uploading || isWaiting || isStreaming || attachedFiles.length >= 10} style={{ padding: '6px 10px', fontSize: '14px', minWidth: 'auto', ...((!wsConnected || uploading || isWaiting || isStreaming) ? { cursor: 'not-allowed', opacity: 0.4 } : {}) }}>{uploading ? '⏳' : '⦹'}</button>
-                                            {uploading && uploadProgress >= 0 && (
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: '0 0 140px' }}>
-                                                    {uploadProgress <= 100 ? (
-                                                        /* Upload phase: show progress bar */
-                                                        <>
-                                                            <div style={{ flex: 1, height: '4px', borderRadius: '2px', background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
-                                                                <div style={{ height: '100%', borderRadius: '2px', background: 'var(--accent-primary)', width: `${uploadProgress}%`, transition: 'width 0.15s ease' }} />
+                                        <div className="chat-input-area" style={{ flexShrink: 0 }}>
+                                            <div className="chat-composer">
+                                            {(chatUploadDrafts.length > 0 || attachedFiles.length > 0) && (
+                                                <div className="chat-composer-attachments">
+                                                    {chatUploadDrafts.map((draft) => (
+                                                        <div key={draft.id} className="chat-file-pill">
+                                                            <div
+                                                                className="chat-file-pill__fill"
+                                                                style={{ width: `${draft.percent}%` }}
+                                                            />
+                                                            <div className="chat-file-pill__row">
+                                                                {draft.previewUrl ? (
+                                                                    <img className="chat-file-pill__thumb" src={draft.previewUrl} alt="" />
+                                                                ) : (
+                                                                    <span className="chat-file-pill__icon">
+                                                                        <IconPaperclip size={14} stroke={1.75} />
+                                                                    </span>
+                                                                )}
+                                                                <span className="chat-file-pill__name">{draft.name}</span>
+                                                                <span className="chat-file-pill__size">{formatFileSize(draft.sizeBytes)}</span>
+                                                                <span className="chat-file-pill__pct">{draft.percent}%</span>
+                                                                <button
+                                                                    type="button"
+                                                                    className="chat-file-pill__remove"
+                                                                    onClick={() => {
+                                                                        chatUploadAbortRef.current.get(draft.id)?.();
+                                                                    }}
+                                                                    title="Cancel upload"
+                                                                >
+                                                                    ×
+                                                                </button>
                                                             </div>
-                                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{uploadProgress}%</span>
-                                                        </>
-                                                    ) : (
-                                                        /* Processing phase (progress = 101): server is parsing the file */
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                            <span style={{ display: 'inline-block', width: '5px', height: '5px', borderRadius: '50%', background: 'var(--accent-primary)', animation: 'pulse 1.2s ease-in-out infinite' }} />
-                                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>Processing...</span>
                                                         </div>
-                                                    )}
-                                                    <button onClick={() => { uploadAbortRef.current?.(); }} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '12px', padding: '0 2px', lineHeight: 1 }} title="Cancel upload">✕</button>
+                                                    ))}
+                                                    {attachedFiles.map((file, idx) => (
+                                                        <div key={`a-${idx}-${file.name}`} className="chat-file-pill">
+                                                            <div className="chat-file-pill__row">
+                                                                {file.imageUrl ? (
+                                                                    <img className="chat-file-pill__thumb" src={file.imageUrl} alt="" />
+                                                                ) : (
+                                                                    <span className="chat-file-pill__icon">
+                                                                        <IconPaperclip size={14} stroke={1.75} />
+                                                                    </span>
+                                                                )}
+                                                                <span className="chat-file-pill__name">{file.name}</span>
+                                                                <button
+                                                                    type="button"
+                                                                    className="chat-file-pill__remove"
+                                                                    onClick={() => setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))}
+                                                                    title="Remove file"
+                                                                >
+                                                                    ×
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             )}
-                                            <textarea
-                                                ref={chatInputRef}
-                                                className="chat-input"
-                                                value={chatInput}
-                                                onChange={e => {
-                                                    setChatInput(e.target.value);
-                                                    // Auto-resize: reset then expand up to ~5 lines (130px);
-                                                    // enable scrolling when content exceeds that cap.
-                                                    const MAX_H = 130;
-                                                    requestAnimationFrame(() => {
-                                                        const el = chatInputRef.current;
-                                                        if (!el) return;
-                                                        el.style.height = 'auto';
-                                                        const natural = el.scrollHeight;
-                                                        el.style.height = Math.min(natural, MAX_H) + 'px';
-                                                        el.style.overflowY = natural > MAX_H ? 'auto' : 'hidden';
-                                                    });
-                                                }}
-                                                onKeyDown={e => {
-                                                    // Ctrl+Enter (or Cmd+Enter on Mac) sends; plain Enter inserts newline
-                                                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing && !isWaiting && !isStreaming) {
-                                                        e.preventDefault();
-                                                        sendChatMsg();
-                                                    }
-                                                }}
-                                                onPaste={handlePaste}
-                                                placeholder={!wsConnected && (!activeSession?.user_id || !currentUser || activeSession.user_id === String(currentUser?.id)) ? 'Connecting...' : attachedFiles.length > 0 ? t('agent.chat.askAboutFile', { name: attachedFiles.length === 1 ? attachedFiles[0].name : `${attachedFiles.length} files` }) : t('chat.placeholder')}
-                                                disabled={!wsConnected}
-                                                rows={1}
-                                                style={{
-                                                    flex: 1,
-                                                    resize: 'none',
-                                                    overflowY: 'hidden',
-                                                    lineHeight: '22px',
-                                                    paddingTop: '7px',
-                                                    paddingBottom: '7px',
-                                                }}
-                                                autoFocus
-                                            />
-                                            {(isStreaming || isWaiting) ? (
-                                                <button className="btn btn-stop-generation" onClick={() => {
-                                                    if (!id || !activeSession?.id) return;
-                                                    const activeRuntimeKey = buildSessionRuntimeKey(id, String(activeSession.id));
-                                                    const activeSocket = wsMapRef.current[activeRuntimeKey];
-                                                    if (activeSocket?.readyState === WebSocket.OPEN) {
-                                                        activeSocket.send(JSON.stringify({ type: 'abort' }));
-                                                        setIsStreaming(false);
-                                                        setIsWaiting(false);
-                                                        setSessionUiState(activeRuntimeKey, { isWaiting: false, isStreaming: false });
-                                                    }
-                                                }} style={{ padding: '6px 16px' }} title={t('chat.stop', 'Stop')}>
-                                                    <span className="stop-icon" />
+                                            <div className="chat-composer-input-block">
+                                                <textarea
+                                                    ref={chatInputRef}
+                                                    className="chat-input"
+                                                    value={chatInput}
+                                                    onChange={e => setChatInput(e.target.value)}
+                                                    onKeyDown={e => {
+                                                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing && !isWaiting && !isStreaming) {
+                                                            e.preventDefault();
+                                                            sendChatMsg();
+                                                        }
+                                                    }}
+                                                    onPaste={handlePaste}
+                                                    placeholder={!wsConnected && (!activeSession?.user_id || !currentUser || activeSession.user_id === String(currentUser?.id)) ? 'Connecting...' : t('chat.placeholder')}
+                                                    disabled={!wsConnected}
+                                                    rows={1}
+                                                    autoFocus
+                                                />
+                                            </div>
+                                            <div className="chat-composer-toolbar">
+                                                <input type="file" multiple ref={fileInputRef} onChange={handleChatFile} style={{ display: 'none' }} />
+                                                <button
+                                                    type="button"
+                                                    className="chat-composer-btn"
+                                                    onClick={() => fileInputRef.current?.click()}
+                                                    disabled={!wsConnected || chatUploadDrafts.length > 0 || isWaiting || isStreaming || attachedFiles.length >= 10}
+                                                    title={t('agent.workspace.uploadFile')}
+                                                >
+                                                    <IconPaperclip size={16} stroke={1.75} />
                                                 </button>
-                                            ) : (
-                                                <button className="btn btn-primary" onClick={sendChatMsg} disabled={!wsConnected || (!chatInput.trim() && attachedFiles.length === 0)} style={{ padding: '6px 16px' }}>{t('chat.send')}</button>
-                                            )}
+                                                {(isStreaming || isWaiting) ? (
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-stop-generation"
+                                                        onClick={() => {
+                                                            if (!id || !activeSession?.id) return;
+                                                            const activeRuntimeKey = buildSessionRuntimeKey(id, String(activeSession.id));
+                                                            const activeSocket = wsMapRef.current[activeRuntimeKey];
+                                                            if (activeSocket?.readyState === WebSocket.OPEN) {
+                                                                activeSocket.send(JSON.stringify({ type: 'abort' }));
+                                                                setIsStreaming(false);
+                                                                setIsWaiting(false);
+                                                                setSessionUiState(activeRuntimeKey, { isWaiting: false, isStreaming: false });
+                                                            }
+                                                        }}
+                                                        title={t('chat.stop', 'Stop')}
+                                                    >
+                                                        <span className="stop-icon" />
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-primary chat-composer-send"
+                                                        onClick={sendChatMsg}
+                                                        disabled={!wsConnected || (!chatInput.trim() && attachedFiles.length === 0)}
+                                                        title={t('chat.send')}
+                                                    >
+                                                        <IconSend size={16} stroke={1.75} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
                                         </div>
                                     </>
                                 )}

@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -25,7 +26,9 @@ import {
     IconArrowUpRight,
     IconBuilding,
     IconChevronUp,
-    IconSwitchHorizontal
+    IconSwitchHorizontal,
+    IconChevronRight,
+    IconCheck,
 } from '@tabler/icons-react';
 import { useAppStore } from '../stores';
 
@@ -43,6 +46,18 @@ const SidebarIcons = {
     expand: <IconChevronsRight size={16} stroke={1.5} />,
     bell: <IconBell size={16} stroke={1.5} />,
 };
+
+/** UI locales: native endonym per row. */
+const APP_UI_LANGUAGES: { code: string; nativeLabel: string }[] = [
+    { code: 'zh', nativeLabel: '中文' },
+    { code: 'en', nativeLabel: 'English' },
+];
+
+function resolveUiLangCode(lang: string | undefined): string {
+    if (!lang) return 'en';
+    if (lang.startsWith('zh')) return 'zh';
+    return 'en';
+}
 
 const fetchJson = async <T,>(url: string): Promise<T> => {
     const token = localStorage.getItem('token');
@@ -224,7 +239,12 @@ export default function Layout() {
     const isChinese = i18n.language?.startsWith('zh');
     const [showAccountSettings, setShowAccountSettings] = useState(false);
     const [showAccountMenu, setShowAccountMenu] = useState(false);
+    const [showLanguageSubmenu, setShowLanguageSubmenu] = useState(false);
+    const [langSubmenuPos, setLangSubmenuPos] = useState({ top: 0, left: 0 });
     const accountMenuRef = useRef<HTMLDivElement>(null);
+    const accountDropdownRef = useRef<HTMLDivElement>(null);
+    const langSubmenuPortalRef = useRef<HTMLDivElement>(null);
+    const langHoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [showNotifications, setShowNotifications] = useState(false);
     const [notifCategory, setNotifCategory] = useState<string>('all');
     const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
@@ -347,19 +367,97 @@ export default function Layout() {
         navigate('/login');
     };
 
-    const toggleLang = () => {
-        i18n.changeLanguage(i18n.language === 'zh' ? 'en' : 'zh');
+    const selectUiLanguage = (code: string) => {
+        i18n.changeLanguage(code);
+        setShowLanguageSubmenu(false);
+        setShowAccountMenu(false);
     };
+
+    const openLangSubmenu = useCallback(() => {
+        if (langHoverCloseTimerRef.current) {
+            clearTimeout(langHoverCloseTimerRef.current);
+            langHoverCloseTimerRef.current = null;
+        }
+        setShowLanguageSubmenu(true);
+    }, []);
+
+    const scheduleCloseLangSubmenu = useCallback(() => {
+        if (langHoverCloseTimerRef.current) clearTimeout(langHoverCloseTimerRef.current);
+        langHoverCloseTimerRef.current = setTimeout(() => {
+            setShowLanguageSubmenu(false);
+            langHoverCloseTimerRef.current = null;
+        }, 200);
+    }, []);
+
+    useEffect(() => {
+        if (!showAccountMenu) {
+            if (langHoverCloseTimerRef.current) {
+                clearTimeout(langHoverCloseTimerRef.current);
+                langHoverCloseTimerRef.current = null;
+            }
+            setShowLanguageSubmenu(false);
+        }
+    }, [showAccountMenu]);
+
+    useEffect(() => () => {
+        if (langHoverCloseTimerRef.current) clearTimeout(langHoverCloseTimerRef.current);
+    }, []);
+
+    const updateLangSubmenuPosition = useCallback(() => {
+        const el = accountDropdownRef.current;
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        setLangSubmenuPos({ top: r.top, left: r.right + 2 });
+    }, []);
+
+    useLayoutEffect(() => {
+        if (!showLanguageSubmenu) return;
+        updateLangSubmenuPosition();
+        window.addEventListener('resize', updateLangSubmenuPosition);
+        window.addEventListener('scroll', updateLangSubmenuPosition, true);
+        return () => {
+            window.removeEventListener('resize', updateLangSubmenuPosition);
+            window.removeEventListener('scroll', updateLangSubmenuPosition, true);
+        };
+    }, [showLanguageSubmenu, updateLangSubmenuPosition]);
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
-            if (accountMenuRef.current && !accountMenuRef.current.contains(e.target as Node)) {
-                setShowAccountMenu(false);
-            }
+            const t = e.target as Node;
+            if (accountMenuRef.current?.contains(t)) return;
+            if (langSubmenuPortalRef.current?.contains(t)) return;
+            setShowAccountMenu(false);
         };
         if (showAccountMenu || showTenantMenu) document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [showAccountMenu, showTenantMenu]);
+
+    const langSubmenuContent = showAccountMenu && showLanguageSubmenu && (
+        <div
+            ref={langSubmenuPortalRef}
+            className="account-lang-submenu account-lang-submenu-portal"
+            role="menu"
+            style={{ top: langSubmenuPos.top, left: langSubmenuPos.left }}
+            onMouseEnter={openLangSubmenu}
+            onMouseLeave={scheduleCloseLangSubmenu}
+        >
+            {APP_UI_LANGUAGES.map(({ code, nativeLabel }) => {
+                const active = resolveUiLangCode(i18n.language) === code;
+                return (
+                    <button
+                        key={code}
+                        type="button"
+                        role="menuitem"
+                        className={`account-lang-submenu-item${active ? ' is-active' : ''}`}
+                        onClick={() => selectUiLanguage(code)}
+                    >
+                        <span>{nativeLabel}</span>
+                        {active && <IconCheck size={14} stroke={2} />}
+                    </button>
+                );
+            })}
+        </div>
+    );
 
     return (
         <div className={`app-layout ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -579,11 +677,31 @@ export default function Layout() {
                         </div>
                         <div ref={accountMenuRef} style={{ position: 'relative' }}>
                             {showAccountMenu && (
-                                <div className="account-dropdown">
-                                    <button className="account-dropdown-item" onClick={() => { toggleLang(); setShowAccountMenu(false); }}>
-                                        <IconWorld size={15} stroke={1.5} />
-                                        <span>{i18n.language === 'zh' ? 'English' : '中文'}</span>
-                                    </button>
+                                <div className="account-menus-container">
+                                <div className="account-dropdown" ref={accountDropdownRef}>
+                                    <div
+                                        className="account-dropdown-language-hover-wrap"
+                                        onMouseEnter={openLangSubmenu}
+                                        onMouseLeave={scheduleCloseLangSubmenu}
+                                    >
+                                        <button
+                                            type="button"
+                                            className="account-dropdown-item language-menu-trigger"
+                                            aria-haspopup="menu"
+                                            aria-expanded={showLanguageSubmenu}
+                                        >
+                                            <IconWorld size={15} stroke={1.5} />
+                                            <span className="language-menu-label">
+                                                {t('layout.language', {
+                                                    lng: resolveUiLangCode(i18n.language),
+                                                    defaultValue: 'Language',
+                                                })}
+                                            </span>
+                                            <span className="language-menu-chevron" aria-hidden>
+                                                <IconChevronRight size={16} stroke={1.75} />
+                                            </span>
+                                        </button>
+                                    </div>
                                     <button className="account-dropdown-item" onClick={() => { setShowAccountSettings(true); setShowAccountMenu(false); }}>
                                         <IconUser size={15} stroke={1.5} />
                                         <span>{isChinese ? '账户设置' : 'Account Settings'}</span>
@@ -594,7 +712,9 @@ export default function Layout() {
                                         <span>{t('layout.logout', 'Logout')}</span>
                                     </button>
                                 </div>
+                                </div>
                             )}
+                            {typeof document !== 'undefined' && langSubmenuContent && createPortal(langSubmenuContent, document.body)}
                             <div
                                 className="sidebar-account-row"
                                 onClick={() => setShowAccountMenu(v => !v)}
