@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy import select, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.security import hash_password
 from app.models.identity import IdentityProvider
 from app.models.tenant import Tenant
@@ -123,7 +124,19 @@ class RegistrationService:
             identity = res.scalar_one_or_none()
 
         if identity:
+            # Auto-verify if SMTP is missing
+            settings = get_settings()
+            if not settings.SYSTEM_SMTP_HOST or not settings.SYSTEM_EMAIL_FROM_ADDRESS:
+                if not identity.email_verified:
+                    identity.email_verified = True
+                    db.add(identity)
             return identity
+        
+        # Check if SMTP is missing for auto-verification
+        settings = get_settings()
+        is_verified = False
+        if not settings.SYSTEM_SMTP_HOST or not settings.SYSTEM_EMAIL_FROM_ADDRESS:
+            is_verified = True
 
         # Create new identity
         identity = Identity(
@@ -132,6 +145,7 @@ class RegistrationService:
             username=username,
             password_hash=hash_password(password) if password else None,
             is_platform_admin=is_platform_admin,
+            email_verified=is_verified,
         )
         db.add(identity)
         await db.flush()
@@ -163,16 +177,20 @@ class RegistrationService:
         # (Using display_name or identity info)
         name = display_name or identity.username or "User"
 
+        # Check if SMTP is missing for auto-activation
+        settings = get_settings()
+        is_active = identity.email_verified
+        if not settings.SYSTEM_SMTP_HOST or not settings.SYSTEM_EMAIL_FROM_ADDRESS:
+            is_active = True
+
         # Create tenant-user record
-        # is_active matches identity verification status by default, 
-        # unless it's a platform admin (handled separately in auth.py)
         user = User(
             identity_id=identity.id,
             tenant_id=tenant_id,
             display_name=name,
             role=role,
             registration_source=registration_source,
-            is_active=identity.email_verified,
+            is_active=is_active or is_platform_admin,
         )
 
         db.add(user)
