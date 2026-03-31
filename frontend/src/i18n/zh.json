@@ -112,6 +112,7 @@
     "notInOrganization": "该账号不属于当前组织。",
     "serverStarting": "服务正在启动或遇到问题，请稍后重试。",
     "serverUnreachable": "无法连接服务器，请检查服务是否正在运行。",
+    "checkEmailVerification": "注册成功！请检查邮箱并点击验证链接完成邮箱验证。",
     "qrLogin": "扫码登录",
     "unifiedSSO": "统一扫码登录",
     "scanWithPlatform": "请使用 飞书 / 钉钉 / 企业微信 扫码",
@@ -674,6 +675,19 @@
     "timezone": {
       "title": "公司时区",
       "description": "所有数字员工的默认时区。数字员工可以单独覆盖。"
+    },
+    "systemEmail": {
+      "title": "系统邮件配置",
+      "description": "配置 SMTP 设置以发送系统邮件，如密码重置和通知。",
+      "fromAddress": "发件人邮箱地址",
+      "fromName": "发件人名称",
+      "smtpHost": "SMTP 主机",
+      "smtpPort": "SMTP 端口",
+      "username": "SMTP 用户名",
+      "password": "SMTP 密码 / 应用密码",
+      "timeout": "超时时间（秒）",
+      "useSsl": "使用 SSL/TLS",
+      "hint": "对于 Gmail，请使用应用密码。对于 QQ/163 邮箱，请使用 SMTP 授权码。"
     },
     "quotas": {
       "defaultUserQuotas": "默认用户配额",

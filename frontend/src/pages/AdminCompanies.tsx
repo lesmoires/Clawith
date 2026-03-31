@@ -111,7 +111,7 @@ function PlatformTab() {
     const [nbSaved, setNbSaved] = useState(false);
 
     // Public URL
-    const [publicBaseUrl, setPublicBaseUrl] = useState('');
+    const [publicBaseUrl, setPublicBaseUrl] = useState(window.location.origin);
     const [urlSaving, setUrlSaving] = useState(false);
     const [urlSaved, setUrlSaved] = useState(false);
 
@@ -138,8 +138,13 @@ function PlatformTab() {
         // Load Public URL
         fetchJson<any>('/enterprise/system-settings/platform')
             .then(d => {
-                if (d.value?.public_base_url) setPublicBaseUrl(d.value.public_base_url);
-            }).catch(() => { });
+                if (d.value?.public_base_url) {
+                    setPublicBaseUrl(d.value.public_base_url);
+                }
+                // Otherwise keep initial value (window.location.origin) as suggestion
+            }).catch(() => {
+                // API failed, keep initial value (window.location.origin) as suggestion
+            });
     }, []);
 
     const handleToggleSetting = async (key: string, value: boolean) => {

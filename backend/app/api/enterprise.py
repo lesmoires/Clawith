@@ -1,10 +1,13 @@
 """Enterprise management API routes: LLM pool, enterprise info, approvals, audit logs."""
 
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +27,8 @@ from app.schemas.schemas import (
 from app.services.autonomy_service import autonomy_service
 from app.services.enterprise_sync import enterprise_sync_service
 from app.services.llm_utils import get_provider_manifest
+from app.services.platform_service import platform_service
+from app.services.sso_service import sso_service
 
 router = APIRouter(prefix="/enterprise", tags=["enterprise"])
 
@@ -155,7 +160,7 @@ async def remove_llm_model(
         raise HTTPException(status_code=404, detail="Model not found")
 
     # Check if any agents reference this model
-    from sqlalchemy import or_, update
+    from sqlalchemy import or_
     ref_result = await db.execute(
         select(Agent.name).where(
             or_(Agent.primary_model_id == model_id, Agent.fallback_model_id == model_id)
@@ -531,6 +536,11 @@ async def update_system_setting(
         setting = SystemSetting(key=key, value=data.value)
         db.add(setting)
     await db.commit()
+
+    # When public_base_url changes, regenerate sso_domain for all SSO-enabled tenants
+    if key == "platform" and data.value.get("public_base_url"):
+        await _regenerate_all_sso_domains(db)
+
     return {"key": setting.key, "value": setting.value}
 
 
@@ -543,6 +553,8 @@ async def _sync_tenant_sso_state(db: AsyncSession, tenant_id: uuid.UUID):
     sso_enabled is set to True and sso_domain is auto-assigned if empty.
     When all providers have sso_login_enabled=False, sso_enabled becomes False
     but sso_domain is preserved for potential re-enablement.
+
+    Raises HTTPException(400) if IP mode and another tenant already owns the sso_domain.
     """
     from app.models.tenant import Tenant
     count_result = await db.execute(
@@ -561,11 +573,61 @@ async def _sync_tenant_sso_state(db: AsyncSession, tenant_id: uuid.UUID):
 
     tenant.sso_enabled = active_sso_count > 0
 
-    # Auto-assign subdomain on first SSO enablement
+    # Auto-assign subdomain on first SSO enablement based on Platform rules
     if tenant.sso_enabled and not tenant.sso_domain:
-        tenant.sso_domain = f"{tenant.slug}.clawith.ai"
+        sso_base = await platform_service.get_tenant_sso_base_url(db, tenant)
+        host = sso_base.split("://")[-1].split(":")[0].split("/")[0]
+        is_ip = platform_service.is_ip_address(host)
+
+        if is_ip:
+            # IP mode: first clear ALL other tenants' sso_domain, then set for this tenant
+            # (unique constraint - only one tenant can hold the IP domain)
+            await db.execute(
+                update(Tenant)
+                .where(Tenant.id != tenant_id)
+                .values(sso_domain=None, sso_enabled=False)
+            )
+            logger.info(f"[SSO] IP mode: cleared sso_domain for all other tenants, setting for tenant_id={tenant_id}")
+
+        tenant.sso_domain = sso_base
 
     await db.commit()
+
+
+async def _regenerate_all_sso_domains(db: AsyncSession):
+    """Regenerate sso_domain for ALL tenants when public_base_url changes.
+
+    - Domain mode: every tenant gets {slug}.{domain}, regardless of SSO status.
+    - IP mode: only ONE tenant can hold the IP domain (unique constraint).
+      The first SSO-enabled tenant keeps it; all others get sso_domain=None.
+      If no SSO-enabled tenant exists, the first tenant in the list gets it.
+    """
+    base_url = await platform_service.get_public_base_url(db)
+    host = base_url.split("://")[-1].split(":")[0].split("/")[0]
+    is_ip = platform_service.is_ip_address(host)
+
+    # Fetch all tenants; put SSO-enabled ones first so they win the IP slot
+    all_tenants_result = await db.execute(
+        select(Tenant).order_by(Tenant.sso_enabled.desc(), Tenant.created_at.asc())
+    )
+    tenants = all_tenants_result.scalars().all()
+
+    for i, tenant in enumerate(tenants):
+        if is_ip:
+            # IP mode: only one tenant can have SSO domain
+            if i == 0:
+                sso_base = await platform_service.get_tenant_sso_base_url(db, tenant)
+                tenant.sso_domain = sso_base
+            else:
+                tenant.sso_domain = None
+        else:
+            # Domain mode: each tenant gets their own subdomain
+            sso_base = await platform_service.get_tenant_sso_base_url(db, tenant)
+            tenant.sso_domain = sso_base
+        logger.info(f"[SSO regen] tenant={tenant.slug} sso_domain={tenant.sso_domain}")
+
+    if tenants:
+        await db.commit()
 
 
 # ─── Identity Providers ─────────────────────────────────
@@ -729,6 +791,13 @@ async def create_identity_provider(
     if not tid:
         raise HTTPException(status_code=400, detail="tenant_id is required to create an identity provider")
         
+    if data.sso_login_enabled:
+        if not await sso_service.validate_sso_enablement(db, tid):
+             raise HTTPException(
+                status_code=400,
+                detail="IP address does not support multi-tenant SSO. Another tenant already has SSO enabled."
+            )
+
     provider = IdentityProvider(
         provider_type=data.provider_type,
         name=data.name,
@@ -891,6 +960,13 @@ async def update_identity_provider(
     if data.is_active is not None:
         provider.is_active = data.is_active
     if data.sso_login_enabled is not None:
+        if data.sso_login_enabled is True and not provider.sso_login_enabled:
+            # Pre-check IP restriction before writing anything
+            if not await sso_service.validate_sso_enablement(db, provider.tenant_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail="IP address does not support multi-tenant SSO. Another tenant already has SSO enabled."
+                )
         provider.sso_login_enabled = data.sso_login_enabled
     if data.config is not None:
         # Merge config
@@ -906,10 +982,18 @@ async def update_identity_provider(
     await db.refresh(provider)
 
     # Recompute tenant.sso_enabled derived state whenever sso_login_enabled changes
+    sso_domain = None
     if data.sso_login_enabled is not None and provider.tenant_id:
         await _sync_tenant_sso_state(db, provider.tenant_id)
+        from app.models.tenant import Tenant
+        tenant_result = await db.execute(select(Tenant).where(Tenant.id == provider.tenant_id))
+        t = tenant_result.scalar_one_or_none()
+        if t:
+            sso_domain = t.sso_domain
 
-    return IdentityProviderOut.model_validate(provider)
+    out = IdentityProviderOut.model_validate(provider)
+    out.sso_domain = sso_domain
+    return out
 
 
 @router.delete("/identity-providers/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -85,14 +85,14 @@ function DeptTree({ departments, parentId, selectedDept, onSelect, level }: {
                 <div key={d.id}>
                     <div
                         style={{
-                            padding: '5px 8px', 
-                            paddingLeft: `${8 + level * 16}px`, 
+                            padding: '5px 8px',
+                            paddingLeft: `${8 + level * 16}px`,
                             borderRadius: '4px',
-                            cursor: 'pointer', 
-                            fontSize: '13px', 
+                            cursor: 'pointer',
+                            fontSize: '13px',
                             marginBottom: '1px',
                             background: selectedDept === d.id ? 'rgba(224,238,238,0.12)' : 'transparent',
-                            display: 'flex', 
+                            display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center'
                         }}
@@ -116,6 +116,160 @@ function DeptTree({ departments, parentId, selectedDept, onSelect, level }: {
         </>
     );
 }
+
+// ─── SSO Channel Section ────────────────────────────────
+function SsoChannelSection({ idpType, existingProvider, tenant, t }: {
+    idpType: string; existingProvider: any; tenant: any; t: any;
+}) {
+    const qc = useQueryClient();
+    const [liveDomain, setLiveDomain] = useState<string>(existingProvider?.sso_domain || tenant?.sso_domain || '');
+    const [ssoError, setSsoError] = useState<string>('');
+    const [toggling, setToggling] = useState(false);
+
+    useEffect(() => {
+        setLiveDomain(existingProvider?.sso_domain || tenant?.sso_domain || '');
+    }, [existingProvider?.sso_domain, tenant?.sso_domain]);
+
+    const ssoEnabled = existingProvider ? !!existingProvider.sso_login_enabled : false;
+    const domain = liveDomain;
+    const callbackUrl = domain ? (domain.startsWith('http') ? `${domain}/api/auth/${idpType}/callback` : `https://${domain}/api/auth/${idpType}/callback`) : '';
+
+    const handleSsoToggle = async () => {
+        if (!existingProvider) {
+            alert(t('enterprise.identity.saveFirst', 'Please save the configuration first to enable SSO.'));
+            return;
+        }
+        const newVal = !ssoEnabled;
+        setToggling(true);
+        setSsoError('');
+        try {
+            const result = await fetchJson<any>(`/enterprise/identity-providers/${existingProvider.id}`, {
+                method: 'PUT',
+                body: JSON.stringify({ sso_login_enabled: newVal }),
+            });
+            if (result?.sso_domain) setLiveDomain(result.sso_domain);
+            qc.invalidateQueries({ queryKey: ['identity-providers'] });
+            if (tenant?.id) qc.invalidateQueries({ queryKey: ['tenant', tenant.id] });
+        } catch (e: any) {
+            const msg = e?.message || '';
+            if (msg.includes('IP address') || msg.includes('multi-tenant')) {
+                setSsoError(t('enterprise.identity.ssoIpConflict', 'IP 模式下只能有一个企业开启 SSO，当前已有其他企业占用。'));
+            } else {
+                setSsoError(msg || t('enterprise.identity.ssoToggleFailed', 'Failed to toggle SSO'));
+            }
+        } finally {
+            setToggling(false);
+        }
+    };
+
+    return (
+        <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px dashed var(--border-subtle)' }}>
+            {/* SSO Toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: ssoError ? '8px' : '16px' }}>
+                <div>
+                    <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('enterprise.identity.ssoLoginToggle', 'SSO Login')}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                        {t('enterprise.identity.ssoLoginToggleHint', 'Allow users to log in via this identity provider.')}
+                    </div>
+                </div>
+                <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px', flexShrink: 0, opacity: (existingProvider && !toggling) ? 1 : 0.5 }}>
+                    <input
+                        type="checkbox"
+                        checked={ssoEnabled}
+                        onChange={handleSsoToggle}
+                        disabled={!existingProvider || toggling}
+                        style={{ opacity: 0, width: 0, height: 0 }}
+                    />
+                    <span style={{
+                        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                        borderRadius: '20px', cursor: (existingProvider && !toggling) ? 'pointer' : 'not-allowed',
+                        background: ssoEnabled ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                        transition: '0.2s',
+                    }}>
+                        <span style={{
+                            position: 'absolute', left: ssoEnabled ? '18px' : '2px', top: '2px',
+                            width: '16px', height: '16px', borderRadius: '50%',
+                            background: '#fff', transition: '0.2s',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                        }} />
+                    </span>
+                </label>
+            </div>
+            {ssoError && (
+                <div style={{ fontSize: '12px', color: 'var(--error)', marginBottom: '12px', padding: '6px 10px', background: 'rgba(var(--error-rgb,220,38,38),0.08)', borderRadius: '6px' }}>
+                    {ssoError}
+                </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                    <label className="form-label" style={{ fontSize: '11px', marginBottom: '4px', color: 'var(--text-secondary)' }}>
+                        {t('enterprise.identity.ssoSubdomain', 'SSO Login URL')}
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                            className="form-input"
+                            readOnly
+                            value={domain ? (domain.startsWith('http') ? domain : `https://${domain}`) : ''}
+                            placeholder={t('enterprise.identity.ssoUrlEmpty', '请先开启 SSO 以生成地址')}
+                            style={{ fontSize: '12px', flex: 1, maxWidth: '400px', background: 'var(--bg-primary)', cursor: 'default' }}
+                        />
+                        <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ fontSize: '11px' }}
+                            disabled={!domain}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                navigator.clipboard.writeText(domain.startsWith('http') ? domain : `https://${domain}`);
+                                const el = e.currentTarget;
+                                const old = el.textContent;
+                                el.textContent = 'Copied✓';
+                                setTimeout(() => { el.textContent = old; }, 2000);
+                            }}
+                        >
+                            {t('common.copy', 'Copy')}
+                        </button>
+                    </div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                        {t('enterprise.identity.ssoSubdomainHint', 'Share this URL with your team. SSO login buttons will appear when they visit this address.')}
+                    </div>
+                </div>
+                <div>
+                    <label className="form-label" style={{ fontSize: '11px', marginBottom: '4px', color: 'var(--text-secondary)' }}>
+                        {t('enterprise.identity.callbackUrl', 'Redirect URL (paste this in your app settings)')}
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                            className="form-input"
+                            readOnly
+                            value={callbackUrl}
+                            placeholder={t('enterprise.identity.ssoUrlEmpty', '请先开启 SSO 以生成地址')}
+                            style={{ fontSize: '12px', flex: 1, maxWidth: '400px', background: 'var(--bg-primary)', cursor: 'default' }}
+                        />
+                        <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ fontSize: '11px' }}
+                            disabled={!callbackUrl}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                navigator.clipboard.writeText(callbackUrl);
+                                const el = e.currentTarget;
+                                const old = el.textContent;
+                                el.textContent = 'Copied✓';
+                                setTimeout(() => { el.textContent = old; }, 2000);
+                            }}
+                        >
+                            {t('common.copy', 'Copy')}
+                        </button>
+                    </div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                        {t('enterprise.identity.callbackUrlHint', "Add this URL as the OAuth redirect URI in your identity provider's app configuration.")}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 
 // ─── Org & Identity Tab ─────────────────────────────
 function OrgTab({ tenant }: { tenant: any }) {
@@ -178,11 +332,11 @@ function OrgTab({ tenant }: { tenant: any }) {
                     </div>
                     <div>
                         <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
-                            <input 
-                                type="checkbox" 
-                                checked={ssoEnabled} 
+                            <input
+                                type="checkbox"
+                                checked={ssoEnabled}
                                 onChange={handleToggle}
-                                style={{ opacity: 0, width: 0, height: 0 }} 
+                                style={{ opacity: 0, width: 0, height: 0 }}
                             />
                             <span style={{
                                 position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
@@ -369,10 +523,10 @@ function OrgTab({ tenant }: { tenant: any }) {
     };
 
     const IDP_TYPES = [
-        { type: 'feishu', name: 'Feishu', desc: 'Feishu / Lark Integration', icon: <img src="/feishu.png" width="20" height="20" alt="Feishu"/> },
-        { type: 'wecom', name: 'WeCom', desc: 'WeChat Work Integration', icon: <img src="/wecom.png" width="20" height="20" style={{ borderRadius: '4px' }} alt="WeCom"/> },
-        { type: 'dingtalk', name: 'DingTalk', desc: 'DingTalk App Integration', icon: <img src="/dingtalk.png" width="20" height="20" style={{ borderRadius: '4px' }} alt="DingTalk"/> },
-        { type: 'oauth2', name: 'OAuth2', desc: 'Generic OIDC Provider', icon: <div style={{width: 20, height: 20, background: 'var(--accent-primary)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700}}>O</div> }
+        { type: 'feishu', name: 'Feishu', desc: 'Feishu / Lark Integration', icon: <img src="/feishu.png" width="20" height="20" alt="Feishu" /> },
+        { type: 'wecom', name: 'WeCom', desc: 'WeChat Work Integration', icon: <img src="/wecom.png" width="20" height="20" style={{ borderRadius: '4px' }} alt="WeCom" /> },
+        { type: 'dingtalk', name: 'DingTalk', desc: 'DingTalk App Integration', icon: <img src="/dingtalk.png" width="20" height="20" style={{ borderRadius: '4px' }} alt="DingTalk" /> },
+        { type: 'oauth2', name: 'OAuth2', desc: 'Generic OIDC Provider', icon: <div style={{ width: 20, height: 20, background: 'var(--accent-primary)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700 }}>O</div> }
     ];
 
     const handleExpand = (type: string, existingProvider?: any) => {
@@ -383,7 +537,7 @@ function OrgTab({ tenant }: { tenant: any }) {
         setExpandedType(type);
         setEditingId(existingProvider ? existingProvider.id : null);
         setUseOAuth2Form(type === 'oauth2');
-        
+
         if (existingProvider) {
             setForm({ ...existingProvider, ...(type === 'oauth2' ? initOAuth2FromConfig(existingProvider.config) : {}) });
         } else {
@@ -426,8 +580,8 @@ function OrgTab({ tenant }: { tenant: any }) {
                                         {t('enterprise.org.feishuGuideText', 'Permission JSON (bulk import)')}
                                     </div>
                                     <div style={{ position: 'relative', background: '#282c34', borderRadius: '6px', padding: '12px', paddingRight: '40px', color: '#abb2bf', fontFamily: 'monospace', fontSize: '11px', whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
-                                        <button 
-                                            className="btn btn-ghost" 
+                                        <button
+                                            className="btn btn-ghost"
                                             style={{ position: 'absolute', top: '8px', right: '8px', fontSize: '10px', color: '#abb2bf', padding: '4px 8px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer', border: 'none', borderRadius: '4px' }}
                                             onClick={(e) => { e.preventDefault(); copyToClipboard(FEISHU_SYNC_PERM_JSON); e.currentTarget.textContent = 'Copied✓'; setTimeout(() => { e.currentTarget.textContent = 'Copy'; }, 2000); }}
                                         >
@@ -568,7 +722,7 @@ function OrgTab({ tenant }: { tenant: any }) {
             <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px dashed var(--border-subtle)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                     <div style={{ fontWeight: 500, fontSize: '14px' }}>{t('enterprise.org.orgBrowser', 'Organization Browser')}</div>
-                    
+
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
                         {['feishu', 'dingtalk', 'wecom'].includes(p.provider_type) && (
                             <button className="btn btn-secondary btn-sm" style={{ fontSize: '12px' }} onClick={() => triggerSync(p.id)} disabled={!!syncing}>
@@ -635,10 +789,10 @@ function OrgTab({ tenant }: { tenant: any }) {
                     {IDP_TYPES.map((idp, index) => {
                         const existingProvider = providers.find((p: any) => p.provider_type === idp.type);
                         const isExpanded = expandedType === idp.type;
-                        
+
                         return (
                             <div key={idp.type} style={{ borderBottom: index < IDP_TYPES.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                                <div 
+                                <div
                                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', cursor: 'pointer', background: isExpanded ? 'var(--bg-secondary)' : 'transparent', transition: 'background 0.2s' }}
                                     onClick={() => handleExpand(idp.type, existingProvider)}
                                 >
@@ -673,135 +827,14 @@ function OrgTab({ tenant }: { tenant: any }) {
                                         {renderForm(idp.type, existingProvider)}
 
                                         {/* Per-channel SSO Login URLs & Toggle */}
-                                        {['feishu', 'dingtalk', 'wecom', 'oauth2'].includes(idp.type) && (() => {
-                                            const ssoEnabled = existingProvider ? !!existingProvider.sso_login_enabled : false;
-                                            const slug = tenant?.slug || '';
-                                            const domain = tenant?.sso_domain || (slug ? `${slug}.clawith.ai` : '');
-                                            const callbackUrl = domain ? `https://${domain}/api/auth/${idp.type}/callback` : '';
-
-                                            const handleSsoToggle = async () => {
-                                                if (!existingProvider) {
-                                                    alert(t('enterprise.identity.saveFirst', 'Please save the configuration first to enable SSO.'));
-                                                    return;
-                                                }
-                                                const newVal = !ssoEnabled;
-                                                try {
-                                                    await fetchJson(`/enterprise/identity-providers/${existingProvider.id}`, {
-                                                        method: 'PUT',
-                                                        body: JSON.stringify({ sso_login_enabled: newVal }),
-                                                    });
-                                                    qc.invalidateQueries({ queryKey: ['identity-providers'] });
-                                                    // Refresh tenant data so sso_domain updates in UI
-                                                    if (tenant?.id) qc.invalidateQueries({ queryKey: ['tenant', tenant.id] });
-                                                } catch (e) {
-                                                    console.error('Failed to toggle SSO:', e);
-                                                }
-                                            };
-
-                                            return (
-                                                <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px dashed var(--border-subtle)' }}>
-                                                    {/* SSO Toggle */}
-                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                                                        <div>
-                                                            <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('enterprise.identity.ssoLoginToggle', 'SSO Login')}</div>
-                                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-                                                                {t('enterprise.identity.ssoLoginToggleHint', 'Allow users to log in via this identity provider.')}
-                                                            </div>
-                                                        </div>
-                                                        <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px', flexShrink: 0 }}>
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={ssoEnabled}
-                                                                onChange={handleSsoToggle}
-                                                                style={{ opacity: 0, width: 0, height: 0 }}
-                                                            />
-                                                            <span style={{
-                                                                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-                                                                borderRadius: '20px', cursor: 'pointer',
-                                                                background: ssoEnabled ? 'var(--accent-primary)' : 'var(--border-subtle)',
-                                                                transition: '0.2s',
-                                                                opacity: existingProvider ? 1 : 0.5
-                                                            }}>
-                                                                <span style={{
-                                                                    position: 'absolute', left: ssoEnabled ? '18px' : '2px', top: '2px',
-                                                                    width: '16px', height: '16px', borderRadius: '50%',
-                                                                    background: '#fff', transition: '0.2s',
-                                                                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
-                                                                }} />
-                                                            </span>
-                                                        </label>
-                                                    </div>
-
-                                                    {/* Callback URL & domain info — always shown so users can configure it before saving */}
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                                            {/* Company subdomain */}
-                                                            <div>
-                                                                <label className="form-label" style={{ fontSize: '11px', marginBottom: '4px', color: 'var(--text-secondary)' }}>
-                                                                    {t('enterprise.identity.ssoSubdomain', 'SSO Login URL')}
-                                                                </label>
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                    <input
-                                                                        className="form-input"
-                                                                        readOnly
-                                                                        value={domain ? `https://${domain}` : 'Generating...'}
-                                                                        style={{ fontSize: '12px', flex: 1, maxWidth: '400px', background: 'var(--bg-primary)', cursor: 'default' }}
-                                                                    />
-                                                                    <button
-                                                                        className="btn btn-ghost btn-sm"
-                                                                        style={{ fontSize: '11px' }}
-                                                                        onClick={(e) => { 
-                                                                            e.preventDefault();
-                                                                            copyToClipboard(`https://${domain}`);
-                                                                            const el = e.currentTarget;
-                                                                            const old = el.textContent;
-                                                                            el.textContent = 'Copied✓';
-                                                                            setTimeout(() => { el.textContent = old; }, 2000);
-                                                                        }}
-                                                                    >
-                                                                        {t('common.copy', 'Copy')}
-                                                                    </button>
-                                                                </div>
-                                                                <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                                                                    {t('enterprise.identity.ssoSubdomainHint', 'Share this URL with your team. SSO login buttons will appear when they visit this address.')}
-                                                                </div>
-                                                            </div>
-
-                                                            {/* Callback URL */}
-                                                            <div>
-                                                                <label className="form-label" style={{ fontSize: '11px', marginBottom: '4px', color: 'var(--text-secondary)' }}>
-                                                                    {t('enterprise.identity.callbackUrl', 'Redirect URL (paste this in your app settings)')}
-                                                                </label>
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                    <input
-                                                                        className="form-input"
-                                                                        readOnly
-                                                                        value={callbackUrl}
-                                                                        style={{ fontSize: '12px', flex: 1, maxWidth: '400px', background: 'var(--bg-primary)', cursor: 'default' }}
-                                                                    />
-                                                                    <button
-                                                                        className="btn btn-ghost btn-sm"
-                                                                        style={{ fontSize: '11px' }}
-                                                                        onClick={(e) => { 
-                                                                            e.preventDefault();
-                                                                            copyToClipboard(callbackUrl);
-                                                                            const el = e.currentTarget;
-                                                                            const old = el.textContent;
-                                                                            el.textContent = 'Copied✓';
-                                                                            setTimeout(() => { el.textContent = old; }, 2000);
-                                                                        }}
-                                                                    >
-                                                                        {t('common.copy', 'Copy')}
-                                                                    </button>
-                                                                </div>
-                                                                <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                                                                    {t('enterprise.identity.callbackUrlHint', 'Add this URL as the OAuth redirect URI in your identity provider\'s app configuration.')}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                </div>
-                                            );
-                                        })()}
-
+                                        {['feishu', 'dingtalk', 'wecom', 'oauth2'].includes(idp.type) && (
+                                            <SsoChannelSection
+                                                idpType={idp.type}
+                                                existingProvider={existingProvider}
+                                                tenant={tenant}
+                                                t={t}
+                                            />
+                                        )}
                                         {existingProvider && renderOrgBrowser(existingProvider)}
                                     </div>
                                 )}
@@ -1655,6 +1688,69 @@ export default function EnterpriseSettings() {
     const [companyIntroSaving, setCompanyIntroSaving] = useState(false);
     const [companyIntroSaved, setCompanyIntroSaved] = useState(false);
 
+    // System email configuration
+    const [systemEmailConfig, setSystemEmailConfig] = useState({
+        SYSTEM_EMAIL_FROM_ADDRESS: '',
+        SYSTEM_EMAIL_FROM_NAME: 'Clawith',
+        SYSTEM_SMTP_HOST: '',
+        SYSTEM_SMTP_PORT: 465,
+        SYSTEM_SMTP_USERNAME: '',
+        SYSTEM_SMTP_PASSWORD: '',
+        SYSTEM_SMTP_SSL: true,
+        SYSTEM_SMTP_TIMEOUT_SECONDS: 15,
+    });
+    const [emailConfigSaving, setEmailConfigSaving] = useState(false);
+    const [emailConfigSaved, setEmailConfigSaved] = useState(false);
+
+    // Load system email config
+    useEffect(() => {
+        setSystemEmailConfig({
+            SYSTEM_EMAIL_FROM_ADDRESS: '',
+            SYSTEM_EMAIL_FROM_NAME: 'Clawith',
+            SYSTEM_SMTP_HOST: '',
+            SYSTEM_SMTP_PORT: 465,
+            SYSTEM_SMTP_USERNAME: '',
+            SYSTEM_SMTP_PASSWORD: '',
+            SYSTEM_SMTP_SSL: true,
+            SYSTEM_SMTP_TIMEOUT_SECONDS: 15,
+        });
+        if (!selectedTenantId) return;
+        const emailConfigKey = `system_email_${selectedTenantId}`;
+        fetchJson<any>(`/enterprise/system-settings/${emailConfigKey}`)
+            .then(d => {
+                if (d?.value) {
+                    setSystemEmailConfig({
+                        SYSTEM_EMAIL_FROM_ADDRESS: d.value.SYSTEM_EMAIL_FROM_ADDRESS || '',
+                        SYSTEM_EMAIL_FROM_NAME: d.value.SYSTEM_EMAIL_FROM_NAME || 'Clawith',
+                        SYSTEM_SMTP_HOST: d.value.SYSTEM_SMTP_HOST || '',
+                        SYSTEM_SMTP_PORT: d.value.SYSTEM_SMTP_PORT || 465,
+                        SYSTEM_SMTP_USERNAME: d.value.SYSTEM_SMTP_USERNAME || '',
+                        SYSTEM_SMTP_PASSWORD: d.value.SYSTEM_SMTP_PASSWORD || '',
+                        SYSTEM_SMTP_SSL: d.value.SYSTEM_SMTP_SSL !== undefined ? d.value.SYSTEM_SMTP_SSL : true,
+                        SYSTEM_SMTP_TIMEOUT_SECONDS: d.value.SYSTEM_SMTP_TIMEOUT_SECONDS || 15,
+                    });
+                }
+            })
+            .catch(() => { });
+    }, [selectedTenantId]);
+
+    const saveEmailConfig = async () => {
+        setEmailConfigSaving(true);
+        try {
+            const emailConfigKey = `system_email_${selectedTenantId}`;
+            await fetchJson(`/enterprise/system-settings/${emailConfigKey}`, {
+                method: 'PUT',
+                body: JSON.stringify({ value: systemEmailConfig }),
+            });
+            setEmailConfigSaved(true);
+            setTimeout(() => setEmailConfigSaved(false), 2000);
+        } catch (e: any) {
+            alert('Failed to save email config: ' + (e.message || 'Unknown error'));
+        } finally {
+            setEmailConfigSaving(false);
+        }
+    };
+
     // Company intro key: always per-tenant scoped
     const companyIntroKey = selectedTenantId ? `company_intro_${selectedTenantId}` : 'company_intro';
 
@@ -2275,7 +2371,126 @@ export default function EnterpriseSettings() {
                         {/* ── 0.5. Company Timezone ── */}
                         <CompanyTimezoneEditor key={`tz-${selectedTenantId}`} />
 
-                        {/* ── 1. Company Intro ── */}
+                        {/* ── 1. System Email Configuration ── */}
+                        <h3 style={{ marginBottom: '8px' }}>{t('enterprise.systemEmail.title', 'System Email Configuration')}</h3>
+                        <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                            {t('enterprise.systemEmail.description', 'Configure SMTP settings for sending system emails such as password resets and notifications.')}
+                        </p>
+                        <div className="card" style={{ padding: '16px', marginBottom: '24px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <div>
+                                    <label className="form-label" style={{ fontSize: '12px', marginBottom: '6px' }}>
+                                        {t('enterprise.systemEmail.fromAddress', 'From Email Address')}
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        value={systemEmailConfig.SYSTEM_EMAIL_FROM_ADDRESS}
+                                        onChange={e => setSystemEmailConfig({ ...systemEmailConfig, SYSTEM_EMAIL_FROM_ADDRESS: e.target.value })}
+                                        placeholder="noreply@yourcompany.com"
+                                        style={{ fontSize: '13px' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="form-label" style={{ fontSize: '12px', marginBottom: '6px' }}>
+                                        {t('enterprise.systemEmail.fromName', 'From Name')}
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        value={systemEmailConfig.SYSTEM_EMAIL_FROM_NAME}
+                                        onChange={e => setSystemEmailConfig({ ...systemEmailConfig, SYSTEM_EMAIL_FROM_NAME: e.target.value })}
+                                        placeholder="Clawith"
+                                        style={{ fontSize: '13px' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="form-label" style={{ fontSize: '12px', marginBottom: '6px' }}>
+                                        {t('enterprise.systemEmail.smtpHost', 'SMTP Host')}
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        value={systemEmailConfig.SYSTEM_SMTP_HOST}
+                                        onChange={e => setSystemEmailConfig({ ...systemEmailConfig, SYSTEM_SMTP_HOST: e.target.value })}
+                                        placeholder="smtp.gmail.com"
+                                        style={{ fontSize: '13px' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="form-label" style={{ fontSize: '12px', marginBottom: '6px' }}>
+                                        {t('enterprise.systemEmail.smtpPort', 'SMTP Port')}
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        type="number"
+                                        value={systemEmailConfig.SYSTEM_SMTP_PORT}
+                                        onChange={e => setSystemEmailConfig({ ...systemEmailConfig, SYSTEM_SMTP_PORT: parseInt(e.target.value) || 465 })}
+                                        placeholder="465"
+                                        style={{ fontSize: '13px' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="form-label" style={{ fontSize: '12px', marginBottom: '6px' }}>
+                                        {t('enterprise.systemEmail.username', 'SMTP Username')}
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        value={systemEmailConfig.SYSTEM_SMTP_USERNAME}
+                                        onChange={e => setSystemEmailConfig({ ...systemEmailConfig, SYSTEM_SMTP_USERNAME: e.target.value })}
+                                        placeholder="your-email@gmail.com"
+                                        style={{ fontSize: '13px' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="form-label" style={{ fontSize: '12px', marginBottom: '6px' }}>
+                                        {t('enterprise.systemEmail.password', 'SMTP Password / App Password')}
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        type="password"
+                                        value={systemEmailConfig.SYSTEM_SMTP_PASSWORD}
+                                        onChange={e => setSystemEmailConfig({ ...systemEmailConfig, SYSTEM_SMTP_PASSWORD: e.target.value })}
+                                        placeholder="••••••••"
+                                        style={{ fontSize: '13px' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="form-label" style={{ fontSize: '12px', marginBottom: '6px' }}>
+                                        {t('enterprise.systemEmail.timeout', 'Timeout (seconds)')}
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        type="number"
+                                        value={systemEmailConfig.SYSTEM_SMTP_TIMEOUT_SECONDS}
+                                        onChange={e => setSystemEmailConfig({ ...systemEmailConfig, SYSTEM_SMTP_TIMEOUT_SECONDS: parseInt(e.target.value) || 15 })}
+                                        placeholder="15"
+                                        style={{ fontSize: '13px' }}
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', paddingTop: '24px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={systemEmailConfig.SYSTEM_SMTP_SSL}
+                                            onChange={e => setSystemEmailConfig({ ...systemEmailConfig, SYSTEM_SMTP_SSL: e.target.checked })}
+                                            style={{ width: '16px', height: '16px' }}
+                                        />
+                                        <span style={{ fontSize: '13px' }}>
+                                            {t('enterprise.systemEmail.useSsl', 'Use SSL/TLS')}
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div style={{ marginTop: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <button className="btn btn-primary" onClick={saveEmailConfig} disabled={emailConfigSaving}>
+                                    {emailConfigSaving ? t('common.loading') : t('common.save', 'Save')}
+                                </button>
+                                {emailConfigSaved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>✅ {t('common.saved', 'Saved')}</span>}
+                            </div>
+                            <div style={{ marginTop: '12px', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                💡 {t('enterprise.systemEmail.hint', 'For Gmail, use an App Password. For QQ/163 mail, use the SMTP authorization code.')}
+                            </div>
+                        </div>
+
+                        {/* ── 2. Company Intro ── */}
                         <h3 style={{ marginBottom: '8px' }}>{t('enterprise.companyIntro.title', 'Company Intro')}</h3>
                         <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
                             {t('enterprise.companyIntro.description', 'Describe your company\'s mission, products, and culture. This information is included in every agent conversation as context.')}

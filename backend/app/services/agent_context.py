@@ -180,7 +180,14 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
         relationships = "\n".join(relationships.split("\n")[1:]).strip()
 
     # --- Compose static and dynamic system prompt blocks ---
+    from datetime import datetime, timezone as _tz
+    from app.services.timezone_utils import get_agent_timezone, now_in_timezone
+    agent_tz_name = await get_agent_timezone(agent_id)
+    agent_local_now = now_in_timezone(agent_tz_name)
+    now_str = agent_local_now.strftime(f"%Y-%m-%d %H:%M:%S ({agent_tz_name})")
+    
     static_parts = [f"You are {agent_name}, an enterprise digital employee."]
+
 
     if role_description:
         static_parts.append(f"\n## Role\n{role_description}")
@@ -376,6 +383,7 @@ You have access to Atlassian tools via the Rovo MCP server. **Always call them v
         pass  # Don't break agent if DB is unavailable
 
     static_parts.append("""
+
 ## Workspace & Tools
 
 You have a dedicated workspace with this structure:
@@ -546,13 +554,11 @@ You have internet access through these tools — **use them proactively when you
         pass
 
     # --- Time Info ---
-    from datetime import datetime, timezone as _tz
-    from app.services.timezone_utils import get_agent_timezone, now_in_timezone
-    agent_tz_name = await get_agent_timezone(agent_id)
-    agent_local_now = now_in_timezone(agent_tz_name)
-    now_str = agent_local_now.strftime(f"%Y-%m-%d %H:%M:%S ({agent_tz_name})")
+
     dynamic_parts.append(f"\n## Current Time\n{now_str}")
     dynamic_parts.append(f"Your timezone is **{agent_tz_name}**. When setting cron triggers, use this timezone for time references.")
+
+    # Append dynamic parts (Time, Focus, Triggers) at the very end to maximize cache hits
 
     # Inject current user identity
     if current_user_name:

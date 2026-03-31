@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../stores';
 import { agentApi } from '../services/api';
+
 import {
     IconHome,
     IconPlus,
@@ -23,7 +24,8 @@ import {
     IconPinnedOff,
     IconArrowUpRight,
     IconBuilding,
-    IconChevronUp
+    IconChevronUp,
+    IconSwitchHorizontal
 } from '@tabler/icons-react';
 import { useAppStore } from '../stores';
 
@@ -72,6 +74,7 @@ function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [saving, setSaving] = useState(false);
+    const [resendingEmail, setResendingEmail] = useState(false);
     const [msg, setMsg] = useState('');
     const [msgType, setMsgType] = useState<'success' | 'error'>('success');
 
@@ -99,6 +102,21 @@ function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose
             showMsg(isChinese ? '个人信息已更新' : 'Profile updated');
         } catch (e: any) { showMsg(e.message || 'Failed', 'error'); }
         setSaving(false);
+    };
+
+    const handleResendVerification = async () => {
+        setResendingEmail(true);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/auth/resend-verification', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ email: user?.email }),
+            });
+            if (!res.ok) { const err = await res.json().catch(() => ({ detail: 'Failed' })); throw new Error(err.detail); }
+            showMsg(isChinese ? '验证邮件已发送，请查收' : 'Verification email sent. Please check your inbox.');
+        } catch (e: any) { showMsg(e.message || 'Failed', 'error'); }
+        setResendingEmail(false);
     };
 
     const handleChangePassword = async () => {
@@ -135,7 +153,37 @@ function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose
                 <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>{isChinese ? '个人信息' : 'Profile'}</h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
                     <div><label style={labelStyle}>{isChinese ? '用户名' : 'Username'}</label><input className="form-input" value={username} onChange={e => setUsername(e.target.value)} style={inputStyle} /></div>
-                    <div><label style={labelStyle}>{isChinese ? '邮箱' : 'Email'}</label><input className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} /></div>
+                    <div>
+                        <label style={labelStyle}>{isChinese ? '邮箱' : 'Email'}</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} disabled />
+                            {user?.email_verified ? (
+                                <span style={{ color: '#16a34a', fontSize: '12px', whiteSpace: 'nowrap' }}>✓ {isChinese ? '已验证' : 'Verified'}</span>
+                            ) : (
+                                <button
+                                    onClick={handleResendVerification}
+                                    disabled={resendingEmail}
+                                    style={{
+                                        fontSize: '11px',
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        border: '1px solid var(--border-subtle)',
+                                        background: 'var(--bg-secondary)',
+                                        color: 'var(--text-secondary)',
+                                        cursor: resendingEmail ? 'not-allowed' : 'pointer',
+                                        whiteSpace: 'nowrap',
+                                    }}
+                                >
+                                    {resendingEmail ? '...' : (isChinese ? '发送验证' : 'Verify')}
+                                </button>
+                            )}
+                        </div>
+                        {!user?.email_verified && (
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                                {isChinese ? '邮箱未验证，请点击按钮发送验证邮件' : 'Email not verified. Click button to send verification email.'}
+                            </div>
+                        )}
+                    </div>
                     <div><label style={labelStyle}>{isChinese ? '显示名称' : 'Display Name'}</label><input className="form-input" value={displayName} onChange={e => setDisplayName(e.target.value)} style={inputStyle} /></div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="btn btn-primary" onClick={handleSaveProfile} disabled={saving} style={{ padding: '6px 16px', fontSize: '12px' }}>{saving ? '...' : (isChinese ? '保存' : 'Save')}</button></div>
                 </div>
@@ -180,6 +228,7 @@ export default function Layout() {
     const [showNotifications, setShowNotifications] = useState(false);
     const [notifCategory, setNotifCategory] = useState<string>('all');
     const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
+    const [showTenantMenu, setShowTenantMenu] = useState(false);
 
     // Notification polling
     const { data: unreadCount = 0 } = useQuery({
@@ -207,6 +256,40 @@ export default function Layout() {
         await fetch(`/api/notifications/${id}/read`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
         queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    };
+
+    // Tenant switching
+    const { data: myTenants = [] } = useQuery({
+        queryKey: ['my-tenants'],
+        queryFn: async () => {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/auth/my-tenants', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+            if (!res.ok) return [];
+            return res.json();
+        },
+        enabled: !!user,
+    });
+
+    const handleSwitchTenant = async (tenantId: string) => {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/auth/switch-tenant', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ tenant_id: tenantId }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: 'Failed to switch tenant' }));
+            alert(err.detail || 'Failed to switch tenant');
+            return;
+        }
+        const data = await res.json();
+        if (data.redirect_url) {
+            localStorage.setItem('token', data.access_token);
+            window.location.href = data.redirect_url;
+        } else if (data.access_token) {
+            localStorage.setItem('token', data.access_token);
+            window.location.reload();
+        }
     };
 
     // Theme
@@ -274,9 +357,9 @@ export default function Layout() {
                 setShowAccountMenu(false);
             }
         };
-        if (showAccountMenu) document.addEventListener('mousedown', handleClickOutside);
+        if (showAccountMenu || showTenantMenu) document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [showAccountMenu]);
+    }, [showAccountMenu, showTenantMenu]);
 
     return (
         <div className={`app-layout ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -457,6 +540,42 @@ export default function Layout() {
                                     }}>{(unreadCount as number) > 99 ? '99+' : unreadCount}</span>
                                 )}
                             </button>
+                            {myTenants.length > 1 && (
+                                <div style={{ position: 'relative', marginLeft: 'auto' }}>
+                                    <button className="btn btn-ghost" onClick={() => setShowTenantMenu(v => !v)} style={{
+                                        padding: '4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    }} title={isChinese ? '切换企业' : 'Switch Organization'}>
+                                        <IconSwitchHorizontal size={16} stroke={1.5} />
+                                    </button>
+                                    {showTenantMenu && (
+                                        <div style={{
+                                            position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
+                                            minWidth: '160px', marginBottom: '4px', background: 'var(--bg-secondary)',
+                                            border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)',
+                                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)', overflow: 'hidden', zIndex: 100,
+                                        }}>
+                                            {myTenants.map((tenant: any) => (
+                                                <button
+                                                    key={tenant.tenant_id}
+                                                    onClick={() => {
+                                                        handleSwitchTenant(tenant.tenant_id);
+                                                        setShowTenantMenu(false);
+                                                    }}
+                                                    style={{
+                                                        width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                                                        padding: '10px 12px', background: tenant.tenant_id === currentTenant ? 'var(--bg-tertiary)' : 'transparent',
+                                                        border: 'none', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px',
+                                                        textAlign: 'left', borderBottom: '1px solid var(--border-subtle)',
+                                                    }}
+                                                >
+                                                    <IconBuilding size={14} stroke={1.5} />
+                                                    <span style={{ flex: 1 }}>{tenant.tenant_name}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                         <div ref={accountMenuRef} style={{ position: 'relative' }}>
                             {showAccountMenu && (
