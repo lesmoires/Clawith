@@ -153,7 +153,8 @@ async def list_tools(
             "mcp_tool_name": t.mcp_tool_name,
             "enabled": t.enabled,
             "is_default": t.is_default,
-            "config": t.config or {},
+            # Decrypt config for the admin UI so saved values are readable
+            "config": _decrypt_sensitive_fields(t.config or {}),
             "config_schema": t.config_schema or {},
             "created_at": t.created_at.isoformat() if t.created_at else None,
         }
@@ -660,14 +661,19 @@ async def get_category_config(
     await check_agent_access(db, current_user, agent_id)
 
     # ── 1. Load company-level (global) config from Tool.config ──────────────
-    tool_result = await db.execute(
+    # Find a tool in this category that actually has config data.
+    # We cannot just LIMIT 1 because most tools may have empty config.
+    all_cat_tools = await db.execute(
         select(Tool).where(
             Tool.category == category,
             Tool.enabled == True,
-        ).limit(1)
+        ).order_by(Tool.name)
     )
-    global_tool = tool_result.scalar_one_or_none()
-    raw_global = _decrypt_sensitive_fields(global_tool.config or {}) if global_tool else {}
+    raw_global: dict = {}
+    for ct in all_cat_tools.scalars():
+        if ct.config and ct.config != {}:
+            raw_global = _decrypt_sensitive_fields(ct.config)
+            break
 
     # Mask sensitive fields for UI display
     masked_global = dict(raw_global)
@@ -700,9 +706,10 @@ async def get_category_config(
         # Remove None values produced by missing app_secret
         raw_agent = {k: v for k, v in raw_agent.items() if v is not None}
 
-    # ── 3. Build effective config for backward-compat display ───────────────
-    # Company fields always win (agent cannot override what company has set)
-    effective_config = {**raw_agent, **raw_global}
+    # ── 3. Build effective config ───────────────────────────────────────────
+    # Priority: Agent config > Company config > Default
+    # Agent can override company values by setting their own.
+    effective_config = {**raw_global, **raw_agent}
 
     return {
         "id": config_id,

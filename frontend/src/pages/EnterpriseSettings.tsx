@@ -2677,8 +2677,10 @@ export default function EnterpriseSettings() {
                                                                     onClick={() => {
                                                                         setConfigCategory(category);
                                                                         setEditingConfig({});
-                                                                        // Load existing global config from the first tool in this category
-                                                                        const firstToolWithConfig = (catTools as any[]).find((tl: any) => tl.config_schema?.fields?.length > 0);
+                                                                        // Load existing global config from the first tool in this category that has a non-empty config.
+                                                                        // Do NOT require config_schema — some categories (e.g. AgentBay)
+                                                                        // define their schema only in frontend CATEGORY_CONFIG_SCHEMAS.
+                                                                        const firstToolWithConfig = (catTools as any[]).find((tl: any) => tl.config && Object.keys(tl.config).length > 0);
                                                                         if (firstToolWithConfig?.config) {
                                                                             setEditingConfig({ ...firstToolWithConfig.config });
                                                                         }
@@ -2918,10 +2920,12 @@ export default function EnterpriseSettings() {
                                             <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
                                                 <button className="btn btn-secondary" onClick={() => setConfigCategory(null)}>{t('common.cancel')}</button>
                                                 <button className="btn btn-primary" onClick={async () => {
-                                                    // Save config to all tools in this category that have config_schema
-                                                    const catTools = allTools.filter((tl: any) => (tl.category || 'general') === configCategory && tl.config_schema?.fields?.length > 0);
-                                                    for (const tl of catTools) {
-                                                        await fetchJson(`/tools/${tl.id}`, { method: 'PUT', body: JSON.stringify({ config: editingConfig }) });
+                                                    // Save config to the first tool in this category.
+                                                    // We write to one representative tool per category;
+                                                    // get_category_config endpoint reads it back.
+                                                    const catTools = allTools.filter((tl: any) => (tl.category || 'general') === configCategory);
+                                                    if (catTools.length > 0) {
+                                                        await fetchJson(`/tools/${catTools[0].id}`, { method: 'PUT', body: JSON.stringify({ config: editingConfig }) });
                                                     }
                                                     setConfigCategory(null);
                                                     loadAllTools();

@@ -158,18 +158,13 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
         setConfigSaving(true);
         try {
             const token = localStorage.getItem('token');
-            // Determine the effective "global" config for this modal:
-            // for tool configs use configTool.global_config; for category configs use configGlobalData
-            const globalCfg = configCategory ? configGlobalData : (configTool?.global_config || {});
 
             if (configCategory) {
                 const raw = configData;
-                // Strip fields already set at the company level — agent cannot override them
+                // Strip empty sensitive fields so untouched password inputs
+                // don't send empty values that would clear an inherited company key
                 const payload: Record<string, any> = {};
                 for (const [k, v] of Object.entries(raw)) {
-                    // Skip if company has set this field (it wins at runtime anyway)
-                    if (globalCfg[k] !== undefined && globalCfg[k] !== null && globalCfg[k] !== '') continue;
-                    // Skip empty sensitive fields
                     if (SENSITIVE_KEYS.has(k) && (v === '' || v === undefined || v === null)) continue;
                     payload[k] = v;
                 }
@@ -182,11 +177,9 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
             } else {
                 const hasSchema = configTool.config_schema?.fields?.length > 0;
                 const raw = hasSchema ? configData : JSON.parse(configJson || '{}');
-                // Strip empty sensitive fields and fields already set at company level
+                // Strip empty sensitive fields only — agent CAN override company values
                 const payload: Record<string, any> = {};
                 for (const [k, v] of Object.entries(raw)) {
-                    // Company-set fields always win — don't send them as agent override
-                    if (globalCfg[k] !== undefined && globalCfg[k] !== null && globalCfg[k] !== '') continue;
                     if (SENSITIVE_KEYS.has(k) && (v === '' || v === undefined || v === null)) continue;
                     payload[k] = v;
                 }
@@ -495,26 +488,10 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
 
                                                         </>
                                                     ) : field.type === 'select' ? (
-                                                        (() => {
-                                                            // If company has set this field, lock it (agent cannot override)
-                                                            const globalVal = configTool?.global_config?.[field.key] ?? configGlobalData?.[field.key];
-                                                            const isLockedByCompany = !!globalVal;
-                                                            return (
-                                                                <div style={{ position: 'relative' }}>
-                                                                    <select className="form-input" value={configData[field.key] ?? field.default ?? ''}
-                                                                        disabled={isLockedByCompany}
-                                                                        style={isLockedByCompany ? { opacity: 0.7, cursor: 'not-allowed' } : {}}
-                                                                        onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))}>
-                                                                        {(field.options || []).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                                                                    </select>
-                                                                    {isLockedByCompany && (
-                                                                        <div style={{ fontSize: '11px', color: 'var(--accent-primary)', marginTop: '4px' }}>
-                                                                            Set by company ({globalVal}) — cannot be changed here
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })()
+                                                        <select className="form-input" value={configData[field.key] ?? field.default ?? ''}
+                                                            onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))}>
+                                                            {(field.options || []).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                                        </select>
                                                     ) : field.type === 'number' ? (
                                                         <input type="number" className="form-input" value={configData[field.key] ?? field.default ?? ''} placeholder={field.placeholder || ''} min={field.min} max={field.max} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value ? Number(e.target.value) : '' }))} />
                                                     ) : (
