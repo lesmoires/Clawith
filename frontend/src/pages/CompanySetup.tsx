@@ -99,8 +99,8 @@ export default function CompanySetup() {
         i18n.changeLanguage(i18n.language === 'zh' ? 'en' : 'zh');
     };
 
-    // If not from registration and user already has tenant, don't show
-    if (!fromRegister && user?.tenant_id) {
+    // If not from registration/tenant-selection and user already has tenant, don't show
+    if (!fromRegister && !fromTenantSelection && user?.tenant_id) {
         return null;
     }
 
