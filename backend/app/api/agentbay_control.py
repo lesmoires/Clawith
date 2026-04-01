@@ -786,15 +786,46 @@ async def _export_cookies_from_session(
 
     Returns the number of cookies exported.
     """
-    # Build and execute a Node.js script to export cookies via CDP
+    # Build and execute a Node.js script to export ALL cookies via CDP.
+    #
+    # Key design decisions:
+    # 1. We call context.cookies() WITHOUT a URL filter, which returns every cookie
+    #    in the browser profile regardless of which page is currently open.
+    # 2. We sanitize each cookie object before exporting:
+    #    - Normalize 'sameSite' to the exact casing Playwright addCookies() expects
+    #      ('Strict' | 'Lax' | 'None'). CDP returns lowercase; Playwright wants title-case.
+    #    - Strip 'expires: -1' (session cookies) — Playwright will reject negative expiry.
+    #    - Ensure 'domain' does NOT have a leading dot for addCookies() compatibility.
+    #      (Playwright's addCookies prefers 'example.com' not '.example.com'.)
     import base64
-    export_script = """
+    export_script = r"""
 const { chromium } = require('/usr/local/lib/node_modules/playwright');
 (async () => {
     try {
         const browser = await chromium.connectOverCDP('http://localhost:9222');
         const context = browser.contexts()[0];
-        const cookies = await context.cookies();
+        // Fetch ALL cookies from the browser profile (no URL filter = full export)
+        const rawCookies = await context.cookies();
+
+        // Sanitize cookies so they can be re-injected by Playwright's addCookies()
+        const sameSiteMap = { none: 'None', lax: 'Lax', strict: 'Strict' };
+        const cookies = rawCookies.map(c => {
+            const out = { ...c };
+            // Normalize sameSite casing
+            if (out.sameSite != null) {
+                out.sameSite = sameSiteMap[String(out.sameSite).toLowerCase()] || 'Lax';
+            }
+            // Remove negative or zero expires (session cookies) — addCookies rejects them
+            if (out.expires != null && out.expires <= 0) {
+                delete out.expires;
+            }
+            // addCookies wants domain WITHOUT leading dot
+            if (out.domain && out.domain.startsWith('.')) {
+                out.domain = out.domain.slice(1);
+            }
+            return out;
+        });
+
         console.log('COOKIES_EXPORT:' + JSON.stringify(cookies));
         process.exit(0);
     } catch (e) {
