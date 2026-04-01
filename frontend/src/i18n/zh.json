@@ -452,6 +452,8 @@
         "encryptKey": "Encrypt Key",
         "webhookUrl": "Webhook URL",
         "configured": "已配置",
+      "usingCompanyKey": "🏢 使用公司主密钥 ({{val}})",
+      "usingCompanyConfig": "🏢 使用公司默认配置 ({{val}})",
         "notConfigured": "未配置",
         "saveChannel": "保存配置",
         "syncHint": "在配置飞书机器人之前，请先在企业设置 → 组织架构中同步您的组织结构。这确保机器人能够识别消息发送者。"
@@ -531,7 +533,10 @@
       "companyTools": "公司配置工具",
       "agentInstalled": "数字员工自行安装的工具",
       "noInstalled": "暂无自行安装的工具",
-      "noCompany": "暂无公司统一配置的工具"
+      "noCompany": "暂无公司统一配置的工具",
+      "configured": "已配置",
+      "usingCompanyKey": "🏢 使用公司主密钥 ({{val}})",
+      "usingCompanyConfig": "🏢 使用公司默认配置 ({{val}})"
     },
     "toolCategories": {
       "file": "文件操作",

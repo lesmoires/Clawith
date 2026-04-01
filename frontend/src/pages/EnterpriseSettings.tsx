@@ -2712,7 +2712,9 @@ export default function EnterpriseSettings() {
                                                                     }}
                                                                     style={{ background: 'none', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', color: 'var(--text-secondary)' }}
                                                                     title={`Configure ${category}`}
-                                                                >Configure</button>
+                                                                >
+                                                                    ⚙️ {t('enterprise.tools.configure', 'Configure')}
+                                                                </button>
                                                             )}
                                                             {/* Category Bulk Toggle */}
                                                             <label style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px', cursor: 'pointer', flexShrink: 0 }} title={`Enable/Disable all ${categoryLabels[category] || category} tools`}>
@@ -2755,6 +2757,9 @@ export default function EnterpriseSettings() {
                                                                                         {tool.type === 'mcp' ? 'MCP' : 'Built-in'}
                                                                                     </span>
                                                                                     {tool.is_default && <span style={{ fontSize: '10px', background: 'rgba(0,200,100,0.15)', color: 'var(--success)', borderRadius: '4px', padding: '1px 5px' }}>Default</span>}
+                                                                                    {tool.config && Object.keys(tool.config).length > 0 && (
+                                                                                        <span style={{ fontSize: '10px', background: 'rgba(99,102,241,0.15)', color: 'var(--accent-color)', borderRadius: '4px', padding: '1px 5px' }}>{t('enterprise.tools.configured', 'Configured')}</span>
+                                                                                    )}
                                                                                 </div>
                                                                                 <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                                                     {tool.description?.slice(0, 80)}
@@ -2766,13 +2771,12 @@ export default function EnterpriseSettings() {
                                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                                                                             {/* Per-tool config button: only if the tool has its own schema AND is NOT part of a category config */}
                                                                             {hasOwnConfig && (
-                                                                                <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={async () => {
-                                                                                    if (isEditing) {
-                                                                                        setEditingToolId(null);
-                                                                                    } else {
+                                                                                <button
+                                                                                    style={{ background: 'none', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                                                                                    title={t('enterprise.tools.configureSettings', 'Configure settings')}
+                                                                                    onClick={async () => {
                                                                                         setEditingToolId(tool.id);
                                                                                         const cfg = { ...tool.config };
-                                                                                        // Pre-load jina api_key from system_settings
                                                                                         if (tool.name === 'jina_search' || tool.name === 'jina_read') {
                                                                                             try {
                                                                                                 const token = localStorage.getItem('token');
@@ -2782,8 +2786,10 @@ export default function EnterpriseSettings() {
                                                                                             } catch { }
                                                                                         }
                                                                                         setEditingConfig(cfg);
-                                                                                    }
-                                                                                }}>{isEditing ? t('enterprise.tools.collapse') : t('enterprise.tools.configure')}</button>
+                                                                                    }}
+                                                                                >
+                                                                                    ⚙️ {t('enterprise.tools.configure')}
+                                                                                </button>
                                                                             )}
 
                                                                             {/* Delete (non-builtin only) */}
