@@ -700,8 +700,8 @@ async def control_lock(
     message instead of executing browser/computer tools.
     """
     _agent, access_level = await check_agent_access(db, current_user, agent_id)
-    if access_level not in ("manage",) and current_user.role not in ("platform_admin", "org_admin"):
-        raise HTTPException(status_code=403, detail="Manage access required")
+    # Allow any user with access (manage or use) — Take Control is part of
+    # the normal interaction flow, not an admin-only operation.
 
     key = (str(agent_id), data.session_id)
     existing = _take_control_locks.get(key)
