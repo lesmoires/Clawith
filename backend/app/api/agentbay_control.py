@@ -82,6 +82,16 @@ class PressKeysRequest(BaseModel):
     keys: list[str]  # e.g. ["ctrl", "v"] or ["Tab"]
 
 
+class DragRequest(BaseModel):
+    """Mouse drag event forwarding — used for slider CAPTCHAs and drag-and-drop."""
+    session_id: str
+    from_x: int
+    from_y: int
+    to_x: int
+    to_y: int
+    duration_ms: int = 600  # Total drag duration in milliseconds
+
+
 class ScreenshotRequest(BaseModel):
     """Request an immediate screenshot."""
     session_id: str
@@ -368,7 +378,154 @@ const {{ chromium }} = require('/usr/local/lib/node_modules/playwright');
         return {"success": False, "output": f"Key press failed: {str(e)[:200]}"}
 
 
+async def _perform_drag(
+    client, from_x: int, from_y: int, to_x: int, to_y: int, duration_ms: int = 600
+) -> dict:
+    """Simulate a human-like mouse drag using a Bezier curve trajectory.
+
+    Generates intermediate points along a cubic Bezier curve with slight
+    random perturbations to mimic natural hand movement, which is required
+    to pass slider CAPTCHA bot-detection systems that analyze mouse trajectory.
+    """
+    logger.info(
+        f"[TakeControl] Drag: ({from_x},{from_y}) -> ({to_x},{to_y}), "
+        f"duration={duration_ms}ms"
+    )
+
+    if _is_browser_session(client):
+        # Build a cubic Bezier curve with two control points to add a natural
+        # arc. Control points are offset slightly perpendicular to the drag axis.
+        script = f"""
+ const {{ chromium }} = require('/usr/local/lib/node_modules/playwright');
+ (async () => {{
+     try {{
+         const browser = await chromium.connectOverCDP('http://localhost:9222');
+         const context = browser.contexts()[0];
+         const page = context.pages()[0];
+
+         // Cubic Bezier control points — perpendicular offset creates a natural arc
+         const steps = 30;
+         const duration = {duration_ms};
+         const x0 = {from_x}, y0 = {from_y};
+         const x3 = {to_x},  y3 = {to_y};
+
+         // Compute a slight perpendicular offset for control points
+         const dx = x3 - x0, dy = y3 - y0;
+         const perpX = -dy * 0.15, perpY = dx * 0.15;
+         const x1 = x0 + dx * 0.3 + perpX, y1 = y0 + dy * 0.3 + perpY;
+         const x2 = x0 + dx * 0.7 - perpX, y2 = y0 + dy * 0.7 - perpY;
+
+         // Bezier interpolation helper
+         const bezier = (t) => {{
+             const u = 1 - t;
+             return {{
+                 x: u*u*u*x0 + 3*u*u*t*x1 + 3*u*t*t*x2 + t*t*t*x3,
+                 y: u*u*u*y0 + 3*u*u*t*y1 + 3*u*t*t*y2 + t*t*t*y3,
+             }};
+         }};
+
+         // Press mouse at start
+         await page.mouse.move(x0, y0);
+         await page.mouse.down();
+
+         // Slowly move along Bezier curve with small random jitter
+         for (let i = 1; i <= steps; i++) {{
+             const t = i / steps;
+             const pt = bezier(t);
+             // Add small sub-pixel jitter to fool trajectory analysis
+             const jx = (Math.random() - 0.5) * 2;
+             const jy = (Math.random() - 0.5) * 2;
+             await page.mouse.move(Math.round(pt.x + jx), Math.round(pt.y + jy));
+             // Sleep proportional to step duration
+             await new Promise(r => setTimeout(r, duration / steps));
+         }}
+
+         // Final precise move and release
+         await page.mouse.move(x3, y3);
+         await page.mouse.up();
+
+         console.log('TC_OK: drag complete');
+         process.exit(0);
+     }} catch (e) {{
+         console.error('TC_FAIL: ' + e.message);
+         process.exit(1);
+     }}
+ }})();
+ """
+        res = await _eval_cdp_script(client, script)
+        return {
+            "success": res.get("success", False) and "TC_OK" in res.get("output", ""),
+            "method": "cdp_drag",
+            "output": f"Dragged ({from_x},{from_y}) -> ({to_x},{to_y})" if res.get("success") else res.get("output", "Unknown error"),
+        }
+
+    # Desktop session — use Computer API move + click sequence
+    try:
+        import math
+        steps = 20
+        for i in range(1, steps + 1):
+            t = i / steps
+            ix = int(from_x + (to_x - from_x) * t)
+            iy = int(from_y + (to_y - from_y) * t)
+            await asyncio.to_thread(client._session.computer.move_mouse, ix, iy)
+            await asyncio.sleep(duration_ms / 1000 / steps)
+        return {"success": True, "method": "computer_drag", "output": f"Dragged ({from_x},{from_y}) -> ({to_x},{to_y})"}
+    except Exception as e:
+        logger.warning(f"[TakeControl] Computer drag failed: {e}")
+        return {"success": False, "output": f"Drag failed: {str(e)[:200]}"}
+
+
 # ── Endpoints ──
+
+
+class CurrentUrlRequest(BaseModel):
+    """Request to get the current page URL from the browser session."""
+    session_id: str
+
+
+@router.post("/current-url")
+async def control_current_url(
+    agent_id: uuid.UUID,
+    data: CurrentUrlRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the current page URL from the active browser session via CDP.
+
+    Called by the Take Control panel on mount to auto-populate the cookie
+    domain field, so the user doesn't have to type the domain manually.
+    """
+    _agent, _access = await check_agent_access(db, current_user, agent_id)
+
+    client = await _get_client(agent_id, data.session_id)
+
+    script = """
+const { chromium } = require('/usr/local/lib/node_modules/playwright');
+(async () => {
+    try {
+        const browser = await chromium.connectOverCDP('http://localhost:9222');
+        const context = browser.contexts()[0];
+        const page = context.pages()[0];
+        const url = page.url();
+        console.log('URL_OK:' + url);
+        process.exit(0);
+    } catch (e) {
+        console.error('URL_FAIL:' + e.message);
+        process.exit(1);
+    }
+})();
+"""
+    try:
+        res = await _eval_cdp_script(client, script)
+        output = res.get("output", "")
+        if "URL_OK:" in output:
+            url = output.split("URL_OK:", 1)[1].strip()
+            return {"status": "ok", "url": url}
+        return {"status": "ok", "url": ""}
+    except Exception as e:
+        logger.warning(f"[TakeControl] current-url failed: {e}")
+        return {"status": "ok", "url": ""}  # Non-fatal — return empty URL
+
 
 
 @router.post("/click")
@@ -447,6 +604,40 @@ async def control_press_keys(
             return {"status": "error", "detail": detail[:500]}
     except Exception as e:
         logger.error(f"[TakeControl] Press keys exception: {e}")
+        return {"status": "error", "detail": str(e)[:500]}
+
+
+@router.post("/drag")
+async def control_drag(
+    agent_id: uuid.UUID,
+    data: DragRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Simulate a human-like mouse drag in the AgentBay session.
+
+    Used for slider CAPTCHAs and drag-and-drop interactions.
+    The drag follows a Bezier curve trajectory with random jitter to
+    mimic natural mouse movement, which is required to bypass bot detection.
+    """
+    _agent, _access = await check_agent_access(db, current_user, agent_id)
+    if not is_session_locked(str(agent_id), data.session_id):
+        raise HTTPException(status_code=400, detail="Session is not in Take Control mode")
+
+    client = await _get_client(agent_id, data.session_id)
+    try:
+        result = await _perform_drag(
+            client,
+            data.from_x, data.from_y,
+            data.to_x, data.to_y,
+            data.duration_ms,
+        )
+        if result.get("success"):
+            return {"status": "ok", "detail": result.get("output", "Drag complete")}
+        else:
+            return {"status": "error", "detail": result.get("output", "Drag failed")[:500]}
+    except Exception as e:
+        logger.error(f"[TakeControl] Drag exception: {e}")
         return {"status": "error", "detail": str(e)[:500]}
 
 
