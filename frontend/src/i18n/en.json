@@ -483,7 +483,8 @@
       "companyTools": "Company Configured Tools",
       "agentInstalled": "Agent Self-Installed Tools",
       "noInstalled": "No tools installed yet",
-      "noCompany": "No company-configured tools"
+      "noCompany": "No company-configured tools",
+      "configured": "Configured"
     },
     "toolCategories": {
       "file": "File Operations",

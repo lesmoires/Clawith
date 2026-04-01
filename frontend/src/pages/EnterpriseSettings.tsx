@@ -9,8 +9,6 @@ import { saveAccentColor, getSavedAccentColor, resetAccentColor, PRESET_COLORS }
 import UserManagement from './UserManagement';
 import InvitationCodes from './InvitationCodes';
 import LinearCopyButton from '../components/LinearCopyButton';
-import { copyToClipboard } from '../utils/clipboard';
-
 // API helpers for enterprise endpoints
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     const token = localStorage.getItem('token');
@@ -570,13 +568,13 @@ function OrgTab({ tenant }: { tenant: any }) {
                                         {t('enterprise.org.feishuGuideText', 'Permission JSON (bulk import)')}
                                     </div>
                                     <div style={{ position: 'relative', background: '#282c34', borderRadius: '6px', padding: '12px', paddingRight: '40px', color: '#abb2bf', fontFamily: 'monospace', fontSize: '11px', whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
-                                        <button
+                                        <LinearCopyButton
                                             className="btn btn-ghost"
-                                            style={{ position: 'absolute', top: '8px', right: '8px', fontSize: '10px', color: '#abb2bf', padding: '4px 8px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer', border: 'none', borderRadius: '4px' }}
-                                            onClick={(e) => { e.preventDefault(); copyToClipboard(FEISHU_SYNC_PERM_JSON); e.currentTarget.textContent = 'Copied✓'; setTimeout(() => { e.currentTarget.textContent = 'Copy'; }, 2000); }}
-                                        >
-                                            Copy
-                                        </button>
+                                            style={{ position: 'absolute', top: '8px', right: '8px', fontSize: '10px', color: '#abb2bf', padding: '4px 8px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer', border: 'none', borderRadius: '4px', height: 'fit-content', minWidth: '60px' }}
+                                            textToCopy={FEISHU_SYNC_PERM_JSON}
+                                            label="Copy"
+                                            copiedLabel="Copied✓"
+                                        />
                                         {FEISHU_SYNC_PERM_JSON}
                                     </div>
                                     <div style={{ marginTop: '8px', color: 'var(--text-secondary)' }}>

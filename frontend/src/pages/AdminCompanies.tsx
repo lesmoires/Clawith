@@ -5,8 +5,7 @@ import { useAuthStore } from '../stores';
 import { saveAccentColor, getSavedAccentColor } from '../utils/theme';
 import { IconFilter } from '@tabler/icons-react';
 import PlatformDashboard from './PlatformDashboard';
-import { copyToClipboard } from '../utils/clipboard';
-
+import LinearCopyButton from '../components/LinearCopyButton';
 // Helper for authenticated JSON fetch
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     const token = localStorage.getItem('token');
@@ -723,7 +722,6 @@ function CompaniesTab() {
     const [creating, setCreating] = useState(false);
     const [createdCode, setCreatedCode] = useState('');
     const [createdCompanyName, setCreatedCompanyName] = useState('');
-    const [codeCopied, setCodeCopied] = useState(false);
 
     // Toast
     const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -790,7 +788,6 @@ function CompaniesTab() {
             const result = await adminApi.createCompany({ name: newName.trim() });
             setCreatedCompanyName(newName.trim());
             setCreatedCode(result.admin_invitation_code || '');
-            setCodeCopied(false);
             setNewName('');
             setShowCreate(false);
             loadCompanies();
@@ -800,12 +797,7 @@ function CompaniesTab() {
         setCreating(false);
     };
 
-    const handleCopyCode = () => {
-        copyToClipboard(createdCode).then(() => {
-            setCodeCopied(true);
-            setTimeout(() => setCodeCopied(false), 2000);
-        });
-    };
+
 
     const handleToggle = async (id: string, currentlyActive: boolean) => {
         const action = currentlyActive ? 'disable' : 'enable';
@@ -918,20 +910,13 @@ function CompaniesTab() {
                         </div>
 
                         <div style={{ display: 'flex', gap: '8px' }}>
-                            <button className="btn btn-primary" onClick={handleCopyCode}
-                                style={{ flex: 1, height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                                {codeCopied ? (
-                                    <>{t('admin.copied', 'Copied')}</>
-                                ) : (
-                                    <>
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <rect x="9" y="9" width="13" height="13" rx="2" />
-                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                        </svg>
-                                        {t('admin.copyCode', 'Copy Code')}
-                                    </>
-                                )}
-                            </button>
+                            <LinearCopyButton
+                                className="btn btn-primary"
+                                style={{ flex: 1, height: '36px' }}
+                                textToCopy={createdCode}
+                                label={t('admin.copyCode', 'Copy Code')}
+                                copiedLabel={t('admin.copied', 'Copied')}
+                            />
                             <button className="btn btn-secondary" onClick={() => setCreatedCode('')}
                                 style={{ height: '36px', padding: '0 20px' }}>
                                 {t('common.close', 'Close')}

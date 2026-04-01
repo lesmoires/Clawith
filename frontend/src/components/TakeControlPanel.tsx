@@ -223,6 +223,18 @@ export default function TakeControlPanel({ agentId, sessionId, onClose, onLastSc
         lockedRef.current = false;  // Prevent unmount cleanup from double-unlocking
         flashStatus('Exporting cookies...');
         try {
+            // Fetch one final high-quality screenshot to hand off to the live preview
+            try {
+                const finalRes = await controlApi.screenshot(agentId, { session_id: sessionId });
+                if (finalRes.screenshot) {
+                    lastScreenshotRef.current = finalRes.screenshot.startsWith('data:') 
+                        ? finalRes.screenshot 
+                        : `data:image/png;base64,${finalRes.screenshot}`;
+                }
+            } catch (e) {
+                // fallback to whatever is in lastScreenshotRef
+            }
+            
             const res = await controlApi.unlock(agentId, {
                 session_id: sessionId,
                 export_cookies: true,
@@ -265,6 +277,19 @@ export default function TakeControlPanel({ agentId, sessionId, onClose, onLastSc
         setLocked(false);
         lockedRef.current = false;  // Prevent unmount cleanup from double-unlocking
         flashStatus('Canceling...');
+
+        // Fetch one final high-quality screenshot to hand off to the live preview
+        try {
+            const finalRes = await controlApi.screenshot(agentId, { session_id: sessionId });
+            if (finalRes.screenshot) {
+                lastScreenshotRef.current = finalRes.screenshot.startsWith('data:') 
+                    ? finalRes.screenshot 
+                    : `data:image/png;base64,${finalRes.screenshot}`;
+            }
+        } catch (e) {
+            // fallback to whatever is in lastScreenshotRef
+        }
+
         try {
             await controlApi.unlock(agentId, {
                 session_id: sessionId,
