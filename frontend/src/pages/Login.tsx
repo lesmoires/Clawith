@@ -461,43 +461,55 @@ export default function Login() {
                     {tenantSelection && (
                         <div style={{
                             position: 'fixed',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            background: 'rgba(0,0,0,0.5)',
+                            top: 0, left: 0, right: 0, bottom: 0,
+                            // More opaque backdrop, slightly blurred
+                            background: 'rgba(0, 0, 0, 0.72)',
+                            backdropFilter: 'blur(4px)',
+                            WebkitBackdropFilter: 'blur(4px)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            zIndex: 1000,
+                            zIndex: 2000,
                         }}>
+                            {/* Light card — always visible on dark background */}
                             <div style={{
-                                background: 'var(--bg-primary)',
+                                background: '#ffffff',
                                 borderRadius: '16px',
                                 padding: '32px',
                                 maxWidth: '400px',
                                 width: '90%',
+                                boxShadow: '0 24px 64px rgba(0,0,0,0.45)',
                             }}>
-                                <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: 'var(--text-primary)' }}>
+                                <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px', color: '#111827' }}>
                                     {t('auth.selectOrganization', '选择公司')}
                                 </h3>
-                                <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                                <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '20px' }}>
                                     {t('auth.multiTenantPrompt', '该邮箱对应多个公司，请选择要登录的公司：')}
                                 </p>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                     {tenantSelection.map((tenant: any) => (
                                         <button
                                             key={tenant.tenant_id}
                                             onClick={() => handleTenantSelect(tenant.tenant_id)}
                                             style={{
                                                 padding: '12px 16px',
-                                                borderRadius: '8px',
-                                                border: '1px solid var(--border-subtle)',
-                                                background: 'var(--bg-secondary)',
-                                                color: 'var(--text-primary)',
+                                                borderRadius: '10px',
+                                                border: '1.5px solid #e5e7eb',
+                                                background: '#f9fafb',
+                                                color: '#111827',
                                                 fontSize: '14px',
+                                                fontWeight: 500,
                                                 cursor: 'pointer',
                                                 textAlign: 'left',
+                                                transition: 'border-color 0.15s, background 0.15s',
+                                            }}
+                                            onMouseEnter={e => {
+                                                (e.currentTarget as HTMLButtonElement).style.background = '#f0f4ff';
+                                                (e.currentTarget as HTMLButtonElement).style.borderColor = '#6366f1';
+                                            }}
+                                            onMouseLeave={e => {
+                                                (e.currentTarget as HTMLButtonElement).style.background = '#f9fafb';
+                                                (e.currentTarget as HTMLButtonElement).style.borderColor = '#e5e7eb';
                                             }}
                                         >
                                             {tenant.tenant_name} {tenant.tenant_slug && `(${tenant.tenant_slug})`}
@@ -528,13 +540,22 @@ export default function Login() {
                                         }}
                                         style={{
                                             padding: '12px 16px',
-                                            borderRadius: '8px',
-                                            border: '1px dashed var(--border-subtle)',
+                                            borderRadius: '10px',
+                                            border: '1.5px dashed #d1d5db',
                                             background: 'transparent',
-                                            color: 'var(--text-secondary)',
+                                            color: '#6b7280',
                                             fontSize: '14px',
                                             cursor: 'pointer',
                                             textAlign: 'left',
+                                            transition: 'border-color 0.15s, color 0.15s',
+                                        }}
+                                        onMouseEnter={e => {
+                                            (e.currentTarget as HTMLButtonElement).style.borderColor = '#9ca3af';
+                                            (e.currentTarget as HTMLButtonElement).style.color = '#374151';
+                                        }}
+                                        onMouseLeave={e => {
+                                            (e.currentTarget as HTMLButtonElement).style.borderColor = '#d1d5db';
+                                            (e.currentTarget as HTMLButtonElement).style.color = '#6b7280';
                                         }}
                                     >
                                         {t('auth.createOrJoinOrganization', 'Create or Join Organization')}
@@ -545,14 +566,18 @@ export default function Login() {
                                     style={{
                                         marginTop: '20px',
                                         padding: '10px 16px',
-                                        borderRadius: '8px',
+                                        borderRadius: '10px',
                                         border: 'none',
-                                        background: 'var(--bg-tertiary)',
-                                        color: 'var(--text-primary)',
+                                        background: '#f3f4f6',
+                                        color: '#374151',
                                         fontSize: '14px',
+                                        fontWeight: 500,
                                         cursor: 'pointer',
                                         width: '100%',
+                                        transition: 'background 0.15s',
                                     }}
+                                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#e5e7eb'; }}
+                                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#f3f4f6'; }}
                                 >
                                     {t('common.cancel', 'Cancel')}
                                 </button>
