@@ -1357,7 +1357,7 @@ async def invite_users(
         db.add(code)
         codes.append(code)
         
-        invite_url = f"{base_url}/register?code={code_str}"
+        invite_url = f"{base_url}/login?code={code_str}"
         
         inviter_name = current_user.display_name or current_user.username
         
