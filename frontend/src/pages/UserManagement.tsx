@@ -62,6 +62,13 @@ export default function UserManagement() {
     const [toast, setToast] = useState('');
     const [changingRoleUserId, setChangingRoleUserId] = useState<string | null>(null);
 
+    // Invite modal state
+    const [showInviteModal, setShowInviteModal] = useState(false);
+    const [inviteEmails, setInviteEmails] = useState('');
+    const [inviting, setInviting] = useState(false);
+    const [inviteResult, setInviteResult] = useState<{ invited: number; message: string } | null>(null);
+    const [inviteLink, setInviteLink] = useState('');
+
     // Search, sort & pagination
     const [searchQuery, setSearchQuery] = useState('');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -131,6 +138,41 @@ export default function UserManagement() {
             setTimeout(() => setToast(''), 4000);
         }
         setChangingRoleUserId(null);
+    };
+
+    // ── Invite handlers ──
+    const generateInviteLink = async () => {
+        try {
+            const tenantId = localStorage.getItem('current_tenant_id') || '';
+            const data = await fetchJson<any>(`/enterprise/invitation-codes/generate${tenantId ? `?tenant_id=${tenantId}` : ''}`, { method: 'POST' });
+            const url = new URL(window.location.origin + '/login');
+            if (data.code) url.searchParams.set('code', data.code);
+            setInviteLink(url.toString());
+        } catch (e: any) {
+            setToast(`Error: ${e.message}`);
+            setTimeout(() => setToast(''), 3000);
+        }
+    };
+
+    const handleSendInvites = async () => {
+        const emails = inviteEmails.split(/[\n,]+/).map(e => e.trim()).filter(Boolean);
+        if (emails.length === 0) return;
+        setInviting(true);
+        setInviteResult(null);
+        try {
+            const res = await fetchJson<any>('/enterprise/invite-users', {
+                method: 'POST',
+                body: JSON.stringify({ emails }),
+            });
+            setInviteResult({ invited: res.invited, message: res.message });
+            setInviteEmails('');
+            // Refresh user list after invite
+            loadUsers();
+        } catch (e: any) {
+            setToast(`Error: ${e.message}`);
+            setTimeout(() => setToast(''), 3000);
+        }
+        setInviting(false);
     };
 
     const periodLabel = (period: string) => {
@@ -206,26 +248,35 @@ export default function UserManagement() {
                 </div>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {/* Search bar */}
-                    <div style={{ position: 'relative', marginBottom: '4px' }}>
-                        <input
-                            className="form-input"
-                            type="text"
-                            placeholder={isChinese ? '搜索用户名、显示名或邮箱…' : 'Search username, name or email…'}
-                            value={searchQuery}
-                            onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
-                            style={{
-                                width: '100%', maxWidth: '360px', fontSize: '13px',
-                                padding: '8px 12px 8px 12px',
-                                background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
-                                borderRadius: '8px',
-                            }}
-                        />
-                        {searchQuery && (
-                            <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginLeft: '12px' }}>
-                                {isChinese ? `${filtered.length} / ${users.length} 位用户` : `${filtered.length} / ${users.length} users`}
-                            </span>
-                        )}
+                    {/* Search bar + Invite button */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <input
+                                className="form-input"
+                                type="text"
+                                placeholder={isChinese ? '搜索用户名、显示名或邮箱…' : 'Search username, name or email…'}
+                                value={searchQuery}
+                                onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
+                                style={{
+                                    width: '360px', fontSize: '13px',
+                                    padding: '8px 12px 8px 12px',
+                                    background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
+                                    borderRadius: '8px',
+                                }}
+                            />
+                            {searchQuery && (
+                                <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                                    {isChinese ? `${filtered.length} / ${users.length} 位用户` : `${filtered.length} / ${users.length} users`}
+                                </span>
+                            )}
+                        </div>
+                        <button
+                            className="btn btn-primary"
+                            style={{ fontSize: '13px', padding: '6px 16px' }}
+                            onClick={() => { setShowInviteModal(true); setInviteEmails(''); setInviteResult(null); setInviteLink(''); }}
+                        >
+                            {isChinese ? '邀请新用户' : 'Invite Users'}
+                        </button>
                     </div>
 
                     {/* Header */}
@@ -434,6 +485,68 @@ export default function UserManagement() {
                             </button>
                         </div>
                     )}
+                </div>
+            )}
+
+            {/* Invite Users Modal */}
+            {showInviteModal && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={() => setShowInviteModal(false)}>
+                    <div style={{ background: 'var(--bg-primary)', borderRadius: '12px', border: '1px solid var(--border-subtle)', width: '500px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{ padding: '20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>{isChinese ? '邀请新用户' : 'Invite Users'}</h3>
+                            <button onClick={() => setShowInviteModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: '18px', cursor: 'pointer', padding: '4px 8px' }}>x</button>
+                        </div>
+                        {/* Body */}
+                        <div style={{ padding: '20px' }}>
+                            <label className="form-label" style={{ fontSize: '13px', marginBottom: '6px' }}>{isChinese ? '邮箱地址' : 'Email Addresses'}</label>
+                            <textarea
+                                className="form-input"
+                                rows={5}
+                                placeholder={isChinese ? '输入邮箱地址，用逗号或换行分隔...' : 'Enter email addresses, separated by commas or newlines...'}
+                                value={inviteEmails}
+                                onChange={e => setInviteEmails(e.target.value)}
+                                style={{ resize: 'vertical', fontSize: '13px', marginBottom: '16px', width: '100%' }}
+                            />
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                    {isChinese ? '或直接分享邀请链接：' : 'Or share an invitation link:'}
+                                </div>
+                                {!inviteLink ? (
+                                    <button className="btn btn-secondary" style={{ fontSize: '12px', padding: '4px 12px' }} onClick={generateInviteLink}>
+                                        {isChinese ? '生成链接' : 'Generate Link'}
+                                    </button>
+                                ) : (
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        <input className="form-input" value={inviteLink} readOnly style={{ width: '200px', fontSize: '11px', padding: '4px 8px' }} />
+                                        <button className="btn btn-secondary" style={{ fontSize: '11px', padding: '4px 8px' }} onClick={() => {
+                                            navigator.clipboard.writeText(inviteLink);
+                                            setToast(isChinese ? '已复制' : 'Copied!');
+                                            setTimeout(() => setToast(''), 2000);
+                                        }}>
+                                            {isChinese ? '复制' : 'Copy'}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {inviteResult && (
+                                <div style={{ marginTop: '12px', padding: '10px 14px', background: 'rgba(0,200,100,0.1)', color: 'var(--success)', borderRadius: '6px', fontSize: '13px' }}>
+                                    {inviteResult.message} ({inviteResult.invited} {isChinese ? '位用户' : 'users'})
+                                </div>
+                            )}
+                        </div>
+                        {/* Footer */}
+                        <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: '12px', background: 'var(--bg-secondary)', borderRadius: '0 0 12px 12px' }}>
+                            <button className="btn btn-secondary" onClick={() => setShowInviteModal(false)}>
+                                {isChinese ? '取消' : 'Cancel'}
+                            </button>
+                            <button className="btn btn-primary" onClick={handleSendInvites} disabled={inviting || !inviteEmails.trim()}>
+                                {inviting ? (isChinese ? '发送中...' : 'Sending...') : (isChinese ? '发送邀请' : 'Send Invitations')}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
