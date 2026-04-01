@@ -557,6 +557,74 @@ BUILTIN_TOOLS = [
         },
     },
     {
+        "name": "generate_image",
+        "display_name": "Generate Image",
+        "description": "Generate an image from a text description using AI image generation models. The image will be saved to the agent's workspace. Supports multiple providers: SiliconFlow (FLUX, China-friendly), OpenAI (GPT Image), Google (Gemini Native Image).",
+        "category": "media",
+        "icon": "🎨",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Detailed description of the image to generate. Use English for best results. Include style, subject, lighting, composition details.",
+                },
+                "size": {
+                    "type": "string",
+                    "description": "Image size. Default: 1024x1024. Options vary by provider: 1024x1024, 1024x768, 768x1024, 1536x1024, 1024x1536",
+                },
+                "save_path": {
+                    "type": "string",
+                    "description": "Where to save in workspace, e.g. workspace/images/sunset.png. Default: auto-generated in workspace/images/",
+                },
+            },
+            "required": ["prompt"],
+        },
+        "config": {
+            "provider": "siliconflow",
+            "model": "black-forest-labs/FLUX.1-schnell",
+            "api_key": "",
+            "base_url": "",
+        },
+        "config_schema": {
+            "fields": [
+                {
+                    "key": "provider",
+                    "label": "Provider",
+                    "type": "select",
+                    "options": [
+                        {"value": "siliconflow", "label": "SiliconFlow (FLUX, China-friendly)"},
+                        {"value": "openai", "label": "OpenAI (GPT Image)"},
+                        {"value": "google", "label": "Google (Gemini Native Image)"},
+                    ],
+                    "default": "siliconflow",
+                },
+                {
+                    "key": "model",
+                    "label": "Model",
+                    "type": "text",
+                    "default": "black-forest-labs/FLUX.1-schnell",
+                    "placeholder": "e.g. black-forest-labs/FLUX.1-schnell, gpt-image-1, gemini-2.5-flash-image",
+                },
+                {
+                    "key": "api_key",
+                    "label": "API Key",
+                    "type": "password",
+                    "default": "",
+                    "placeholder": "Provider API key (SiliconFlow / OpenAI / Google)",
+                },
+                {
+                    "key": "base_url",
+                    "label": "Base URL (optional)",
+                    "type": "text",
+                    "default": "",
+                    "placeholder": "Custom API endpoint. Leave empty for default.",
+                },
+            ]
+        },
+    },
+    {
         "name": "discover_resources",
         "display_name": "Resource Discovery",
         "description": "Search public MCP registries (Smithery + ModelScope) for tools and capabilities that can extend your abilities. Use this when you encounter a task you cannot handle with your current tools.",

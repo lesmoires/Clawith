@@ -606,6 +606,33 @@ AGENT_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "generate_image",
+            "description": "Generate an image from a text description using AI. "
+                           "The generated image is saved to your workspace. "
+                           "Use this when the user asks to create, draw, design, or generate any image, illustration, diagram, or visual content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Detailed description of the image to generate. Write in English for best quality. Include style, subject, lighting, composition details.",
+                    },
+                    "size": {
+                        "type": "string",
+                        "description": "Image size. Default: 1024x1024. Options: 1024x1024, 1024x768, 768x1024",
+                    },
+                    "save_path": {
+                        "type": "string",
+                        "description": "Workspace path to save the image, e.g. workspace/images/sunset.png. Default: auto-generated.",
+                    },
+                },
+                "required": ["prompt"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "discover_resources",
             "description": "Search public MCP registries (Smithery) for tools and capabilities that can extend your abilities. Use this when you encounter a task you cannot handle with your current tools.",
             "parameters": {
@@ -1787,6 +1814,8 @@ async def execute_tool(
             result = await _execute_code(agent_id, ws, arguments)
         elif tool_name == "upload_image":
             result = await _upload_image(agent_id, ws, arguments)
+        elif tool_name == "generate_image":
+            result = await _generate_image(agent_id, ws, arguments)
         elif tool_name == "discover_resources":
             result = await _discover_resources(arguments)
         elif tool_name == "import_mcp_server":
@@ -4991,6 +5020,228 @@ async def _upload_image(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
     except Exception as e:
         return f"❌ Upload error: {type(e).__name__}: {str(e)[:300]}"
 
+
+
+# ─── Image Generation (Multi-Provider) ────────────────────────────────────────
+
+async def _generate_image(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
+    """Generate an image using the configured provider and save to workspace.
+
+    Supported providers:
+    - siliconflow: OpenAI-compatible API (FLUX models, China-friendly)
+    - openai: Native OpenAI API (GPT Image)
+    - google: Google Gemini Native Image API (Nano Banana)
+
+    The tool config is resolved via the standard _get_tool_config() hierarchy:
+    global tool config (admin-set) -> per-agent tool config override.
+    """
+    from datetime import datetime
+
+    prompt = arguments.get("prompt")
+    if not prompt:
+        return "❌ Missing required argument 'prompt' for generate_image"
+
+    size = arguments.get("size", "1024x1024")
+    save_path = arguments.get("save_path", "")
+
+    # Load tool config (global -> per-agent override)
+    config = await _get_tool_config(agent_id, "generate_image") or {}
+    provider = config.get("provider", "siliconflow")
+    model = config.get("model", "")
+    api_key = config.get("api_key", "")
+    base_url = config.get("base_url", "")
+
+    if not api_key:
+        return (
+            "❌ Image generation API key not configured. "
+            "Ask your admin to configure it in Enterprise Settings → Tools → Generate Image."
+        )
+
+    # Generate the save path if not provided
+    if not save_path:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Derive a short slug from the prompt for a more descriptive filename
+        slug = "_".join(prompt.split()[:4]).lower()
+        slug = "".join(c for c in slug if c.isalnum() or c == "_")[:40]
+        save_path = f"workspace/images/{slug}_{ts}.png"
+
+    # Ensure the target directory exists and path is within workspace
+    full_save_path = (ws / save_path).resolve()
+    if not str(full_save_path).startswith(str(ws.resolve())):
+        return "❌ Access denied: save path is outside the workspace"
+    full_save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        if provider == "siliconflow":
+            image_bytes = await _generate_image_siliconflow(
+                api_key,
+                model or "black-forest-labs/FLUX.1-schnell",
+                base_url or "https://api.siliconflow.cn/v1",
+                prompt, size,
+            )
+        elif provider == "openai":
+            image_bytes = await _generate_image_openai(
+                api_key,
+                model or "gpt-image-1",
+                base_url or "https://api.openai.com/v1",
+                prompt, size,
+            )
+        elif provider == "google":
+            image_bytes = await _generate_image_google(
+                api_key,
+                model or "gemini-2.5-flash-image",
+                prompt, size,
+            )
+        else:
+            return f"❌ Unknown image generation provider: {provider}. Supported: siliconflow, openai, google"
+
+        if not image_bytes:
+            return "❌ Image generation returned empty result. Please try a different prompt."
+
+        # Save the generated image to workspace
+        full_save_path.write_bytes(image_bytes)
+        size_kb = len(image_bytes) / 1024
+
+        # Build the API path for inline display in chat
+        # The MarkdownRenderer will auto-inject the auth token for /api/agents/ paths
+        api_image_path = f"/api/agents/{agent_id}/files/download?path={save_path}"
+
+        return (
+            f"✅ Image generated and saved to: {save_path}\n"
+            f"Size: {size_kb:.1f} KB | Provider: {provider} | Model: {model or '(default)'}\n\n"
+            f"Display this image to the user using this exact markdown:\n"
+            f"![generated image]({api_image_path})"
+        )
+    except Exception as e:
+        logger.error(f"[GenerateImage] Error ({provider}): {e}")
+        return f"❌ Image generation failed ({provider}): {str(e)[:400]}"
+
+
+async def _generate_image_siliconflow(
+    api_key: str, model: str, base_url: str, prompt: str, size: str
+) -> bytes:
+    """Generate image via SiliconFlow (OpenAI-compatible images.generate API).
+
+    SiliconFlow returns a temporary URL (expires in ~1 hour), so we download
+    the image bytes immediately after generation.
+    """
+    import httpx
+    import base64
+
+    url = f"{base_url.rstrip('/')}/images/generations"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "image_size": size,  # SiliconFlow uses 'image_size' instead of 'size'
+        "n": 1,
+    }
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+
+        # SiliconFlow may return url or b64_json
+        image_data = data.get("data", [{}])[0]
+        image_url = image_data.get("url")
+        if image_url:
+            # Download the temporary URL immediately
+            img_resp = await client.get(image_url, timeout=60)
+            img_resp.raise_for_status()
+            return img_resp.content
+
+        b64 = image_data.get("b64_json")
+        if b64:
+            return base64.b64decode(b64)
+
+        raise ValueError(f"No image URL or b64_json in SiliconFlow response: {data}")
+
+
+async def _generate_image_openai(
+    api_key: str, model: str, base_url: str, prompt: str, size: str
+) -> bytes:
+    """Generate image via OpenAI GPT Image API.
+
+    Requests b64_json format to avoid dealing with URL expiry.
+    """
+    import httpx
+    import base64
+
+    url = f"{base_url.rstrip('/')}/images/generations"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "size": size,
+        "n": 1,
+        "response_format": "b64_json",
+    }
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+
+        image_data = data.get("data", [{}])[0]
+        b64 = image_data.get("b64_json")
+        if b64:
+            return base64.b64decode(b64)
+
+        # Fallback: try URL
+        image_url = image_data.get("url")
+        if image_url:
+            img_resp = await client.get(image_url, timeout=60)
+            img_resp.raise_for_status()
+            return img_resp.content
+
+        raise ValueError(f"No b64_json or URL in OpenAI response: {data}")
+
+
+async def _generate_image_google(
+    api_key: str, model: str, prompt: str, size: str
+) -> bytes:
+    """Generate image via Google Gemini Native Image API (Nano Banana).
+
+    Uses the Gemini generateContent endpoint with responseModalities=["TEXT", "IMAGE"].
+    Extracts the generated image from inlineData in the response parts.
+    """
+    import httpx
+    import base64
+
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/"
+        f"models/{model}:generateContent?key={api_key}"
+    )
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "responseModalities": ["TEXT", "IMAGE"],
+        },
+    }
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(
+            url, json=payload, headers={"Content-Type": "application/json"}
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Extract image from response candidates -> content -> parts
+        candidates = data.get("candidates", [])
+        if not candidates:
+            raise ValueError(f"No candidates in Gemini response: {data}")
+
+        parts = candidates[0].get("content", {}).get("parts", [])
+        for part in parts:
+            if "inlineData" in part:
+                b64 = part["inlineData"]["data"]
+                return base64.b64decode(b64)
+
+        raise ValueError(
+            f"No image (inlineData) found in Gemini response parts. "
+            f"Parts: {[p.get('text', '(image)') if 'text' in p else '(inline)' for p in parts]}"
+        )
 
 
 # ─── Feishu Helper ────────────────────────────────────────────────────────────
