@@ -12,7 +12,9 @@ export default function SSOEntry() {
     const [error, setError] = useState('');
     const [providers, setProviders] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [polling, setPolling] = useState(false);
+    // Initialize polling=true when complete=1 to avoid briefly showing
+    // "No SSO providers configured." before the first poll completes.
+    const [polling, setPolling] = useState(complete);
 
     useEffect(() => {
         if (!sid) {
