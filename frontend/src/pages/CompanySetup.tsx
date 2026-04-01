@@ -13,9 +13,12 @@ export default function CompanySetup() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    // Check if coming from registration flow
-    const fromRegister = (location.state as any)?.fromRegister;
-    const registerEmail = (location.state as any)?.email;
+    // Check if coming from registration flow.
+    // Primary: location.state.fromRegister (set by Login page).
+    // Fallback: if user exists but is not active, they're in the registration flow
+    // (the Navigate in ProtectedRoute may strip location.state).
+    const fromRegister = (location.state as any)?.fromRegister || (user && !user.is_active);
+    const registerEmail = (location.state as any)?.email || user?.email;
 
     // Join company form
     const [inviteCode, setInviteCode] = useState('');
