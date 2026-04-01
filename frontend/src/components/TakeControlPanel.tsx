@@ -181,6 +181,7 @@ export default function TakeControlPanel({ agentId, sessionId, onClose }: Props)
     const handleComplete = useCallback(async () => {
         if (!locked) return;
         setLocked(false);
+        lockedRef.current = false;  // Prevent unmount cleanup from double-unlocking
         setStatusText('Exporting cookies...');
         try {
             const res = await controlApi.unlock(agentId, {
@@ -198,6 +199,7 @@ export default function TakeControlPanel({ agentId, sessionId, onClose }: Props)
             setStatusText(`Unlock failed: ${err.message}`);
             // Re-enable lock state if unlock request failed so user can try again
             setLocked(true);
+            lockedRef.current = true;
         }
     }, [locked, agentId, sessionId, platformHint, onClose]);
 
@@ -208,6 +210,7 @@ export default function TakeControlPanel({ agentId, sessionId, onClose }: Props)
             return;
         }
         setLocked(false);
+        lockedRef.current = false;  // Prevent unmount cleanup from double-unlocking
         setStatusText('Canceling...');
         try {
             await controlApi.unlock(agentId, {
