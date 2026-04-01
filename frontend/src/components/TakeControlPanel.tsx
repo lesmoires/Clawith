@@ -60,6 +60,9 @@ export default function TakeControlPanel({ agentId, sessionId, onClose, onLastSc
     const mountedRef = useRef(true);
     // Track the latest screenshot data URI for passing to parent on close
     const lastScreenshotRef = useRef<string | null>(null);
+    // Track the actual screen size for coordinate mapping
+    // (screenshot natural dimensions may differ from screen resolution)
+    const screenSizeRef = useRef<{ width: number; height: number } | null>(null);
 
     // Track lock state via ref for cleanup — avoids the React closure bug
     // where having `locked` in the dependency array causes the effect to
@@ -119,6 +122,10 @@ export default function TakeControlPanel({ agentId, sessionId, onClose, onLastSc
                         : `data:image/png;base64,${res.screenshot}`;
                     setScreenshot(dataUri);
                     lastScreenshotRef.current = dataUri;
+                    // Store screen size for coordinate mapping
+                    if (res.screen_size) {
+                        screenSizeRef.current = res.screen_size;
+                    }
                 }
             } catch {
                 // Polling failure is non-fatal, will retry
@@ -146,7 +153,7 @@ export default function TakeControlPanel({ agentId, sessionId, onClose, onLastSc
         setStatusFlashKey(k => k + 1);
     }, []);
 
-    // Handle click on screenshot — map coordinates to actual resolution
+    // Handle click on screenshot — map coordinates to actual screen resolution
     const handleScreenshotClick = useCallback(async (e: React.MouseEvent<HTMLImageElement>) => {
         if (!imgRef.current || !locked) return;
 
@@ -154,11 +161,22 @@ export default function TakeControlPanel({ agentId, sessionId, onClose, onLastSc
         const naturalWidth = imgRef.current.naturalWidth;
         const naturalHeight = imgRef.current.naturalHeight;
 
-        // Map display coordinates to actual coordinates
+        // Map display coordinates to screenshot's natural pixel coordinates
         const scaleX = naturalWidth / rect.width;
         const scaleY = naturalHeight / rect.height;
-        const x = Math.round((e.clientX - rect.left) * scaleX);
-        const y = Math.round((e.clientY - rect.top) * scaleY);
+        let x = Math.round((e.clientX - rect.left) * scaleX);
+        let y = Math.round((e.clientY - rect.top) * scaleY);
+
+        // If we have the actual screen size, and it differs from the screenshot
+        // dimensions (e.g., screenshot was resized during JPEG compression),
+        // map from screenshot coords to screen coords.
+        const ss = screenSizeRef.current;
+        if (ss && (ss.width !== naturalWidth || ss.height !== naturalHeight)) {
+            const mapX = ss.width / naturalWidth;
+            const mapY = ss.height / naturalHeight;
+            x = Math.round(x * mapX);
+            y = Math.round(y * mapY);
+        }
 
         flashStatus(`Clicking at (${x}, ${y})...`);
         try {
@@ -217,7 +235,10 @@ export default function TakeControlPanel({ agentId, sessionId, onClose, onLastSc
             );
             // Pass the last screenshot to the parent so live preview updates
             if (lastScreenshotRef.current && onLastScreenshot) {
+                console.log('[TakeControl] Passing last screenshot to parent on complete, size:', lastScreenshotRef.current.length);
                 onLastScreenshot(lastScreenshotRef.current);
+            } else {
+                console.log('[TakeControl] No screenshot to pass: ref=', !!lastScreenshotRef.current, 'callback=', !!onLastScreenshot);
             }
             setTimeout(onClose, 1200);
         } catch (err: any) {
@@ -233,7 +254,10 @@ export default function TakeControlPanel({ agentId, sessionId, onClose, onLastSc
         if (!locked) {
             // Still pass the last screenshot even if not locked
             if (lastScreenshotRef.current && onLastScreenshot) {
+                console.log('[TakeControl] Passing last screenshot to parent on cancel (unlocked), size:', lastScreenshotRef.current.length);
                 onLastScreenshot(lastScreenshotRef.current);
+            } else {
+                console.log('[TakeControl] No screenshot to pass on cancel (unlocked): ref=', !!lastScreenshotRef.current, 'callback=', !!onLastScreenshot);
             }
             onClose();
             return;
@@ -249,7 +273,10 @@ export default function TakeControlPanel({ agentId, sessionId, onClose, onLastSc
         } catch {}
         // Pass the last screenshot to the parent so live preview updates
         if (lastScreenshotRef.current && onLastScreenshot) {
+            console.log('[TakeControl] Passing last screenshot to parent on cancel (locked), size:', lastScreenshotRef.current.length);
             onLastScreenshot(lastScreenshotRef.current);
+        } else {
+            console.log('[TakeControl] No screenshot to pass on cancel (locked): ref=', !!lastScreenshotRef.current, 'callback=', !!onLastScreenshot);
         }
         onClose();
     }, [locked, agentId, sessionId, onClose, onLastScreenshot, flashStatus]);

@@ -276,46 +276,8 @@ function OrgTab({ tenant }: { tenant: any }) {
     const { t } = useTranslation();
     const qc = useQueryClient();
 
-    const [showInviteModal, setShowInviteModal] = useState(false);
-    const [inviteEmails, setInviteEmails] = useState('');
-    const [inviting, setInviting] = useState(false);
-    const [inviteResult, setInviteResult] = useState<{ invited: number; message: string } | null>(null);
-    const [inviteLink, setInviteLink] = useState('');
 
-    const generateInviteLink = async () => {
-        try {
-            const res = await fetchJson<any>('/enterprise/invitation-codes', {
-                method: 'POST',
-                body: JSON.stringify({ count: 1, max_uses: 100 })
-            });
-            if (res.codes && res.codes.length > 0) {
-                const code = res.codes[0];
-                const url = new URL('/register', window.location.origin);
-                url.searchParams.set('code', code);
-                setInviteLink(url.toString());
-            }
-        } catch (e: any) {
-            alert(e.message || 'Failed to generate link');
-        }
-    };
 
-    const handleSendInvites = async () => {
-        const emails = inviteEmails.split(/[\n,]+/).map(e => e.trim()).filter(Boolean);
-        if (emails.length === 0) return;
-        setInviting(true);
-        setInviteResult(null);
-        try {
-            const res = await fetchJson<any>('/enterprise/invite-users', {
-                method: 'POST',
-                body: JSON.stringify({ emails })
-            });
-            setInviteResult({ invited: res.invited, message: res.message });
-            setInviteEmails('');
-        } catch (e: any) {
-            alert(e.message || 'Failed to send invites');
-        }
-        setInviting(false);
-    };
 
     const SsoStatus = () => {
         const [isExpanded, setIsExpanded] = useState(!!tenant?.sso_enabled);
@@ -813,23 +775,6 @@ function OrgTab({ tenant }: { tenant: any }) {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {/* Email Invitations Section */}
-            <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-                <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-secondary)' }}>
-                    <div>
-                        <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>
-                            {t('enterprise.invitations.title', 'Email Invitations')}
-                        </h3>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                            {t('enterprise.invitations.desc', 'Invite users to join your organization via email.')}
-                        </div>
-                    </div>
-                    <button className="btn btn-primary" onClick={() => setShowInviteModal(true)}>
-                        {t('enterprise.invitations.inviteUsers', 'Invite Users')}
-                    </button>
-                </div>
-            </div>
-
             {/* SSO status is now derived from per-channel toggles — no global switch */}
 
             {/* 1. Identity Providers Section */}
@@ -902,60 +847,6 @@ function OrgTab({ tenant }: { tenant: any }) {
                 </div>
             </div>
 
-            {showInviteModal && (
-                <div className="modal-overlay" onClick={() => setShowInviteModal(false)}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ width: '500px' }}>
-                        <div style={{ padding: '20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <h3 style={{ margin: 0, fontSize: '18px' }}>{t('enterprise.invitations.inviteUsersTitle', 'Invite Users')}</h3>
-                            <button className="btn btn-ghost" style={{ padding: '4px' }} onClick={() => setShowInviteModal(false)}>✕</button>
-                        </div>
-                        <div style={{ padding: '20px' }}>
-                            <label className="form-label">{t('enterprise.invitations.emailAddresses', 'Email Addresses')}</label>
-                            <textarea
-                                className="form-input"
-                                rows={5}
-                                placeholder={t('enterprise.invitations.emailPlaceholder', 'Enter email addresses, separated by commas or newlines...')}
-                                value={inviteEmails}
-                                onChange={e => setInviteEmails(e.target.value)}
-                                style={{ resize: 'vertical', fontSize: '13px', marginBottom: '16px' }}
-                            />
-                            
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                                    {t('enterprise.invitations.orShareLink', 'Or share an invitation link directly:')}
-                                </div>
-                                {!inviteLink ? (
-                                    <button className="btn btn-secondary btn-sm" onClick={generateInviteLink}>
-                                        {t('enterprise.invitations.generateLink', 'Generate Link')}
-                                    </button>
-                                ) : (
-                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                        <input className="form-input" value={inviteLink} readOnly style={{ width: '200px', fontSize: '12px', padding: '4px 8px' }} />
-                                        <button className="btn btn-secondary btn-sm" onClick={() => { navigator.clipboard.writeText(inviteLink); alert(t('enterprise.invitations.linkCopied', 'Copied!')); }}>
-                                            {t('common.copy', 'Copy')}
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-
-                            {inviteResult && (
-                                <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(0,200,100,0.1)', color: 'var(--success)', borderRadius: '6px', fontSize: '13px' }}>
-                                    {inviteResult.message} ({inviteResult.invited} {t('enterprise.invitations.invitedUsers', 'users')})
-                                </div>
-                            )}
-
-                        </div>
-                        <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: '12px', background: 'var(--bg-secondary)' }}>
-                            <button className="btn btn-secondary" onClick={() => setShowInviteModal(false)}>
-                                {t('common.cancel', 'Cancel')}
-                            </button>
-                            <button className="btn btn-primary" onClick={handleSendInvites} disabled={inviting || !inviteEmails.trim()}>
-                                {inviting ? t('common.loading', 'Sending...') : t('enterprise.invitations.sendInvites', 'Send Invitations')}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

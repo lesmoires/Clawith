@@ -278,6 +278,7 @@ export default function AgentBayLivePanel({ liveState, visible, onToggle, agentI
                     onClose={() => setShowTakeControl(false)}
                     onLastScreenshot={(dataUri) => {
                         // Push the final TC screenshot to the live preview
+                        console.log('[LivePanel] Received last screenshot from TC, size:', dataUri.length, 'onLiveUpdate:', !!onLiveUpdate);
                         if (onLiveUpdate) {
                             onLiveUpdate('browser', dataUri);
                         }

@@ -212,101 +212,70 @@ async def _cdp_exec(client, script: str, timeout_ms: int = 15000) -> dict:
 async def _perform_click(client, x: int, y: int, button: str = "left"):
     """Click at (x, y) on the remote session.
 
-    For browser sessions: uses SDK browser.operator.act() with coordinate-based
-    instruction (the same API the agent uses for its own browser interactions).
-    For desktop sessions: uses SDK computer.click_mouse() directly.
+    Uses the SDK's Computer API (click_mouse) for both browser and desktop
+    sessions. This is a direct, pixel-precise, sub-second operation — much
+    faster than the LLM-powered browser.operator.act() which takes 2-5s.
+
+    The browser runs inside a virtual desktop where screen coordinates
+    align with the browser viewport, so computer.click_mouse() works
+    correctly for browser sessions too.
     """
     image_type = getattr(client, '_image_type', 'unknown')
     logger.info(f"[TakeControl] Click at ({x}, {y}), button={button}, image_type={image_type}")
 
-    if _is_browser_session(client):
-        # Use the SDK's browser operator act() — same as agent's own browser_click
-        # This is the most reliable method as it's the native SDK approach
-        from agentbay import ActOptions
-        try:
-            action_msg = (
-                f"Click at pixel coordinates ({x}, {y}) on the page. "
-                f"This is a precise coordinate click, not an element-based click."
-            )
-            await asyncio.to_thread(
-                client._session.browser.operator.act,
-                ActOptions(action=action_msg)
-            )
-            logger.info(f"[TakeControl] Browser operator act() click succeeded at ({x}, {y})")
-            return {"success": True, "method": "browser_act", "output": f"Clicked at ({x}, {y})"}
-        except Exception as e:
-            logger.warning(f"[TakeControl] Browser operator act() click failed: {e}")
-            return {"success": False, "output": f"Click failed: {str(e)[:200]}"}
-    else:
-        # Desktop session — SDK computer API directly
+    try:
         result = await asyncio.to_thread(
             client._session.computer.click_mouse, x, y, button
         )
-        logger.info(f"[TakeControl] Computer API click: success={result.success}")
-        return {"success": result.success, "output": str(result)[:200]}
+        success = getattr(result, 'success', False)
+        logger.info(f"[TakeControl] Computer click at ({x}, {y}): success={success}")
+        return {"success": success, "method": "computer_click", "output": f"Clicked at ({x}, {y})"}
+    except Exception as e:
+        logger.warning(f"[TakeControl] Computer click failed: {e}")
+        return {"success": False, "output": f"Click failed: {str(e)[:200]}"}
 
 
 async def _perform_type(client, text: str):
     """Type text into the remote session.
 
-    For browser sessions: uses SDK browser.operator.act() to type text
-    at the currently focused element.
-    For desktop sessions: uses SDK computer.input_text() directly.
+    Uses the SDK's Computer API (input_text) which types directly at the
+    current cursor/focus position. Much faster than the LLM-powered
+    browser.operator.act() approach.
     """
     image_type = getattr(client, '_image_type', 'unknown')
     logger.info(f"[TakeControl] Type text: '{text[:30]}', image_type={image_type}")
 
-    if _is_browser_session(client):
-        from agentbay import ActOptions
-        try:
-            # Use act() to type into the currently focused input
-            action_msg = (
-                f"Type the following text into the currently focused input field: '{text}'. "
-                f"Use the keyboard to type it character by character."
-            )
-            await asyncio.to_thread(
-                client._session.browser.operator.act,
-                ActOptions(action=action_msg)
-            )
-            logger.info(f"[TakeControl] Browser operator act() type succeeded")
-            return {"success": True, "method": "browser_act", "output": "Text typed"}
-        except Exception as e:
-            logger.warning(f"[TakeControl] Browser operator act() type failed: {e}")
-            return {"success": False, "output": f"Type failed: {str(e)[:200]}"}
-    else:
+    try:
         result = await asyncio.to_thread(
             client._session.computer.input_text, text
         )
-        logger.info(f"[TakeControl] Computer API type: success={result.success}")
-        return {"success": result.success, "output": str(result)[:200]}
+        success = getattr(result, 'success', False)
+        logger.info(f"[TakeControl] Computer input_text: success={success}")
+        return {"success": success, "method": "computer_input", "output": "Text typed"}
+    except Exception as e:
+        logger.warning(f"[TakeControl] Computer input_text failed: {e}")
+        return {"success": False, "output": f"Type failed: {str(e)[:200]}"}
 
 
 async def _perform_press_keys(client, keys: list[str]):
     """Press key combination on the remote session.
 
-    For browser sessions: uses SDK browser.operator.act() with key press
-    instruction (same native SDK approach as click/type).
-    For desktop sessions: uses SDK computer.press_keys() directly.
+    Uses the SDK's Computer API (press_keys) for direct, instant key
+    press — no LLM interpretation overhead.
     """
-    if _is_browser_session(client):
-        from agentbay import ActOptions
-        key_desc = "+".join(keys)
-        try:
-            action_msg = f"Press the keyboard key combination: {key_desc}"
-            await asyncio.to_thread(
-                client._session.browser.operator.act,
-                ActOptions(action=action_msg)
-            )
-            logger.info(f"[TakeControl] Browser operator act() press_keys succeeded: {key_desc}")
-            return {"success": True, "method": "browser_act", "output": f"Pressed {key_desc}"}
-        except Exception as e:
-            logger.warning(f"[TakeControl] Browser operator act() press_keys failed: {e}")
-            return {"success": False, "output": f"Key press failed: {str(e)[:200]}"}
-    else:
+    key_desc = "+".join(keys)
+    logger.info(f"[TakeControl] Press keys: {key_desc}")
+
+    try:
         result = await asyncio.to_thread(
             client._session.computer.press_keys, keys
         )
-        return {"success": result.success, "output": str(result)[:200]}
+        success = getattr(result, 'success', False)
+        logger.info(f"[TakeControl] Computer press_keys: success={success}")
+        return {"success": success, "method": "computer_keys", "output": f"Pressed {key_desc}"}
+    except Exception as e:
+        logger.warning(f"[TakeControl] Computer press_keys failed: {e}")
+        return {"success": False, "output": f"Key press failed: {str(e)[:200]}"}
 
 
 # ── Endpoints ──
@@ -401,7 +370,8 @@ async def control_screenshot(
     """Get an immediate screenshot from the AgentBay session.
 
     Automatically detects the session type (browser/desktop) and uses
-    the appropriate snapshot method. Returns a base64 data URI.
+    the appropriate snapshot method. Returns a base64 data URI and
+    the screen size for coordinate mapping.
     """
     _agent, _access = await check_agent_access(db, current_user, agent_id)
 
@@ -413,7 +383,24 @@ async def control_screenshot(
             screenshot_b64 = await client.get_desktop_snapshot_base64()
         if not screenshot_b64:
             logger.warning(f"[TakeControl] Screenshot returned None for agent={agent_id}")
-        return {"status": "ok", "screenshot": screenshot_b64}
+
+        # Also fetch screen size for coordinate mapping between
+        # screenshot dimensions and computer.click_mouse() coordinates
+        screen_size = None
+        try:
+            size_result = await asyncio.to_thread(
+                client._session.computer.get_screen_size
+            )
+            if size_result.success and getattr(size_result, 'data', None):
+                screen_size = size_result.data
+        except Exception:
+            pass  # Non-critical — TC still works without it
+
+        return {
+            "status": "ok",
+            "screenshot": screenshot_b64,
+            "screen_size": screen_size,
+        }
     except Exception as e:
         logger.warning(f"[TakeControl] Screenshot failed: {e}")
         return {"status": "error", "detail": str(e)[:500]}

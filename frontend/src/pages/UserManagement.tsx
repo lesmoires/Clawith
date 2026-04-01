@@ -140,14 +140,19 @@ export default function UserManagement() {
         setChangingRoleUserId(null);
     };
 
-    // ── Invite handlers ──
     const generateInviteLink = async () => {
         try {
             const tenantId = localStorage.getItem('current_tenant_id') || '';
-            const data = await fetchJson<any>(`/enterprise/invitation-codes/generate${tenantId ? `?tenant_id=${tenantId}` : ''}`, { method: 'POST' });
-            const url = new URL(window.location.origin + '/login');
-            if (data.code) url.searchParams.set('code', data.code);
-            setInviteLink(url.toString());
+            // Use the existing batch-create endpoint with count=1, max_uses=100
+            const data = await fetchJson<any>(`/enterprise/invitation-codes${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
+                method: 'POST',
+                body: JSON.stringify({ count: 1, max_uses: 100 }),
+            });
+            if (data.codes && data.codes.length > 0) {
+                const url = new URL(window.location.origin + '/login');
+                url.searchParams.set('code', data.codes[0]);
+                setInviteLink(url.toString());
+            }
         } catch (e: any) {
             setToast(`Error: ${e.message}`);
             setTimeout(() => setToast(''), 3000);
