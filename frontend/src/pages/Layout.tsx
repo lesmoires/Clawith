@@ -4,7 +4,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../stores';
-import { agentApi } from '../services/api';
+import { agentApi, tenantApi, authApi } from '../services/api';
 
 import {
     IconHome,
@@ -234,7 +234,7 @@ function VersionDisplay() {
 export default function Layout() {
     const { t, i18n } = useTranslation();
     const navigate = useNavigate();
-    const { user, logout } = useAuthStore();
+    const { user, logout, setAuth } = useAuthStore();
     const queryClient = useQueryClient();
     const isChinese = i18n.language?.startsWith('zh');
     const [showAccountSettings, setShowAccountSettings] = useState(false);
@@ -249,6 +249,12 @@ export default function Layout() {
     const [notifCategory, setNotifCategory] = useState<string>('all');
     const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
     const [showTenantMenu, setShowTenantMenu] = useState(false);
+    const [showJoinCreateForm, setShowJoinCreateForm] = useState(false);
+    const [joinInviteCode, setJoinInviteCode] = useState('');
+    const [createCompanyName, setCreateCompanyName] = useState('');
+    const [tenantFormLoading, setTenantFormLoading] = useState(false);
+    const [tenantFormError, setTenantFormError] = useState('');
+    const [allowSelfCreate, setAllowSelfCreate] = useState(true);
 
     // Notification polling
     const { data: unreadCount = 0 } = useQuery({
@@ -309,6 +315,59 @@ export default function Layout() {
         } else if (data.access_token) {
             localStorage.setItem('token', data.access_token);
             window.location.reload();
+        }
+    };
+
+    // Open the tenant switcher modal — also fetch self-create config
+    const openTenantModal = () => {
+        setShowTenantMenu(true);
+        setShowJoinCreateForm(false);
+        setJoinInviteCode('');
+        setCreateCompanyName('');
+        setTenantFormError('');
+        // Fetch self-create config
+        tenantApi.registrationConfig().then((d: any) => {
+            setAllowSelfCreate(d.allow_self_create_company);
+        }).catch(() => {});
+    };
+
+    // Join company via invite code (inside modal)
+    const handleModalJoin = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setTenantFormError('');
+        setTenantFormLoading(true);
+        try {
+            await tenantApi.join(joinInviteCode);
+            // Refresh user to get the new tenant
+            const me = await authApi.me();
+            const token = localStorage.getItem('token');
+            if (token) setAuth(me, token);
+            setShowTenantMenu(false);
+            window.location.reload();
+        } catch (err: any) {
+            setTenantFormError(err.message || 'Failed to join company');
+        } finally {
+            setTenantFormLoading(false);
+        }
+    };
+
+    // Create company (inside modal)
+    const handleModalCreate = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setTenantFormError('');
+        setTenantFormLoading(true);
+        try {
+            await tenantApi.selfCreate({ name: createCompanyName });
+            // Refresh user to get the new tenant
+            const me = await authApi.me();
+            const token = localStorage.getItem('token');
+            if (token) setAuth(me, token);
+            setShowTenantMenu(false);
+            window.location.reload();
+        } catch (err: any) {
+            setTenantFormError(err.message || 'Failed to create company');
+        } finally {
+            setTenantFormLoading(false);
         }
     };
 
@@ -638,42 +697,12 @@ export default function Layout() {
                                     }}>{(unreadCount as number) > 99 ? '99+' : unreadCount}</span>
                                 )}
                             </button>
-                            {myTenants.length > 1 && (
-                                <div style={{ position: 'relative', marginLeft: 'auto' }}>
-                                    <button className="btn btn-ghost" onClick={() => setShowTenantMenu(v => !v)} style={{
-                                        padding: '4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    }} title={isChinese ? '切换企业' : 'Switch Organization'}>
-                                        <IconSwitchHorizontal size={16} stroke={1.5} />
-                                    </button>
-                                    {showTenantMenu && (
-                                        <div style={{
-                                            position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
-                                            minWidth: '160px', marginBottom: '4px', background: 'var(--bg-secondary)',
-                                            border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)',
-                                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)', overflow: 'hidden', zIndex: 100,
-                                        }}>
-                                            {myTenants.map((tenant: any) => (
-                                                <button
-                                                    key={tenant.tenant_id}
-                                                    onClick={() => {
-                                                        handleSwitchTenant(tenant.tenant_id);
-                                                        setShowTenantMenu(false);
-                                                    }}
-                                                    style={{
-                                                        width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
-                                                        padding: '10px 12px', background: tenant.tenant_id === currentTenant ? 'var(--bg-tertiary)' : 'transparent',
-                                                        border: 'none', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px',
-                                                        textAlign: 'left', borderBottom: '1px solid var(--border-subtle)',
-                                                    }}
-                                                >
-                                                    <IconBuilding size={14} stroke={1.5} />
-                                                    <span style={{ flex: 1 }}>{tenant.tenant_name}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                            <button className="btn btn-ghost" onClick={openTenantModal} style={{
+                                padding: '4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                marginLeft: 'auto',
+                            }} title={isChinese ? '切换企业' : 'Switch Organization'}>
+                                <IconSwitchHorizontal size={16} stroke={1.5} />
+                            </button>
                         </div>
                         <div ref={accountMenuRef} style={{ position: 'relative' }}>
                             {showAccountMenu && (
@@ -748,6 +777,131 @@ export default function Layout() {
                     </div>
                 </div>
             </nav>
+
+            {/* Tenant Switcher Modal */}
+            {showTenantMenu && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={() => setShowTenantMenu(false)}>
+                    <div style={{ background: 'var(--bg-primary)', borderRadius: '12px', border: '1px solid var(--border-subtle)', width: '420px', maxHeight: '80vh', overflow: 'auto', padding: '24px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>{isChinese ? '切换企业' : 'Switch Organization'}</h3>
+                            <button onClick={() => setShowTenantMenu(false)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: '18px', cursor: 'pointer', padding: '4px 8px' }}>×</button>
+                        </div>
+
+                        {/* Tenant List */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '16px' }}>
+                            {myTenants.map((tenant: any) => (
+                                <button
+                                    key={tenant.tenant_id}
+                                    onClick={() => {
+                                        handleSwitchTenant(tenant.tenant_id);
+                                        setShowTenantMenu(false);
+                                    }}
+                                    style={{
+                                        width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+                                        padding: '10px 12px', borderRadius: '8px',
+                                        background: tenant.tenant_id === currentTenant ? 'var(--bg-tertiary)' : 'transparent',
+                                        border: tenant.tenant_id === currentTenant ? '1px solid var(--border-subtle)' : '1px solid transparent',
+                                        color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px',
+                                        textAlign: 'left', transition: 'background 0.15s',
+                                    }}
+                                    onMouseEnter={e => { if (tenant.tenant_id !== currentTenant) (e.target as HTMLElement).style.background = 'var(--bg-secondary)'; }}
+                                    onMouseLeave={e => { if (tenant.tenant_id !== currentTenant) (e.target as HTMLElement).style.background = 'transparent'; }}
+                                >
+                                    <IconBuilding size={16} stroke={1.5} style={{ flexShrink: 0 }} />
+                                    <span style={{ flex: 1, fontWeight: tenant.tenant_id === currentTenant ? 500 : 400 }}>{tenant.tenant_name}</span>
+                                    {tenant.tenant_id === currentTenant && (
+                                        <IconCheck size={16} stroke={2} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Divider */}
+                        <div style={{ height: '1px', background: 'var(--border-subtle)', marginBottom: '16px' }} />
+
+                        {/* Join/Create Toggle */}
+                        {!showJoinCreateForm ? (
+                            <button
+                                onClick={() => setShowJoinCreateForm(true)}
+                                style={{
+                                    width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                                    padding: '10px 12px', borderRadius: '8px', background: 'transparent',
+                                    border: '1px dashed var(--border-subtle)', color: 'var(--accent-primary)',
+                                    cursor: 'pointer', fontSize: '13px', textAlign: 'left',
+                                    transition: 'background 0.15s, border-color 0.15s',
+                                }}
+                                onMouseEnter={e => { (e.target as HTMLElement).style.background = 'var(--bg-secondary)'; }}
+                                onMouseLeave={e => { (e.target as HTMLElement).style.background = 'transparent'; }}
+                            >
+                                <IconPlus size={16} stroke={1.5} />
+                                <span>{isChinese ? '创建或加入新公司' : 'Create or Join Company'}</span>
+                            </button>
+                        ) : (
+                            <div>
+                                {/* Error message */}
+                                {tenantFormError && (
+                                    <div style={{ padding: '8px 12px', borderRadius: '6px', fontSize: '12px', marginBottom: '12px', background: 'rgba(255,80,80,0.12)', color: 'var(--error)' }}>{tenantFormError}</div>
+                                )}
+
+                                {/* Join Company */}
+                                <form onSubmit={handleModalJoin} style={{ marginBottom: '16px' }}>
+                                    <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+                                        {isChinese ? '通过邀请码加入' : 'Join via Invitation Code'}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <input
+                                            className="form-input"
+                                            value={joinInviteCode}
+                                            onChange={e => setJoinInviteCode(e.target.value)}
+                                            placeholder={isChinese ? '输入邀请码' : 'Enter invitation code'}
+                                            style={{ flex: 1, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'monospace' }}
+                                        />
+                                        <button className="btn btn-primary" type="submit" disabled={tenantFormLoading || !joinInviteCode.trim()} style={{ padding: '6px 14px', fontSize: '12px', whiteSpace: 'nowrap' }}>
+                                            {tenantFormLoading ? '...' : (isChinese ? '加入' : 'Join')}
+                                        </button>
+                                    </div>
+                                </form>
+
+                                {/* Create Company */}
+                                {allowSelfCreate && (
+                                    <>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                                            <div style={{ flex: 1, height: '1px', background: 'var(--border-subtle)' }} />
+                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '1px' }}>{isChinese ? '或者' : 'OR'}</span>
+                                            <div style={{ flex: 1, height: '1px', background: 'var(--border-subtle)' }} />
+                                        </div>
+                                        <form onSubmit={handleModalCreate}>
+                                            <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+                                                {isChinese ? '创建新公司' : 'Create a New Company'}
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                <input
+                                                    className="form-input"
+                                                    value={createCompanyName}
+                                                    onChange={e => setCreateCompanyName(e.target.value)}
+                                                    placeholder={isChinese ? '公司名称' : 'Company name'}
+                                                    style={{ flex: 1, fontSize: '13px' }}
+                                                />
+                                                <button className="btn btn-primary" type="submit" disabled={tenantFormLoading || !createCompanyName.trim()} style={{ padding: '6px 14px', fontSize: '12px', whiteSpace: 'nowrap' }}>
+                                                    {tenantFormLoading ? '...' : (isChinese ? '创建' : 'Create')}
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </>
+                                )}
+
+                                {/* Back link */}
+                                <div style={{ marginTop: '12px', textAlign: 'center' }}>
+                                    <button onClick={() => { setShowJoinCreateForm(false); setTenantFormError(''); }} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '12px', padding: '4px 8px' }}>
+                                        {isChinese ? '返回' : 'Back'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Notification Modal */}
             {showNotifications && (
