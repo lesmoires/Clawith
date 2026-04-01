@@ -37,6 +37,10 @@ router = APIRouter(prefix="/agents/{agent_id}/control", tags=["agentbay-control"
 _take_control_locks: dict[tuple[str, str], tuple[str, float]] = {}
 _LOCK_TIMEOUT_SECONDS = 600  # Auto-expire stale locks after 10 minutes
 
+# Cache of sessions that have already had browser initialization called.
+# Avoids redundant _ensure_browser_initialized() on every screenshot poll.
+_browser_initialized: set[tuple] = set()
+
 
 def is_session_locked(agent_id: str, session_id: str) -> bool:
     """Check if a session is currently under human Take Control.
@@ -130,9 +134,11 @@ async def _get_client(agent_id: uuid.UUID, session_id: str):
                     f"agent={agent_id}, session={session_id[:8]}"
                 )
                 # Ensure browser is initialized for browser-type sessions
-                if image_type in ("browser", "browser_latest"):
+                # (only on first access — cached to avoid delay on subsequent polls)
+                if image_type in ("browser", "browser_latest") and cache_key not in _browser_initialized:
                     try:
                         await client._ensure_browser_initialized()
+                        _browser_initialized.add(cache_key)
                     except Exception as e:
                         logger.warning(f"[TakeControl] Browser init on cached session failed: {e}")
                 return client
@@ -147,6 +153,7 @@ async def _get_client(agent_id: uuid.UUID, session_id: str):
         # Ensure browser is initialized for the newly created session
         try:
             await client._ensure_browser_initialized()
+            _browser_initialized.add((agent_id, session_id, "browser"))
             logger.info(f"[TakeControl] Browser initialized for new session, agent={agent_id}")
         except Exception as e:
             logger.warning(f"[TakeControl] Browser init on new session failed: {e}")

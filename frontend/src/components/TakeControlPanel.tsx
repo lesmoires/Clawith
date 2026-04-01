@@ -19,6 +19,9 @@ interface Props {
     agentId: string;
     sessionId: string;
     onClose: () => void;
+    /** Called with the last screenshot data URI when TC panel closes,
+     *  so the parent live preview can update immediately. */
+    onLastScreenshot?: (dataUri: string) => void;
 }
 
 /* ── Quick-key pre-defined buttons ── */
@@ -45,15 +48,19 @@ const SendIcon = (
     </svg>
 );
 
-export default function TakeControlPanel({ agentId, sessionId, onClose }: Props) {
+export default function TakeControlPanel({ agentId, sessionId, onClose, onLastScreenshot }: Props) {
     const [screenshot, setScreenshot] = useState<string | null>(null);
     const [textInput, setTextInput] = useState('');
     const [locked, setLocked] = useState(false);
     const [statusText, setStatusText] = useState('Acquiring control...');
+    const [statusFlashKey, setStatusFlashKey] = useState(0);
     const [platformHint, setPlatformHint] = useState('');
     const imgRef = useRef<HTMLImageElement>(null);
     const pollingRef = useRef<number | null>(null);
     const mountedRef = useRef(true);
+    // Track the latest screenshot data URI for passing to parent on close
+    const lastScreenshotRef = useRef<string | null>(null);
+
     // Track lock state via ref for cleanup — avoids the React closure bug
     // where having `locked` in the dependency array causes the effect to
     // re-run (and re-lock) when handleCancel sets locked=false.
@@ -92,39 +99,52 @@ export default function TakeControlPanel({ agentId, sessionId, onClose }: Props)
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [agentId, sessionId]);
 
-    // Poll screenshots
+    // Poll screenshots using sequential setTimeout to avoid request pileup.
+    // Each poll waits for the previous one to complete before scheduling the
+    // next, which prevents overlapping requests that waste bandwidth and
+    // introduce jitter.
     useEffect(() => {
         if (!locked) return;
+        let cancelled = false;
 
         const poll = async () => {
+            if (cancelled) return;
             try {
                 const res = await controlApi.screenshot(agentId, { session_id: sessionId });
-                if (mountedRef.current && res.screenshot) {
+                if (!cancelled && mountedRef.current && res.screenshot) {
                     // Backend returns a complete data URI (data:image/jpeg;base64,...),
                     // use it directly without wrapping.
-                    setScreenshot(
-                        res.screenshot.startsWith('data:')
-                            ? res.screenshot
-                            : `data:image/png;base64,${res.screenshot}`
-                    );
+                    const dataUri = res.screenshot.startsWith('data:')
+                        ? res.screenshot
+                        : `data:image/png;base64,${res.screenshot}`;
+                    setScreenshot(dataUri);
+                    lastScreenshotRef.current = dataUri;
                 }
             } catch {
                 // Polling failure is non-fatal, will retry
             }
+            // Schedule next poll after this one completes (sequential, not interval)
+            if (!cancelled) {
+                pollingRef.current = window.setTimeout(poll, 400);
+            }
         };
 
-        // Initial screenshot
+        // Start polling immediately
         poll();
 
-        // Poll every 600ms
-        pollingRef.current = window.setInterval(poll, 600);
-
         return () => {
+            cancelled = true;
             if (pollingRef.current) {
-                clearInterval(pollingRef.current);
+                clearTimeout(pollingRef.current);
             }
         };
     }, [locked, agentId, sessionId]);
+
+    // Helper to update status with a visual flash — defined early for use by handlers
+    const flashStatus = useCallback((text: string) => {
+        setStatusText(text);
+        setStatusFlashKey(k => k + 1);
+    }, []);
 
     // Handle click on screenshot — map coordinates to actual resolution
     const handleScreenshotClick = useCallback(async (e: React.MouseEvent<HTMLImageElement>) => {
@@ -140,86 +160,99 @@ export default function TakeControlPanel({ agentId, sessionId, onClose }: Props)
         const x = Math.round((e.clientX - rect.left) * scaleX);
         const y = Math.round((e.clientY - rect.top) * scaleY);
 
-        setStatusText(`Clicking at (${x}, ${y})...`);
+        flashStatus(`Clicking at (${x}, ${y})...`);
         try {
             const res = await controlApi.click(agentId, { session_id: sessionId, x, y });
             if (res.status === 'error') throw new Error(res.detail || 'Click failed');
-            setStatusText(`Clicked at (${x}, ${y})`);
+            flashStatus(`Clicked at (${x}, ${y})`);
         } catch (err: any) {
-            setStatusText(`Click failed: ${err.message}`);
+            flashStatus(`Click failed: ${err.message}`);
         }
-    }, [locked, agentId, sessionId]);
+    }, [locked, agentId, sessionId, flashStatus]);
+
 
     // Handle text input
     const handleSendText = useCallback(async () => {
         if (!textInput.trim() || !locked) return;
-        setStatusText(`Typing: "${textInput.slice(0, 30)}..."`);
+        flashStatus(`Typing: "${textInput.slice(0, 30)}..."`);
         try {
             const res = await controlApi.type(agentId, { session_id: sessionId, text: textInput });
             if (res.status === 'error') throw new Error(res.detail || 'Type failed');
-            setStatusText('Text sent');
+            flashStatus('Text sent');
             setTextInput('');
         } catch (err: any) {
-            setStatusText(`Type failed: ${err.message}`);
+            flashStatus(`Type failed: ${err.message}`);
         }
-    }, [textInput, locked, agentId, sessionId]);
+    }, [textInput, locked, agentId, sessionId, flashStatus]);
 
     // Handle quick key press
     const handleQuickKey = useCallback(async (keys: string[]) => {
         if (!locked) return;
-        setStatusText(`Pressing: ${keys.join('+')}`);
+        flashStatus(`Pressing: ${keys.join('+')}`);
         try {
             const res = await controlApi.pressKeys(agentId, { session_id: sessionId, keys });
             if (res.status === 'error') throw new Error(res.detail || 'Press failed');
-            setStatusText(`Pressed: ${keys.join('+')}`);
+            flashStatus(`Pressed: ${keys.join('+')}`);
         } catch (err: any) {
-            setStatusText(`Key press failed: ${err.message}`);
+            flashStatus(`Key press failed: ${err.message}`);
         }
-    }, [locked, agentId, sessionId]);
+    }, [locked, agentId, sessionId, flashStatus]);
 
     // Complete login — export cookies and close
     const handleComplete = useCallback(async () => {
         if (!locked) return;
         setLocked(false);
         lockedRef.current = false;  // Prevent unmount cleanup from double-unlocking
-        setStatusText('Exporting cookies...');
+        flashStatus('Exporting cookies...');
         try {
             const res = await controlApi.unlock(agentId, {
                 session_id: sessionId,
                 export_cookies: true,
                 platform_hint: platformHint || undefined,
             });
-            setStatusText(
+            flashStatus(
                 res.cookies_exported
                     ? `Login complete! ${res.cookie_count} cookies saved.`
                     : 'Session unlocked (no cookies exported).'
             );
+            // Pass the last screenshot to the parent so live preview updates
+            if (lastScreenshotRef.current && onLastScreenshot) {
+                onLastScreenshot(lastScreenshotRef.current);
+            }
             setTimeout(onClose, 1200);
         } catch (err: any) {
-            setStatusText(`Unlock failed: ${err.message}`);
+            flashStatus(`Unlock failed: ${err.message}`);
             // Re-enable lock state if unlock request failed so user can try again
             setLocked(true);
             lockedRef.current = true;
         }
-    }, [locked, agentId, sessionId, platformHint, onClose]);
+    }, [locked, agentId, sessionId, platformHint, onClose, onLastScreenshot, flashStatus]);
 
     // Handle cancel
     const handleCancel = useCallback(async () => {
         if (!locked) {
+            // Still pass the last screenshot even if not locked
+            if (lastScreenshotRef.current && onLastScreenshot) {
+                onLastScreenshot(lastScreenshotRef.current);
+            }
             onClose();
             return;
         }
         setLocked(false);
         lockedRef.current = false;  // Prevent unmount cleanup from double-unlocking
-        setStatusText('Canceling...');
+        flashStatus('Canceling...');
         try {
             await controlApi.unlock(agentId, {
                 session_id: sessionId,
                 export_cookies: false,
             });
         } catch {}
+        // Pass the last screenshot to the parent so live preview updates
+        if (lastScreenshotRef.current && onLastScreenshot) {
+            onLastScreenshot(lastScreenshotRef.current);
+        }
         onClose();
-    }, [locked, agentId, sessionId, onClose]);
+    }, [locked, agentId, sessionId, onClose, onLastScreenshot, flashStatus]);
 
     return (
         <div className="tc-overlay">
@@ -229,7 +262,7 @@ export default function TakeControlPanel({ agentId, sessionId, onClose }: Props)
                     <div className="tc-header-left">
                         <span className="tc-live-dot" />
                         <span className="tc-title">Take Control</span>
-                        <span className="tc-status">{statusText}</span>
+                        <span className="tc-status" key={statusFlashKey}>{statusText}</span>
                     </div>
                     <button className="tc-close-btn" onClick={handleCancel} title="Cancel">
                         {CloseIcon}
@@ -386,6 +419,22 @@ const takeControlStyles = `
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    /* Flash animation triggers on mount (key change re-mounts the element) */
+    animation: tc-status-flash 1.2s ease-out;
+}
+@keyframes tc-status-flash {
+    0% {
+        color: var(--accent, #6366f1);
+        text-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
+    }
+    30% {
+        color: var(--accent, #6366f1);
+        text-shadow: 0 0 4px rgba(99, 102, 241, 0.3);
+    }
+    100% {
+        color: var(--text-tertiary, #888);
+        text-shadow: none;
+    }
 }
 
 .tc-close-btn {

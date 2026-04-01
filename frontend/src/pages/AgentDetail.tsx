@@ -3851,7 +3851,8 @@ function AgentDetailInner() {
                                                     value={chatInput}
                                                     onChange={e => setChatInput(e.target.value)}
                                                     onKeyDown={e => {
-                                                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing && !isWaiting && !isStreaming) {
+                                                        // Enter sends the message; Shift+Enter inserts a newline
+                                                        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !isWaiting && !isStreaming) {
                                                             e.preventDefault();
                                                             sendChatMsg();
                                                         }
