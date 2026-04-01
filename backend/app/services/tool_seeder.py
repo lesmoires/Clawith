@@ -582,8 +582,8 @@ BUILTIN_TOOLS = [
             "required": ["prompt"],
         },
         "config": {
-            "provider": "siliconflow",
-            "model": "black-forest-labs/FLUX.1-schnell",
+            "provider": "google",
+            "model": "",
             "api_key": "",
             "base_url": "",
         },
@@ -594,17 +594,17 @@ BUILTIN_TOOLS = [
                     "label": "Provider",
                     "type": "select",
                     "options": [
-                        {"value": "siliconflow", "label": "SiliconFlow (FLUX, China-friendly)"},
-                        {"value": "openai", "label": "OpenAI (GPT Image)"},
-                        {"value": "google", "label": "Google (Gemini Native Image)"},
+                        {"value": "siliconflow", "label": "SiliconFlow"},
+                        {"value": "openai", "label": "OpenAI"},
+                        {"value": "google", "label": "Google"},
                     ],
-                    "default": "siliconflow",
+                    "default": "google",
                 },
                 {
                     "key": "model",
                     "label": "Model",
                     "type": "text",
-                    "default": "black-forest-labs/FLUX.1-schnell",
+                    "default": "",
                     "placeholder": "e.g. black-forest-labs/FLUX.1-schnell, gpt-image-1, gemini-2.5-flash-image",
                 },
                 {
