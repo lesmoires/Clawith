@@ -124,19 +124,19 @@ class RegistrationService:
             identity = res.scalar_one_or_none()
 
         if identity:
-            # Auto-verify if SMTP is missing
-            settings = get_settings()
-            if not settings.SYSTEM_SMTP_HOST or not settings.SYSTEM_EMAIL_FROM_ADDRESS:
+            # Auto-verify if SMTP is not configured anywhere (env or DB)
+            from app.services.system_email_service import resolve_email_config_async
+            email_config = await resolve_email_config_async(db)
+            if not email_config:
                 if not identity.email_verified:
                     identity.email_verified = True
                     db.add(identity)
             return identity
         
-        # Check if SMTP is missing for auto-verification
-        settings = get_settings()
-        is_verified = False
-        if not settings.SYSTEM_SMTP_HOST or not settings.SYSTEM_EMAIL_FROM_ADDRESS:
-            is_verified = True
+        # Check if SMTP is configured anywhere (env or DB) for auto-verification
+        from app.services.system_email_service import resolve_email_config_async
+        email_config = await resolve_email_config_async(db)
+        is_verified = not email_config  # Auto-verify only if no SMTP configured anywhere
 
         # Create new identity
         normalized_phone = re.sub(r"[\s\-\+]", "", phone) if phone else None
@@ -179,11 +179,12 @@ class RegistrationService:
         # (Using display_name or identity info)
         name = display_name or identity.username or "User"
 
-        # Check if SMTP is missing for auto-activation
-        settings = get_settings()
+        # Check if SMTP is configured anywhere (env or DB) for auto-activation
+        from app.services.system_email_service import resolve_email_config_async
+        email_config = await resolve_email_config_async(db)
         is_active = identity.email_verified
-        if not settings.SYSTEM_SMTP_HOST or not settings.SYSTEM_EMAIL_FROM_ADDRESS:
-            is_active = True
+        if not email_config:
+            is_active = True  # Auto-activate if no SMTP configured
 
         # Create tenant-user record
         user = User(
