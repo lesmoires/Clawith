@@ -378,6 +378,9 @@ async def update_agent_tools(
 # ─── MCP Server Testing ────────────────────────────────────
 class MCPTestRequest(BaseModel):
     server_url: str
+    # Optional standalone API Key. If provided, it is sent as
+    # 'Authorization: Bearer {api_key}' and is NOT embedded in the URL.
+    api_key: str | None = None
 
 
 @router.post("/test-mcp")
@@ -385,15 +388,86 @@ async def test_mcp_connection(
     data: MCPTestRequest,
     current_user: User = Depends(get_current_user),
 ):
-    """Test connection to an MCP server and list available tools."""
+    """Test connection to an MCP server and list available tools.
+
+    Supports two authentication modes:
+    - URL-embedded key (e.g. ?tavilyApiKey=xxx) — include in server_url.
+    - Bearer token — pass via api_key field; sent as Authorization header.
+    """
     from app.services.mcp_client import MCPClient
 
     try:
-        client = MCPClient(data.server_url)
+        client = MCPClient(data.server_url, api_key=data.api_key or None)
         tools = await client.list_tools()
         return {"ok": True, "tools": tools}
     except Exception as e:
         return {"ok": False, "error": str(e)[:300]}
+
+
+# ─── MCP Server-level Credential Management ────────────────
+class MCPServerUpdate(BaseModel):
+    server_name: str            # Identifies which server's tools to update
+    server_url: str             # New MCP server URL (may contain embedded key)
+    api_key: str | None = None  # Optional standalone Bearer key
+    # Target tenant (platform admins may manage another company's tools)
+    tenant_id: str | None = None
+
+
+@router.put("/mcp-server")
+async def update_mcp_server(
+    data: MCPServerUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk-update the Server URL and API Key for all tools from an MCP server.
+
+    All tools sharing the same mcp_server_name under the target tenant are
+    updated atomically. The API Key is stored encrypted in tool.config so
+    the agent runner can resolve it at execution time without re-configuring
+    each tool individually.
+
+    Authentication priority at runtime (handled by MCPClient):
+    1. tool.config['api_key'] — sent as Authorization: Bearer header.
+    2. URL query param (e.g. ?tavilyApiKey=xxx) — extracted from the URL
+       and converted to Bearer by MCPClient automatically.
+    """
+    # Resolve target tenant
+    target_tenant_id: uuid.UUID | None = None
+    if data.tenant_id:
+        try:
+            target_tenant_id = uuid.UUID(data.tenant_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid tenant_id format")
+    else:
+        target_tenant_id = current_user.tenant_id
+
+    # Load all tools from this server under the target tenant
+    result = await db.execute(
+        select(Tool).where(
+            Tool.mcp_server_name == data.server_name,
+            Tool.tenant_id == target_tenant_id,
+        )
+    )
+    tools = result.scalars().all()
+    if not tools:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No tools found for server '{data.server_name}'",
+        )
+
+    for tool in tools:
+        tool.mcp_server_url = data.server_url
+        if data.api_key is not None:
+            # Merge api_key into existing config (other keys preserved) and encrypt
+            current_config = dict(tool.config or {})
+            current_config["api_key"] = data.api_key
+            tool.config = _encrypt_sensitive_fields(current_config, tool.config_schema)
+        # If api_key is None (not provided), preserve the existing encrypted key
+
+    await db.commit()
+    return {"ok": True, "updated": len(tools)}
+
+
 
 
 # ─── Agent-installed Tools Management (admin) ───────────────
