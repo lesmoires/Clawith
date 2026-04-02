@@ -6089,7 +6089,6 @@ async def _feishu_wiki_list(agent_id: uuid.UUID, arguments: dict) -> str:
     lines.append(
         "\n💡 用 `feishu_doc_read(document_token=\"<node_token>\")` 读取每个子页面的内容。"
         "\n   对有子页面的条目，再次调用 `feishu_wiki_list(node_token=\"...\")` 继续展开。"
-        f"\n📝 在此知识库中创建文档: `feishu_doc_create(title=\"...\", wiki_space_id=\"{space_id}\", parent_node_token=\"<node_token>\")`"
     )
     return "\n".join(lines)
 
@@ -6208,7 +6207,8 @@ async def _feishu_doc_create(agent_id: uuid.UUID, arguments: dict) -> str:
             # obj_token is the underlying docx token used by feishu_doc_append
             doc_token = node.get("obj_token", "")
             node_token = node.get("node_token", "")
-            doc_url = await _get_feishu_tenant_doc_url(tenant_token, node_token or doc_token)
+            # Wiki docs are accessed via /wiki/{node_token}, not /docx/{obj_token}
+            doc_url = await _get_feishu_tenant_doc_url(tenant_token, node_token, doc_type="wiki")
 
             return (
                 f"✅ 知识库文档创建成功！\n"
