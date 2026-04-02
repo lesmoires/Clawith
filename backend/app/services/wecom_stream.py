@@ -302,8 +302,8 @@ async def _process_wecom_stream_message(
         # Find or create platform user
         wc_username = f"wecom_{sender_id}"
         query = _select(UserModel).where(UserModel.username == wc_username)
-        if agent and agent.tenant_id:
-            query = query.where(UserModel.tenant_id == agent.tenant_id)
+        if agent_obj and agent_obj.tenant_id:
+            query = query.where(UserModel.tenant_id == agent_obj.tenant_id)
             
         u_r = await db.execute(query)
         platform_user = u_r.scalar_one_or_none()
@@ -315,7 +315,7 @@ async def _process_wecom_stream_message(
                 password_hash=hash_password(str(_uuid.uuid4())),
                 display_name=f"WeCom {sender_id[:8]}",
                 role="member",
-                tenant_id=agent.tenant_id if agent else None,
+                tenant_id=agent_obj.tenant_id if agent_obj else None,
                 registration_source="wecom",
             )
 
