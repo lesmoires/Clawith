@@ -8,6 +8,17 @@ from app.database import async_session
 from app.models.tool import Tool, AgentTool
 
 
+def _make_safe_tool_name(raw_name: str) -> str:
+    """Ensure tool name is safe for LLM function calling (max 64 chars, a-zA-Z0-9_-)."""
+    import re
+    import hashlib
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', raw_name)
+    if len(safe_name) > 64:
+        suffix = "_" + hashlib.md5(raw_name.encode()).hexdigest()[:6]
+        safe_name = safe_name[:57] + suffix
+    return safe_name
+
+
 # ── Smithery Registry Search ────────────────────────────────────
 
 SMITHERY_API_BASE = "https://registry.smithery.ai"
@@ -462,7 +473,8 @@ async def import_mcp_from_smithery(
 
             # Create one Tool record per MCP tool
             for mcp_tool in tools_discovered:
-                tool_name = f"mcp_{server_id.replace('/', '_').replace('@', '')}_{mcp_tool['name']}"
+                raw_tool_name = f"mcp_{server_id.replace('/', '_').replace('@', '')}_{mcp_tool['name']}"
+                tool_name = _make_safe_tool_name(raw_tool_name)
                 tool_display = f"{display_name}: {mcp_tool['name']}"
 
                 existing_r = await db.execute(select(Tool).where(Tool.name == tool_name))
@@ -499,7 +511,8 @@ async def import_mcp_from_smithery(
                 imported_tools.append(f"✅ {tool_display}")
         else:
             # Fallback: create a single generic tool entry
-            tool_name = f"mcp_{server_id.replace('/', '_').replace('@', '')}"
+            raw_tool_name = f"mcp_{server_id.replace('/', '_').replace('@', '')}"
+            tool_name = _make_safe_tool_name(raw_tool_name)
             tool_display = display_name
 
             existing_r = await db.execute(select(Tool).where(Tool.name == tool_name))
@@ -605,7 +618,8 @@ async def import_mcp_direct(
 
         if tools_discovered:
             for mcp_tool in tools_discovered:
-                tool_name = f"mcp_{safe_name}_{mcp_tool['name']}"
+                raw_tool_name = f"mcp_{safe_name}_{mcp_tool['name']}"
+                tool_name = _make_safe_tool_name(raw_tool_name)
                 tool_display = f"{display_name}: {mcp_tool['name']}"
 
                 existing_r = await db.execute(select(Tool).where(Tool.name == tool_name))
@@ -636,7 +650,8 @@ async def import_mcp_direct(
                 await _ensure_agent_tool(tool.id)
                 imported_tools.append(f"✅ {tool_display}")
         else:
-            tool_name = f"mcp_{safe_name}"
+            raw_tool_name = f"mcp_{safe_name}"
+            tool_name = _make_safe_tool_name(raw_tool_name)
             existing_r = await db.execute(select(Tool).where(Tool.name == tool_name))
             existing_tool = existing_r.scalar_one_or_none()
             if existing_tool:
@@ -709,7 +724,8 @@ async def seed_atlassian_rovo_tools(api_key: str) -> None:
             if not raw_name:
                 continue
 
-            tool_name = f"{ATLASSIAN_ROVO_TOOL_PREFIX}{raw_name}"
+            raw_tool_name = f"{ATLASSIAN_ROVO_TOOL_PREFIX}{raw_name}"
+            tool_name = _make_safe_tool_name(raw_tool_name)
             tool_display = f"Atlassian: {raw_name}"
             tool_desc = mcp_tool.get("description", "")[:500]
             tool_schema = mcp_tool.get("inputSchema", {"type": "object", "properties": {}})

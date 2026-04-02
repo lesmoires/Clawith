@@ -207,7 +207,16 @@ async def _sync_atlassian_tools_for_agent(agent_id: uuid.UUID, api_key: str) -> 
             if not raw_name:
                 continue
 
-            tool_name = f"atlassian_rovo_{raw_name}"
+            # Ensure tool name is LLM-safe (<64 chars, a-zA-Z0-9_-)
+            import re
+            import hashlib
+            raw_tool_name = f"atlassian_rovo_{raw_name}"
+            safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', raw_tool_name)
+            if len(safe_name) > 64:
+                suffix = "_" + hashlib.md5(raw_tool_name.encode()).hexdigest()[:6]
+                safe_name = safe_name[:57] + suffix
+            tool_name = safe_name
+
             tool_desc = mcp_tool.get("description", "")[:500]
             tool_schema = mcp_tool.get("inputSchema", {"type": "object", "properties": {}})
 
