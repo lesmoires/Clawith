@@ -47,7 +47,7 @@ def _encrypt_sensitive_fields(config: dict, config_schema: dict | None = None) -
     Returns:
         Config dict with sensitive fields encrypted
     """
-    from app.core.security import encrypt_data
+    from app.core.security import encrypt_data, decrypt_data
     from app.config import get_settings
 
     if not config:
@@ -59,9 +59,23 @@ def _encrypt_sensitive_fields(config: dict, config_schema: dict | None = None) -
 
     for key in sensitive_keys:
         if key in result and result[key]:
-            # Only encrypt if not already encrypted (check if it looks like base64)
             value = result[key]
             if isinstance(value, str) and value:
+                # Guard against double-encryption: if the value can be
+                # successfully decrypted, it is already encrypted — skip it.
+                # This happens when the frontend re-submits a config without
+                # the user changing the password field (the field value comes
+                # from a previous list_tools response which returns decrypted
+                # values… EXCEPT when list_tools runs against a tool whose
+                # config_schema is empty and therefore couldn't decrypt).
+                try:
+                    decrypt_data(value, settings.SECRET_KEY)
+                    # Decryption succeeded → value is already encrypted, keep as-is
+                    continue
+                except Exception:
+                    # Not encrypted yet → proceed to encrypt
+                    pass
+
                 try:
                     result[key] = encrypt_data(value, settings.SECRET_KEY)
                 except Exception:
