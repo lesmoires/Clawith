@@ -6182,10 +6182,15 @@ async def _feishu_doc_create(agent_id: uuid.UUID, arguments: dict) -> str:
         if wiki_space_id:
             body: dict = {
                 "obj_type": "docx",
+                "node_type": "origin",  # Required by Feishu Wiki API: "origin" = new entity
                 "title": title,
             }
             if parent_node_token:
                 body["parent_node_token"] = parent_node_token
+
+            import logging
+            _wiki_log = logging.getLogger("feishu_wiki_create")
+            _wiki_log.info(f"Creating wiki node in space={wiki_space_id}, body={body}")
 
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.post(
@@ -6194,6 +6199,7 @@ async def _feishu_doc_create(agent_id: uuid.UUID, arguments: dict) -> str:
                     headers={"Authorization": f"Bearer {tenant_token}"},
                 )
             result = resp.json()
+            _wiki_log.info(f"Wiki create response: code={result.get('code')}, msg={result.get('msg')}")
             err = _check_feishu_err(result)
             if err:
                 return err
