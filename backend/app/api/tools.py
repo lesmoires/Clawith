@@ -191,28 +191,13 @@ async def create_tool(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new tool (typically MCP)."""
-    import re
-    import hashlib
-
-    # For MCP tools, ensure we keep the original name 
-    # to pass back to the MCP server during execution
-    original_mcp_tool_name = data.mcp_tool_name
-    if data.type == "mcp" and not original_mcp_tool_name:
-        original_mcp_tool_name = data.name
-
-    # Sanitize name for LLM function calling (e.g. OpenAI max 64 chars, a-zA-Z0-9_-)
-    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', data.name)
-    if len(safe_name) > 64:
-        suffix = "_" + hashlib.md5(data.name.encode()).hexdigest()[:6]
-        safe_name = safe_name[:57] + suffix
-
-    # Check unique name 
-    existing = await db.execute(select(Tool).where(Tool.name == safe_name))
+    # Check unique name
+    existing = await db.execute(select(Tool).where(Tool.name == data.name))
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail=f"Tool '{safe_name}' already exists")
+        raise HTTPException(status_code=400, detail=f"Tool '{data.name}' already exists")
 
     tool = Tool(
-        name=safe_name,
+        name=data.name,
         display_name=data.display_name,
         description=data.description,
         type=data.type,
@@ -220,7 +205,7 @@ async def create_tool(
         icon=data.icon,
         parameters_schema=data.parameters_schema,
         mcp_server_url=data.mcp_server_url,
-        mcp_tool_name=original_mcp_tool_name,
+        mcp_tool_name=data.mcp_tool_name,
         is_default=data.is_default,
         tenant_id=current_user.tenant_id,
         source="admin",
