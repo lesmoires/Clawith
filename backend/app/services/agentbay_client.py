@@ -669,7 +669,10 @@ async def test_agentbay_channel(agent_id: uuid.UUID, current_user, db) -> dict:
     try:
         from agentbay import AgentBay, CreateSessionParams
         sdk = AgentBay(api_key=key)
-        result = await asyncio.to_thread(sdk.create, CreateSessionParams(image_id="linux_latest"))
+        # Use browser_latest instead of linux_latest for testing connection.
+        # Headless browsers use fewer cloud resources and are less likely to hit
+        # 'no idle AppInstances' capacity errors on the AgentBay side.
+        result = await asyncio.to_thread(sdk.create, CreateSessionParams(image_id="browser_latest"))
         if result.success:
             if result.session:
                 await asyncio.to_thread(result.session.delete)
