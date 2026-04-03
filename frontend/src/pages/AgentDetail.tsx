@@ -810,11 +810,6 @@ function AgentChatToolChain({ calls, t }: { calls: ToolCallItem[]; t: (k: string
                         color: 'var(--accent-text, #818cf8)',
                     }}
                 >
-                    {/* Wrench icon */}
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                        <path d="M10.5 10.5L14 14M4.5 2a2.5 2.5 0 00-1.8 4.2l5.1 5.1A2.5 2.5 0 1012 7.2L6.8 2.2A2.5 2.5 0 004.5 2z" />
-                    </svg>
-
                     {/* Title + live tool indicator */}
                     <span style={{ flex: 1, textAlign: 'left', display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                         <span style={{ fontWeight: 500, flexShrink: 0 }}>{t('agent.chat.toolCallChain')}</span>
@@ -4332,19 +4327,42 @@ function AgentDetailInner() {
                                                 </div>
                                             )}
                                             {(() => {
-                                                // Pre-group consecutive tool_call messages into blocks.
-                                                // Non-tool messages are emitted as-is.
-                                                // A user or assistant text message breaks a group.
-                                                const grouped: Array<
+                                                // Group consecutive tool_call messages into a single chain block.
+                                                // IMPORTANT: thinking-only assistant messages (no text content, only .thinking)
+                                                // do NOT break the current tool group — they are held and emitted in-order
+                                                // around the group without splitting it. Only non-empty assistant/user messages
+                                                // flush and close the current group.
+                                                type GroupEntry =
                                                     | { type: 'tool_group'; calls: ToolCallItem[]; key: number }
-                                                    | { type: 'msg'; msg: any; i: number }
-                                                > = [];
+                                                    | { type: 'msg'; msg: any; i: number };
+                                                const grouped: GroupEntry[] = [];
                                                 let currentGroup: ToolCallItem[] | null = null;
                                                 let groupStartKey = 0;
+                                                // Pending thinking-only messages that arrived between tool calls but
+                                                // shouldn't split the group. Flushed before or after the group boundary.
+                                                const pendingThinking: GroupEntry[] = [];
+
+                                                const flushGroup = () => {
+                                                    if (currentGroup) {
+                                                        grouped.push({ type: 'tool_group', calls: currentGroup, key: groupStartKey });
+                                                        currentGroup = null;
+                                                    }
+                                                    // Flush any thinking items that followed the group
+                                                    pendingThinking.forEach(e => grouped.push(e));
+                                                    pendingThinking.length = 0;
+                                                };
 
                                                 for (let i = 0; i < chatMessages.length; i++) {
                                                     const msg = chatMessages[i];
                                                     if (msg.role === 'tool_call') {
+                                                        // Emit pending thinking items before we add to the group
+                                                        // (so they appear above the chain)
+                                                        if (pendingThinking.length > 0 && !currentGroup) {
+                                                            pendingThinking.forEach(e => grouped.push(e));
+                                                            pendingThinking.length = 0;
+                                                        } else {
+                                                            // Clear pending: they'll be flushed after the group
+                                                        }
                                                         const item: ToolCallItem = {
                                                             name: msg.toolName || 'tool',
                                                             args: msg.toolArgs || {},
@@ -4352,25 +4370,22 @@ function AgentDetailInner() {
                                                             result: msg.toolResult || undefined,
                                                         };
                                                         if (!currentGroup) {
-                                                            // Start a new group
                                                             currentGroup = [item];
                                                             groupStartKey = i;
                                                         } else {
                                                             currentGroup.push(item);
                                                         }
+                                                    } else if (msg.role === 'assistant' && !msg.content?.trim() && msg.thinking) {
+                                                        // Thinking-only message: buffer it, don't break the tool group
+                                                        pendingThinking.push({ type: 'msg', msg, i });
                                                     } else {
-                                                        // Flush any pending tool group first
-                                                        if (currentGroup) {
-                                                            grouped.push({ type: 'tool_group', calls: currentGroup, key: groupStartKey });
-                                                            currentGroup = null;
-                                                        }
+                                                        // Real content: flush tool group and all buffered thinking
+                                                        flushGroup();
                                                         grouped.push({ type: 'msg', msg, i });
                                                     }
                                                 }
-                                                // Flush trailing group
-                                                if (currentGroup) {
-                                                    grouped.push({ type: 'tool_group', calls: currentGroup, key: groupStartKey });
-                                                }
+                                                // Flush any trailing group + thinking
+                                                flushGroup();
 
                                                 return grouped.map((entry) => {
                                                     if (entry.type === 'tool_group') {
@@ -4383,7 +4398,7 @@ function AgentDetailInner() {
                                                         );
                                                     }
                                                     const { msg, i } = entry;
-                                                    {/* Assistant message with no text content: show inline thinking or skip */}
+                                                    {/* Thinking-only or empty assistant message */}
                                                     if (msg.role === 'assistant' && !msg.content?.trim()) {
                                                         if (msg.thinking) {
                                                             return (
