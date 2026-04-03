@@ -6652,10 +6652,11 @@ async def _feishu_doc_create(agent_id: uuid.UUID, arguments: dict) -> str:
         doc_token = doc.get("document_id", "")
         doc_url = await _get_feishu_tenant_doc_url(tenant_token, doc_token)
         
-        # Auto-share with the Feishu sender so they can access the document
+        # Auto-share with the Feishu sender so they can access the document.
+        # channel_feishu_sender_open_id is a module-level ContextVar defined in this file;
+        # no import needed — it is already in scope.
         share_note = ""
         try:
-            from app.api.websocket_chat import channel_feishu_sender_open_id
             sender_open_id = channel_feishu_sender_open_id.get(None)
             if sender_open_id and doc_token:
                 async with httpx.AsyncClient(timeout=10) as client:
