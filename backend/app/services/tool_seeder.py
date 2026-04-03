@@ -88,8 +88,7 @@ BUILTIN_TOOLS = [
         "description": "Surgically replace a specific string inside an existing file without rewriting the whole content. Prefer this over write_file when you only need to change one or more sections.",
         "category": "file",
         "icon": "✂️",
-        # Not default: agents that need file editing should enable this explicitly.
-        "is_default": False,
+        "is_default": True,
         "parameters_schema": {
             "type": "object",
             "properties": {
@@ -109,8 +108,7 @@ BUILTIN_TOOLS = [
         "description": "Search for content patterns across files using regex. Returns matching lines with file paths and line numbers. Results capped at 50 per query.",
         "category": "file",
         "icon": "🔍",
-        # Not default: enable only for agents that need cross-file search.
-        "is_default": False,
+        "is_default": True,
         "parameters_schema": {
             "type": "object",
             "properties": {
@@ -130,8 +128,7 @@ BUILTIN_TOOLS = [
         "description": "Find files matching glob patterns. Returns file paths with sizes and modification info. Results capped at 100 per query.",
         "category": "file",
         "icon": "📁",
-        # Not default: enable only for agents that need workspace navigation.
-        "is_default": False,
+        "is_default": True,
         "parameters_schema": {
             "type": "object",
             "properties": {
