@@ -396,7 +396,7 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
             agent_obj = agent_r.scalar_one_or_none()
             creator_id = agent_obj.creator_id if agent_obj else agent_id
             from app.models.agent import DEFAULT_CONTEXT_WINDOW_SIZE
-            ctx_size = agent_obj.context_window_size if agent_obj else DEFAULT_CONTEXT_WINDOW_SIZE
+            ctx_size = (agent_obj.context_window_size or DEFAULT_CONTEXT_WINDOW_SIZE) if agent_obj else DEFAULT_CONTEXT_WINDOW_SIZE
 
             # Pre-resolve session so history lookup uses the UUID  (session created later if new)
             _pre_sess_r = await db.execute(
@@ -956,7 +956,7 @@ async def _handle_feishu_file(db, agent_id, config, message, sender_open_id, cha
 
         # Load conversation history for LLM context
         from app.models.agent import DEFAULT_CONTEXT_WINDOW_SIZE
-        ctx_size = agent_obj.context_window_size if agent_obj else DEFAULT_CONTEXT_WINDOW_SIZE
+        ctx_size = (agent_obj.context_window_size or DEFAULT_CONTEXT_WINDOW_SIZE) if agent_obj else DEFAULT_CONTEXT_WINDOW_SIZE
         _hist_r = await db.execute(
             _select(ChatMessage)
             .where(ChatMessage.agent_id == agent_id, ChatMessage.conversation_id == session_conv_id)
