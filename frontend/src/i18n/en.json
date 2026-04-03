@@ -1457,7 +1457,8 @@
     "lightMode": "Light Mode",
     "darkMode": "Dark Mode",
     "collapseSidebar": "Collapse Sidebar",
-    "expandSidebar": "Expand Sidebar"
+    "expandSidebar": "Expand Sidebar",
+    "deleting": "Deleting..."
   },
   "openclaw": {
     "created": "OpenClaw Agent Created",

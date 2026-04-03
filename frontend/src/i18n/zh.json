@@ -1547,7 +1547,8 @@
     "lightMode": "浅色模式",
     "darkMode": "深色模式",
     "collapseSidebar": "折叠侧边栏",
-    "expandSidebar": "展开侧边栏"
+    "expandSidebar": "展开侧边栏",
+    "deleting": "删除中..."
   },
   "admin": {
     "title": "公司管理",

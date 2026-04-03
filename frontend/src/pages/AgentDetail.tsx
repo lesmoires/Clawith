@@ -770,6 +770,8 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
     const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
     const [editAgentRelation, setEditAgentRelation] = useState('');
     const [editAgentDescription, setEditAgentDescription] = useState('');
+    // Track which rows are being deleted (for optimistic UI)
+    const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
     const { data: relationships = [], refetch } = useQuery({
         queryKey: ['relationships', agentId],
@@ -802,8 +804,18 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
         refetch();
     };
     const removeRelationship = async (relId: string) => {
-        await fetchAuth(`/agents/${agentId}/relationships/${relId}`, { method: 'DELETE' });
-        refetch();
+        // Optimistic update: mark as deleting immediately so the row fades out
+        setDeletingIds(prev => new Set(prev).add(relId));
+        try {
+            await fetchAuth(`/agents/${agentId}/relationships/${relId}`, { method: 'DELETE' });
+            refetch();
+        } catch {
+            // Rollback on failure
+            setDeletingIds(prev => { const s = new Set(prev); s.delete(relId); return s; });
+            refetch();
+        } finally {
+            setDeletingIds(prev => { const s = new Set(prev); s.delete(relId); return s; });
+        }
     };
     const startEditRelationship = (r: any) => {
         setEditingId(r.id);
@@ -829,8 +841,18 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
         refetchAgentRels();
     };
     const removeAgentRelationship = async (relId: string) => {
-        await fetchAuth(`/agents/${agentId}/relationships/agents/${relId}`, { method: 'DELETE' });
-        refetchAgentRels();
+        // Optimistic update: mark as deleting immediately so the row fades out
+        setDeletingIds(prev => new Set(prev).add(relId));
+        try {
+            await fetchAuth(`/agents/${agentId}/relationships/agents/${relId}`, { method: 'DELETE' });
+            refetchAgentRels();
+        } catch {
+            // Rollback on failure
+            setDeletingIds(prev => { const s = new Set(prev); s.delete(relId); return s; });
+            refetchAgentRels();
+        } finally {
+            setDeletingIds(prev => { const s = new Set(prev); s.delete(relId); return s; });
+        }
     };
     const startEditAgentRelationship = (r: any) => {
         setEditingAgentId(r.id);
@@ -857,7 +879,14 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
                 {relationships.length > 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px' }}>
                         {relationships.map((r: any) => (
-                            <div key={r.id} style={{ borderRadius: '8px', border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
+                            <div key={r.id} style={{
+                                    borderRadius: '8px', border: '1px solid var(--border-subtle)',
+                                    overflow: 'hidden',
+                                    // Fade out row while delete is in-flight
+                                    opacity: deletingIds.has(r.id) ? 0.4 : 1,
+                                    transition: 'opacity 0.2s ease',
+                                    pointerEvents: deletingIds.has(r.id) ? 'none' : 'auto',
+                                }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px' }}>
                                     <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(224,238,238,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', fontWeight: 600, flexShrink: 0 }}>{r.member?.name?.[0] || '?'}</div>
                                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -871,7 +900,14 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
                                     {!readOnly && editingId !== r.id && (
                                         <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                                             <button className="btn btn-ghost" style={{ fontSize: '12px' }} onClick={() => startEditRelationship(r)}>{t('common.edit', 'Edit')}</button>
-                                            <button className="btn btn-ghost" style={{ color: 'var(--error)', fontSize: '12px' }} onClick={() => removeRelationship(r.id)}>{t('common.delete')}</button>
+                                            <button
+                                                className="btn btn-ghost"
+                                                style={{ color: deletingIds.has(r.id) ? 'var(--text-tertiary)' : 'var(--error)', fontSize: '12px' }}
+                                                disabled={deletingIds.has(r.id)}
+                                                onClick={() => removeRelationship(r.id)}
+                                            >
+                                                {deletingIds.has(r.id) ? t('common.deleting', 'Deleting...') : t('common.delete')}
+                                            </button>
                                         </div>
                                     )}
                                 </div>
@@ -942,7 +978,14 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
                 {agentRelationships.length > 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px' }}>
                         {agentRelationships.map((r: any) => (
-                            <div key={r.id} style={{ borderRadius: '8px', border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.05)', overflow: 'hidden' }}>
+                            <div key={r.id} style={{
+                                    borderRadius: '8px', border: '1px solid rgba(16,185,129,0.3)',
+                                    background: 'rgba(16,185,129,0.05)', overflow: 'hidden',
+                                    // Fade out row while delete is in-flight
+                                    opacity: deletingIds.has(r.id) ? 0.4 : 1,
+                                    transition: 'opacity 0.2s ease',
+                                    pointerEvents: deletingIds.has(r.id) ? 'none' : 'auto',
+                                }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px' }}>
                                     <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', flexShrink: 0 }}>A</div>
                                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -953,7 +996,14 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
                                     {!readOnly && editingAgentId !== r.id && (
                                         <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                                             <button className="btn btn-ghost" style={{ fontSize: '12px' }} onClick={() => startEditAgentRelationship(r)}>{t('common.edit', 'Edit')}</button>
-                                            <button className="btn btn-ghost" style={{ color: 'var(--error)', fontSize: '12px' }} onClick={() => removeAgentRelationship(r.id)}>{t('common.delete')}</button>
+                                            <button
+                                                className="btn btn-ghost"
+                                                style={{ color: deletingIds.has(r.id) ? 'var(--text-tertiary)' : 'var(--error)', fontSize: '12px' }}
+                                                disabled={deletingIds.has(r.id)}
+                                                onClick={() => removeAgentRelationship(r.id)}
+                                            >
+                                                {deletingIds.has(r.id) ? t('common.deleting', 'Deleting...') : t('common.delete')}
+                                            </button>
                                         </div>
                                     )}
                                 </div>
