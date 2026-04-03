@@ -405,7 +405,8 @@
       "thinking": "思考中...",
       "collapseSessions": "折叠会话列表",
       "showSessions": "显示聊天会话",
-      "toolCallChain": "使用工具"
+      "toolCallChain": "使用工具",
+      "analysing": "分析中"
     },
     "activityLog": {
       "title": "工作日志",
