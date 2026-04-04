@@ -1,19 +1,11 @@
-<<<<<<< HEAD
-import { useState, useEffect, useMemo } from 'react';
-=======
 import { useState, useEffect, useMemo, useRef } from 'react';
->>>>>>> upstream/main
 import { useTranslation } from 'react-i18next';
 import { adminApi } from '../services/api';
 import { useAuthStore } from '../stores';
 import { saveAccentColor, getSavedAccentColor } from '../utils/theme';
-<<<<<<< HEAD
-
-=======
 import { IconFilter } from '@tabler/icons-react';
 import PlatformDashboard from './PlatformDashboard';
 import LinearCopyButton from '../components/LinearCopyButton';
->>>>>>> upstream/main
 // Helper for authenticated JSON fetch
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     const token = localStorage.getItem('token');
@@ -44,11 +36,7 @@ function formatDate(dt: string | null | undefined): string {
     return new Date(dt).toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' });
 }
 
-<<<<<<< HEAD
-type SortKey = 'name' | 'user_count' | 'agent_count' | 'total_tokens' | 'created_at' | 'is_active';
-=======
 type SortKey = 'name' | 'sso_enabled' | 'org_admin_email' | 'user_count' | 'agent_count' | 'total_tokens' | 'created_at' | 'is_active';
->>>>>>> upstream/main
 type SortDir = 'asc' | 'desc';
 
 const PAGE_SIZE = 15;
@@ -57,11 +45,7 @@ const PAGE_SIZE = 15;
 export default function AdminCompanies() {
     const { t } = useTranslation();
     const user = useAuthStore((s) => s.user);
-<<<<<<< HEAD
-    const [activeTab, setActiveTab] = useState<'platform' | 'companies'>('platform');
-=======
     const [activeTab, setActiveTab] = useState<'dashboard' | 'platform' | 'companies'>('dashboard');
->>>>>>> upstream/main
 
     // Guard: only platform_admin
     if (user?.role !== 'platform_admin') {
@@ -73,52 +57,12 @@ export default function AdminCompanies() {
     }
 
     const tabs = [
-<<<<<<< HEAD
-=======
         { key: 'dashboard' as const, label: t('admin.tab.dashboard', 'Dashboard') },
->>>>>>> upstream/main
         { key: 'platform' as const, label: t('admin.tab.platform', 'Platform') },
         { key: 'companies' as const, label: t('admin.tab.companies', 'Companies') },
     ];
 
     return (
-<<<<<<< HEAD
-        <div style={{ maxWidth: '1040px', margin: '0 auto', padding: '32px 24px' }}>
-            {/* Header */}
-            <div style={{ marginBottom: '24px' }}>
-                <h1 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '4px' }}>
-                    {t('admin.platformSettings', 'Platform Settings')}
-                </h1>
-                <p style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>
-                    {t('admin.platformSettingsDesc', 'Manage platform-wide settings and company tenants.')}
-                </p>
-            </div>
-
-            {/* Tabs */}
-            <div style={{
-                display: 'flex', gap: '0', borderBottom: '1px solid var(--border-subtle)',
-                marginBottom: '24px',
-            }}>
-                {tabs.map(tab => (
-                    <button
-                        key={tab.key}
-                        onClick={() => setActiveTab(tab.key)}
-                        style={{
-                            padding: '8px 16px', fontSize: '13px', fontWeight: 500,
-                            background: 'none', border: 'none', cursor: 'pointer',
-                            color: activeTab === tab.key ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                            borderBottom: activeTab === tab.key ? '2px solid var(--accent-primary)' : '2px solid transparent',
-                            marginBottom: '-1px', transition: 'all 0.15s',
-                        }}
-                    >
-                        {tab.label}
-                    </button>
-                ))}
-            </div>
-
-            {activeTab === 'platform' && <PlatformTab />}
-            {activeTab === 'companies' && <CompaniesTab />}
-=======
         <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)' }}>
             <div className="page-header">
                 <div>
@@ -146,7 +90,6 @@ export default function AdminCompanies() {
                 {activeTab === 'platform' && <PlatformTab />}
                 {activeTab === 'companies' && <CompaniesTab />}
             </div>
->>>>>>> upstream/main
         </div>
     );
 }
@@ -166,12 +109,6 @@ function PlatformTab() {
     const [nbSaving, setNbSaving] = useState(false);
     const [nbSaved, setNbSaved] = useState(false);
 
-<<<<<<< HEAD
-    // Public URL
-    const [publicBaseUrl, setPublicBaseUrl] = useState('');
-    const [urlSaving, setUrlSaving] = useState(false);
-    const [urlSaved, setUrlSaved] = useState(false);
-=======
 
     // System email configuration
     const [systemEmailConfig, setSystemEmailConfig] = useState({
@@ -204,7 +141,6 @@ function PlatformTab() {
     const [templatesSaving, setTemplatesSaving] = useState(false);
     const [templatesSaved, setTemplatesSaved] = useState(false);
     const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
->>>>>>> upstream/main
 
     // Toast
     const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -226,13 +162,6 @@ function PlatformTab() {
                 setNbText(d.value.text || '');
             }
         }).catch(() => { });
-<<<<<<< HEAD
-        // Load Public URL
-        fetchJson<any>('/enterprise/system-settings/platform')
-            .then(d => {
-                if (d.value?.public_base_url) setPublicBaseUrl(d.value.public_base_url);
-            }).catch(() => { });
-=======
             
         // Load System Email
         fetchJson<any>('/enterprise/system-settings/system_email_platform')
@@ -260,7 +189,6 @@ function PlatformTab() {
                 if (d.defaults) setEmailTemplateDefaults(d.defaults);
             })
             .catch(() => { });
->>>>>>> upstream/main
     }, []);
 
     const handleToggleSetting = async (key: string, value: boolean) => {
@@ -290,23 +218,6 @@ function PlatformTab() {
         setNbSaving(false);
     };
 
-<<<<<<< HEAD
-    const savePublicUrl = async () => {
-        setUrlSaving(true);
-        try {
-            await fetchJson('/enterprise/system-settings/platform', {
-                method: 'PUT',
-                body: JSON.stringify({ value: { public_base_url: publicBaseUrl } }),
-            });
-            setUrlSaved(true);
-            setTimeout(() => setUrlSaved(false), 2000);
-        } catch (e) {
-            showToast('Failed to save', 'error');
-        }
-        setUrlSaving(false);
-    };
-
-=======
 
     const saveEmailConfig = async () => {
         setEmailConfigSaving(true);
@@ -390,7 +301,6 @@ function PlatformTab() {
         borderRadius: '50%', transition: 'left 0.2s',
     });
 
->>>>>>> upstream/main
     return (
         <>
             {toast && (
@@ -412,19 +322,11 @@ function PlatformTab() {
                                 <div style={{ fontSize: '13px', fontWeight: 500 }}>{s.label}</div>
                                 <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{s.desc}</div>
                             </div>
-<<<<<<< HEAD
-                            <label style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px', cursor: settingsLoading ? 'not-allowed' : 'pointer', flexShrink: 0 }}>
-                                <input type="checkbox" checked={!!settings[s.key]} onChange={(e) => handleToggleSetting(s.key, e.target.checked)} disabled={settingsLoading}
-                                    style={{ opacity: 0, width: 0, height: 0 }} />
-                                <span style={{ position: 'absolute', inset: 0, background: settings[s.key] ? '#22c55e' : 'var(--bg-tertiary)', borderRadius: '11px', transition: 'background 0.2s' }}>
-                                    <span style={{ position: 'absolute', left: settings[s.key] ? '20px' : '2px', top: '2px', width: '18px', height: '18px', background: '#fff', borderRadius: '50%', transition: 'left 0.2s' }} />
-=======
                             <label style={switchStyle(!!settings[s.key], settingsLoading)}>
                                 <input type="checkbox" checked={!!settings[s.key]} onChange={(e) => handleToggleSetting(s.key, e.target.checked)} disabled={settingsLoading}
                                     style={{ opacity: 0, width: 0, height: 0 }} />
                                 <span style={switchTrack(!!settings[s.key])}>
                                     <span style={switchThumb(!!settings[s.key])} />
->>>>>>> upstream/main
                                 </span>
                             </label>
                         </div>
@@ -434,65 +336,6 @@ function PlatformTab() {
 
             {/* Notification Bar */}
             <div className="card" style={{ padding: '16px', marginBottom: '16px' }}>
-<<<<<<< HEAD
-                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-secondary)' }}>
-                    {t('enterprise.notificationBar.title', 'Notification Bar')}
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                    {t('enterprise.notificationBar.description', 'Display a notification bar at the top of the page, visible to all users.')}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}>
-                        <input
-                            type="checkbox"
-                            checked={nbEnabled}
-                            onChange={e => setNbEnabled(e.target.checked)}
-                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                        />
-                        {t('enterprise.notificationBar.enabled', 'Enable notification bar')}
-                    </label>
-                </div>
-                <div style={{ marginBottom: '12px' }}>
-                    <label className="form-label">{t('enterprise.notificationBar.text', 'Notification text')}</label>
-                    <input
-                        className="form-input"
-                        value={nbText}
-                        onChange={e => setNbText(e.target.value)}
-                        placeholder={t('enterprise.notificationBar.textPlaceholder', 'e.g. v2.1 released with new features!')}
-                        style={{ fontSize: '13px' }}
-                    />
-                </div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button className="btn btn-primary" onClick={saveNotificationBar} disabled={nbSaving}>
-                        {nbSaving ? t('common.loading') : t('common.save', 'Save')}
-                    </button>
-                    {nbSaved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>{t('enterprise.config.saved', 'Saved')}</span>}
-                </div>
-            </div>
-
-            {/* Public URL */}
-            <div className="card" style={{ padding: '16px', marginBottom: '16px' }}>
-                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-secondary)' }}>
-                    {t('admin.publicUrl.title', 'Public URL')}
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                    {t('admin.publicUrl.desc', 'The external URL used for webhook callbacks (Slack, Feishu, Discord, etc.) and published page links. Include the protocol (e.g. https://example.com).')}
-                </div>
-                <div style={{ marginBottom: '12px' }}>
-                    <input
-                        className="form-input"
-                        value={publicBaseUrl}
-                        onChange={e => setPublicBaseUrl(e.target.value)}
-                        placeholder="https://your-domain.com"
-                        style={{ fontSize: '13px' }}
-                    />
-                </div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button className="btn btn-primary" onClick={savePublicUrl} disabled={urlSaving}>
-                        {urlSaving ? t('common.loading') : t('common.save', 'Save')}
-                    </button>
-                    {urlSaved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>{t('enterprise.config.saved', 'Saved')}</span>}
-=======
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div>
                         <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
@@ -786,7 +629,6 @@ function PlatformTab() {
                         {templatesSaving ? t('common.loading') : t('enterprise.emailTemplates.saveTemplates', 'Save Templates')}
                     </button>
                     {templatesSaved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>{t('common.saved', 'Saved')}</span>}
->>>>>>> upstream/main
                 </div>
             </div>
         </>
@@ -805,8 +647,6 @@ function CompaniesTab() {
     const [sortKey, setSortKey] = useState<SortKey>('created_at');
     const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-<<<<<<< HEAD
-=======
     // Status filter
     const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'disabled'>('all');
     const [showStatusDropdown, setShowStatusDropdown] = useState(false);
@@ -822,7 +662,6 @@ function CompaniesTab() {
         return () => document.removeEventListener('mousedown', handleClick);
     }, [showStatusDropdown]);
 
->>>>>>> upstream/main
     // Pagination
     const [page, setPage] = useState(0);
 
@@ -832,10 +671,6 @@ function CompaniesTab() {
     const [creating, setCreating] = useState(false);
     const [createdCode, setCreatedCode] = useState('');
     const [createdCompanyName, setCreatedCompanyName] = useState('');
-<<<<<<< HEAD
-    const [codeCopied, setCodeCopied] = useState(false);
-=======
->>>>>>> upstream/main
 
     // Toast
     const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -871,19 +706,12 @@ function CompaniesTab() {
     };
 
     const sorted = useMemo(() => {
-<<<<<<< HEAD
-        const list = [...companies];
-        list.sort((a, b) => {
-            let av = a[sortKey], bv = b[sortKey];
-            if (sortKey === 'name') {
-=======
         let list = [...companies];
         if (statusFilter === 'active') list = list.filter(c => c.is_active);
         else if (statusFilter === 'disabled') list = list.filter(c => !c.is_active);
         list.sort((a, b) => {
             let av = a[sortKey], bv = b[sortKey];
             if (sortKey === 'name' || sortKey === 'org_admin_email') {
->>>>>>> upstream/main
                 av = (av || '').toLowerCase();
                 bv = (bv || '').toLowerCase();
             }
@@ -891,23 +719,12 @@ function CompaniesTab() {
                 av = av ? new Date(av).getTime() : 0;
                 bv = bv ? new Date(bv).getTime() : 0;
             }
-<<<<<<< HEAD
-            if (sortKey === 'is_active') {
-                av = av ? 1 : 0;
-                bv = bv ? 1 : 0;
-            }
-=======
->>>>>>> upstream/main
             if (av < bv) return sortDir === 'asc' ? -1 : 1;
             if (av > bv) return sortDir === 'asc' ? 1 : -1;
             return 0;
         });
         return list;
-<<<<<<< HEAD
-    }, [companies, sortKey, sortDir]);
-=======
     }, [companies, sortKey, sortDir, statusFilter]);
->>>>>>> upstream/main
 
     // Pagination
     const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
@@ -920,10 +737,6 @@ function CompaniesTab() {
             const result = await adminApi.createCompany({ name: newName.trim() });
             setCreatedCompanyName(newName.trim());
             setCreatedCode(result.admin_invitation_code || '');
-<<<<<<< HEAD
-            setCodeCopied(false);
-=======
->>>>>>> upstream/main
             setNewName('');
             setShowCreate(false);
             loadCompanies();
@@ -933,16 +746,7 @@ function CompaniesTab() {
         setCreating(false);
     };
 
-<<<<<<< HEAD
-    const handleCopyCode = () => {
-        navigator.clipboard.writeText(createdCode).then(() => {
-            setCodeCopied(true);
-            setTimeout(() => setCodeCopied(false), 2000);
-        });
-    };
-=======
 
->>>>>>> upstream/main
 
     const handleToggle = async (id: string, currentlyActive: boolean) => {
         const action = currentlyActive ? 'disable' : 'enable';
@@ -969,19 +773,6 @@ function CompaniesTab() {
 
     const columns: { key: SortKey; label: string; flex: string }[] = [
         { key: 'name', label: t('admin.company', 'Company'), flex: '2fr' },
-<<<<<<< HEAD
-        { key: 'user_count', label: t('admin.users', 'Users'), flex: '80px' },
-        { key: 'agent_count', label: t('admin.agents', 'Agents'), flex: '80px' },
-        { key: 'total_tokens', label: t('admin.tokens', 'Token Usage'), flex: '100px' },
-        { key: 'created_at', label: t('admin.createdAt', 'Created'), flex: '100px' },
-        { key: 'is_active', label: t('admin.status', 'Status'), flex: '120px' },
-    ];
-
-    const gridCols = columns.map(c => c.flex).join(' ');
-
-    return (
-        <>
-=======
         { key: 'sso_enabled', label: 'SSO', flex: '100px' },
         { key: 'org_admin_email', label: t('admin.orgAdmin', 'Admin Email'), flex: '1.5fr' },
         { key: 'user_count', label: t('admin.users', 'Users'), flex: '70px' },
@@ -996,7 +787,6 @@ function CompaniesTab() {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
->>>>>>> upstream/main
             {toast && (
                 <div style={{
                     position: 'fixed', top: '20px', right: '20px', padding: '10px 20px',
@@ -1005,10 +795,7 @@ function CompaniesTab() {
                 }}>{toast.msg}</div>
             )}
 
-<<<<<<< HEAD
-=======
 
->>>>>>> upstream/main
             {/* Invitation Code Modal */}
             {createdCode && (
                 <div style={{
@@ -1072,22 +859,6 @@ function CompaniesTab() {
                         </div>
 
                         <div style={{ display: 'flex', gap: '8px' }}>
-<<<<<<< HEAD
-                            <button className="btn btn-primary" onClick={handleCopyCode}
-                                style={{ flex: 1, height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                                {codeCopied ? (
-                                    <>{t('admin.copied', 'Copied')}</>
-                                ) : (
-                                    <>
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <rect x="9" y="9" width="13" height="13" rx="2" />
-                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                        </svg>
-                                        {t('admin.copyCode', 'Copy Code')}
-                                    </>
-                                )}
-                            </button>
-=======
                             <LinearCopyButton
                                 className="btn btn-primary"
                                 style={{ flex: 1, height: '36px' }}
@@ -1095,7 +866,6 @@ function CompaniesTab() {
                                 label={t('admin.copyCode', 'Copy Code')}
                                 copiedLabel={t('admin.copied', 'Copied')}
                             />
->>>>>>> upstream/main
                             <button className="btn btn-secondary" onClick={() => setCreatedCode('')}
                                 style={{ height: '36px', padding: '0 20px' }}>
                                 {t('common.close', 'Close')}
@@ -1134,31 +904,20 @@ function CompaniesTab() {
             )}
 
             {/* Company List */}
-<<<<<<< HEAD
-            <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-=======
             <div className="card" style={{ padding: '0', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'visible' }}>
->>>>>>> upstream/main
                 {/* Table Header */}
                 <div style={{
                     display: 'grid', gridTemplateColumns: gridCols,
                     gap: '12px', padding: '10px 16px', fontSize: '11px', fontWeight: 600,
                     color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em',
                     borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)',
-<<<<<<< HEAD
-=======
                     borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0', flexShrink: 0, position: 'relative', zIndex: 10,
->>>>>>> upstream/main
                 }}>
                     {columns.map(col => (
                         <div key={col.key} style={thStyle} onClick={() => handleSort(col.key)}>
                             {col.label}<SortArrow col={col.key} />
                         </div>
                     ))}
-<<<<<<< HEAD
-                </div>
-
-=======
                     <div ref={statusDropdownRef} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         {t('admin.status', 'Status')}
                         <button
@@ -1205,7 +964,6 @@ function CompaniesTab() {
 
                 {/* Scrollable table body */}
                 <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
->>>>>>> upstream/main
                 {loading && (
                     <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
                         {t('common.loading', 'Loading...')}
@@ -1229,8 +987,6 @@ function CompaniesTab() {
                             <div style={{ fontWeight: 500 }}>{c.name}</div>
                             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{c.slug}</div>
                         </div>
-<<<<<<< HEAD
-=======
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
                             {c.sso_enabled ? (
                                 <>
@@ -1253,7 +1009,6 @@ function CompaniesTab() {
                         <div style={{ fontSize: '12px', color: c.org_admin_email ? 'var(--text-primary)' : 'var(--text-tertiary)' }}>
                             {c.org_admin_email || '-'}
                         </div>
->>>>>>> upstream/main
                         <div>{c.user_count ?? '-'}</div>
                         <div>{c.agent_count ?? '-'}</div>
                         <div style={{ fontSize: '12px', fontFamily: 'var(--font-mono)' }}>
@@ -1262,16 +1017,6 @@ function CompaniesTab() {
                         <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                             {formatDate(c.created_at)}
                         </div>
-<<<<<<< HEAD
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span className={`badge ${c.is_active ? 'badge-success' : 'badge-error'}`} style={{ fontSize: '10px' }}>
-                                {c.is_active ? t('admin.active', 'Active') : t('admin.disabled', 'Disabled')}
-                            </span>
-                            <button
-                                className="btn btn-ghost"
-                                style={{
-                                    padding: '2px 6px', fontSize: '10px',
-=======
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <span className={`badge ${c.is_active ? 'badge-success' : 'badge-error'}`} style={{ fontSize: '10px' }}>
                                 {c.is_active ? t('admin.active', 'Active') : t('admin.disabled', 'Disabled')}
@@ -1282,16 +1027,11 @@ function CompaniesTab() {
                                 className="btn btn-ghost"
                                 style={{
                                     padding: '2px 8px', fontSize: '11px', height: '24px',
->>>>>>> upstream/main
                                     color: c.slug === 'default' ? 'var(--text-tertiary)' : c.is_active ? 'var(--error)' : 'var(--success)',
                                     cursor: c.slug === 'default' ? 'not-allowed' : 'pointer',
                                     opacity: c.slug === 'default' ? 0.5 : 1,
                                 }}
-<<<<<<< HEAD
-                                onClick={() => handleToggle(c.id, c.is_active)}
-=======
                                 onClick={() => handleToggle(c.id, !!c.is_active)}
->>>>>>> upstream/main
                                 disabled={c.slug === 'default'}
                                 title={c.slug === 'default' ? t('admin.cannotDisableDefault', 'Cannot disable the default company — platform admin would be locked out') : undefined}
                             >
@@ -1301,13 +1041,6 @@ function CompaniesTab() {
                     </div>
                 ))}
 
-<<<<<<< HEAD
-                {!loading && companies.length === 0 && !error && (
-                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                        {t('common.noData', 'No data')}
-                    </div>
-                )}
-=======
                 {!loading && paged.length === 0 && !error && (
                     <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
                         {statusFilter !== 'all'
@@ -1316,7 +1049,6 @@ function CompaniesTab() {
                     </div>
                 )}
                 </div>
->>>>>>> upstream/main
 
                 {/* Pagination */}
                 {!loading && totalPages > 1 && (
@@ -1324,10 +1056,7 @@ function CompaniesTab() {
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                         padding: '10px 16px', borderTop: '1px solid var(--border-subtle)',
                         fontSize: '12px', color: 'var(--text-tertiary)', background: 'var(--bg-secondary)',
-<<<<<<< HEAD
-=======
                         flexShrink: 0, borderRadius: '0 0 var(--radius-lg) var(--radius-lg)',
->>>>>>> upstream/main
                     }}>
                         <span>
                             {t('admin.showing', '{{start}}-{{end}} of {{total}}', {
@@ -1349,9 +1078,6 @@ function CompaniesTab() {
                     </div>
                 )}
             </div>
-<<<<<<< HEAD
-        </>
-=======
         </div>
     );
 }
@@ -1446,6 +1172,5 @@ function EditCompanyModal({ company, onClose, onUpdated }: { company: any, onClo
                 </div>
             </div>
         </div>
->>>>>>> upstream/main
     );
 }
