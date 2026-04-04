@@ -12,6 +12,8 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func as sqla_func, select
+from sqlalchemy.dialects.postgresql import JSONB as pgjsonb
+from sqlalchemy.types import Text as pgstext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user, require_role, get_authenticated_user
@@ -294,6 +296,46 @@ async def get_registration_config(db: AsyncSession = Depends(get_db)):
     s = result.scalar_one_or_none()
     allowed = s.value.get("enabled", True) if s else True
     return {"allow_self_create_company": allowed}
+
+
+@router.get("/resolve-by-domain")
+async def resolve_tenant_by_domain(
+    domain: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Public — resolve tenant by domain (for SSO/custom domain routing)."""
+    from app.models.tenant import Tenant
+    from app.models.tenant_settings import TenantSetting
+    
+    # Try to find tenant with matching domain in settings
+    result = await db.execute(
+        select(TenantSetting).where(
+            TenantSetting.key == "sso_domain",
+            TenantSetting.value.cast(pgstext).astext == domain,
+        )
+    )
+    setting = result.scalar_one_or_none()
+    
+    if setting:
+        tenant_result = await db.execute(
+            select(Tenant).where(
+                Tenant.id == setting.tenant_id,
+                Tenant.is_active == True,
+            )
+        )
+        tenant = tenant_result.scalar_one_or_none()
+        if tenant:
+            return {
+                "id": str(tenant.id),
+                "name": tenant.name,
+                "slug": tenant.slug,
+                "sso_enabled": True,
+                "sso_domain": domain,
+            }
+    
+    # No tenant found for this domain - return empty response
+    # Frontend will use default platform login
+    return None
 
 
 # ─── Public: Resolve Tenant by Domain ───────────────────
