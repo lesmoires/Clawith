@@ -13,6 +13,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - clawith_network
 
   redis:
     image: redis:7-alpine
@@ -24,6 +26,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - clawith_network
 
   backend:
     build:
