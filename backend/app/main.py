@@ -62,6 +62,15 @@ async def lifespan(app: FastAPI):
     intercept_standard_logging()
     logger.info("[startup] Logging configured")
 
+    # Load Clawith Custom Extensions (isolated triggers, etc.) — Fork custom
+    try:
+        from app.extensions import load_extensions
+        load_extensions()
+        logger.info("[startup] Clawith extensions loaded")
+    except Exception as e:
+        logger.error(f"[startup] Failed to load extensions: {e}")
+        raise
+
     import asyncio
     import sys
     import os
