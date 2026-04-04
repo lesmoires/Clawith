@@ -30,9 +30,10 @@ def upgrade() -> None:
     """))
 
     # 2. Backfill: create Participant for every existing User
+    # Note: username column may not exist in v1.8.0+ (user refactor), use email as fallback
     conn.execute(sa.text("""
         INSERT INTO participants (id, type, ref_id, display_name, avatar_url)
-        SELECT gen_random_uuid(), 'user', id, COALESCE(display_name, username), avatar_url
+        SELECT gen_random_uuid(), 'user', id, COALESCE(display_name, email, 'user_' || id), avatar_url
         FROM users
         ON CONFLICT DO NOTHING
     """))
