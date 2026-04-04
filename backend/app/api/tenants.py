@@ -298,46 +298,6 @@ async def get_registration_config(db: AsyncSession = Depends(get_db)):
     return {"allow_self_create_company": allowed}
 
 
-@router.get("/resolve-by-domain")
-async def resolve_tenant_by_domain(
-    domain: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """Public — resolve tenant by domain (for SSO/custom domain routing)."""
-    from app.models.tenant import Tenant
-    from app.models.tenant_settings import TenantSetting
-    
-    # Try to find tenant with matching domain in settings
-    result = await db.execute(
-        select(TenantSetting).where(
-            TenantSetting.key == "sso_domain",
-            TenantSetting.value.cast(pgstext).astext == domain,
-        )
-    )
-    setting = result.scalar_one_or_none()
-    
-    if setting:
-        tenant_result = await db.execute(
-            select(Tenant).where(
-                Tenant.id == setting.tenant_id,
-                Tenant.is_active == True,
-            )
-        )
-        tenant = tenant_result.scalar_one_or_none()
-        if tenant:
-            return {
-                "id": str(tenant.id),
-                "name": tenant.name,
-                "slug": tenant.slug,
-                "sso_enabled": True,
-                "sso_domain": domain,
-            }
-    
-    # No tenant found for this domain - return empty response
-    # Frontend will use default platform login
-    return None
-
-
 # ─── Public: Resolve Tenant by Domain ───────────────────
 
 @router.get("/resolve-by-domain")
@@ -386,14 +346,16 @@ async def resolve_tenant_by_domain(
             result = await db.execute(select(Tenant).where(Tenant.slug == slug))
             tenant = result.scalar_one_or_none()
 
-    if not tenant or not tenant.is_active or not tenant.sso_enabled:
-        raise HTTPException(status_code=404, detail="Tenant not found or not active or SSO not enabled")
+    if not tenant or not tenant.is_active:
+        # No tenant found for this domain - return null
+        # Frontend will use standard login flow
+        return None
 
     return {
-        "id": tenant.id,
+        "id": str(tenant.id),
         "name": tenant.name,
         "slug": tenant.slug,
-        "sso_enabled": tenant.sso_enabled,
+        "sso_enabled": tenant.sso_enabled or False,
         "sso_domain": tenant.sso_domain,
         "is_active": tenant.is_active,
     }
