@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react';
+<<<<<<< HEAD
 import { useNavigate } from 'react-router-dom';
+=======
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+>>>>>>> upstream/main
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
 import { tenantApi, authApi } from '../services/api';
@@ -7,11 +11,26 @@ import { tenantApi, authApi } from '../services/api';
 export default function CompanySetup() {
     const { t, i18n } = useTranslation();
     const navigate = useNavigate();
+<<<<<<< HEAD
     const { user, setAuth } = useAuthStore();
+=======
+    const location = useLocation();
+    const { user, setAuth, logout } = useAuthStore();
+>>>>>>> upstream/main
     const [allowCreate, setAllowCreate] = useState(true);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
+<<<<<<< HEAD
+=======
+    // Check if coming from registration flow.
+    // Primary: location.state.fromRegister (set by Login page).
+    // Fallback: if user exists but is not active, they're in the registration flow
+    // (the Navigate in ProtectedRoute may strip location.state).
+    const fromRegister = (location.state as any)?.fromRegister || (user && !user.is_active);
+    const registerEmail = (location.state as any)?.email || user?.email;
+
+>>>>>>> upstream/main
     // Join company form
     const [inviteCode, setInviteCode] = useState('');
     // Create company form
@@ -24,19 +43,38 @@ export default function CompanySetup() {
         }).catch(() => {});
     }, []);
 
+<<<<<<< HEAD
     // If user already has a company, redirect home
     useEffect(() => {
         if (user?.tenant_id) {
             navigate('/');
         }
     }, [user, navigate]);
+=======
+    // Allow access from login tenant selection dialog ("Create or Join Organization")
+    // Use URL param instead of location.state for robustness (survives refresh)
+    const [searchParams] = useSearchParams();
+    const fromTenantSelection = searchParams.get('from') === 'tenant-selection';
+
+    // If user already has a company and not from registration/tenant-selection, redirect home
+    useEffect(() => {
+        if (user?.tenant_id && !fromRegister && !fromTenantSelection) {
+            navigate('/');
+        }
+    }, [user, navigate, fromRegister, fromTenantSelection]);
+>>>>>>> upstream/main
 
     const refreshUser = async () => {
         try {
             const me = await authApi.me();
             const token = useAuthStore.getState().token;
             if (token) setAuth(me, token);
+<<<<<<< HEAD
         } catch { /* ignore */ }
+=======
+            return me;
+        } catch { return null; }
+>>>>>>> upstream/main
     };
 
     const handleJoin = async (e: React.FormEvent) => {
@@ -45,8 +83,20 @@ export default function CompanySetup() {
         setLoading(true);
         try {
             await tenantApi.join(inviteCode);
+<<<<<<< HEAD
             await refreshUser();
             navigate('/');
+=======
+
+            if (fromRegister) {
+                // In registration flow: go to verify email
+                navigate('/verify-email', { state: { email: registerEmail || user?.email, fromRegister: true } });
+            } else {
+                // Normal flow: refresh user and go home
+                await refreshUser();
+                navigate('/');
+            }
+>>>>>>> upstream/main
         } catch (err: any) {
             setError(err.message || 'Failed to join company');
         } finally {
@@ -60,9 +110,21 @@ export default function CompanySetup() {
         setLoading(true);
         try {
             await tenantApi.selfCreate({ name: companyName });
+<<<<<<< HEAD
             await refreshUser();
             // Navigate to Enterprise Settings to configure LLM models
             navigate('/enterprise');
+=======
+
+            if (fromRegister) {
+                // In registration flow: go to verify email
+                navigate('/verify-email', { state: { email: registerEmail || user?.email, fromRegister: true } });
+            } else {
+                // Normal flow: refresh user and go to Enterprise Settings
+                await refreshUser();
+                navigate('/enterprise');
+            }
+>>>>>>> upstream/main
         } catch (err: any) {
             setError(err.message || 'Failed to create company');
         } finally {
@@ -74,6 +136,17 @@ export default function CompanySetup() {
         i18n.changeLanguage(i18n.language === 'zh' ? 'en' : 'zh');
     };
 
+<<<<<<< HEAD
+=======
+    // If not from registration/tenant-selection and user already has tenant, don't show
+    if (!fromRegister && !fromTenantSelection && user?.tenant_id) {
+        return null;
+    }
+
+    // --- Debug: log guard state ---
+    console.log('[CompanySetup] guards:', { fromRegister, fromTenantSelection, tenant_id: user?.tenant_id });
+
+>>>>>>> upstream/main
     return (
         <div className="company-setup-page">
             {/* Language Switcher */}

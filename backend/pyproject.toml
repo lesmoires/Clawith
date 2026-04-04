@@ -26,7 +26,6 @@ dependencies = [
     "lxml-html-clean>=0.4.0",
     "PyNaCl>=1.5.0",
     "pdfplumber>=0.11.0",
-    "PyMuPDF>=1.23.0",
     "python-docx>=1.1.0",
     "openpyxl>=3.1.0",
     "python-pptx>=1.0.0",
@@ -36,6 +35,9 @@ dependencies = [
     "pycryptodome>=3.20.0",
     "loguru>=0.7.0",
     "discord.py>=2.3.0",
+    "wuying-agentbay-sdk>=0.18.0",
+    "pypinyin>=0.52.0",
+    "Pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]

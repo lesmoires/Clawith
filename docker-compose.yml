@@ -45,13 +45,17 @@ services:
       FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
       DOCKER_NETWORK: clawith_network
       SS_CONFIG_FILE: /data/ss-nodes.json
-      # Infisical MCP (via Supergateway)
+      # Infisical MCP (via Supergateway) — Fork custom
       INFISICAL_HOST_URL: ${INFISICAL_HOST_URL:-}
       INFISICAL_UNIVERSAL_AUTH_CLIENT_ID: ${INFISICAL_UNIVERSAL_AUTH_CLIENT_ID:-}
       INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET: ${INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET:-}
       INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:-}
-      # AgentMail API
+      # AgentMail API — Fork custom
       AGENTMAIL_API_KEY: ${AGENTMAIL_API_KEY:-}
+      # Public base URL for constructing OAuth callback URLs and email links (upstream v1.8.1)
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      # Password reset token lifetime in minutes (upstream v1.8.1)
+      PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: ${PASSWORD_RESET_TOKEN_EXPIRE_MINUTES:-30}
     volumes:
       - ./backend:/app
       - ./backend/agent_data:/data/agents
