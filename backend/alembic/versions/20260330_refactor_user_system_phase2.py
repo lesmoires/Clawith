@@ -62,72 +62,80 @@ def upgrade() -> None:
  
     # 5. Data migration (idempotent)
     # Only migrate users that don't have an identity_id yet
-    result = conn.execute(sa.text("""
-        SELECT id, email, primary_mobile, username, password_hash, email_verified, is_active, role 
-        FROM users 
-        WHERE identity_id IS NULL
-    """))
-    users_data = result.fetchall()
+    # Check if legacy columns exist first (v1.8.0+ may have already dropped them)
+    user_columns = [c['name'] for c in inspector.get_columns('users')]
+    has_legacy_columns = all(col in user_columns for col in ['primary_mobile', 'username', 'password_hash'])
     
-    if users_data:
-        # Load existing identities to match against
-        ident_res = conn.execute(sa.text("SELECT id, email, phone, username FROM identities"))
-        existing_idents = ident_res.fetchall()
+    if has_legacy_columns:
+        # Run data migration only if legacy columns exist
+        result = conn.execute(sa.text("""
+            SELECT id, email, primary_mobile, username, password_hash, email_verified, is_active, role 
+            FROM users 
+            WHERE identity_id IS NULL
+        """))
+        users_data = result.fetchall()
         
-        # Build map: (type, val) -> identity_id
-        identity_map = {}
-        for r in existing_idents:
-            if r[1]: identity_map[f"e:{r[1]}"] = r[0]
-            if r[2]: identity_map[f"p:{r[2]}"] = r[0]
-            if r[3]: identity_map[f"u:{r[3]}"] = r[0]
- 
-        for row in users_data:
-            u_id, u_email, u_phone, u_username, u_pwd, u_email_verified, u_active, u_role = row
+        if users_data:
+            # Load existing identities to match against
+            ident_res = conn.execute(sa.text("SELECT id, email, phone, username FROM identities"))
+            existing_idents = ident_res.fetchall()
             
-            # Check if this person already has an identity
-            found_id = None
-            if u_email and f"e:{u_email}" in identity_map: found_id = identity_map[f"e:{u_email}"]
-            elif u_phone and f"p:{u_phone}" in identity_map: found_id = identity_map[f"p:{u_phone}"]
-            elif u_username and f"u:{u_username}" in identity_map: found_id = identity_map[f"u:{u_username}"]
-            
-            if not found_id:
-                # Create new identity
-                found_id = str(uuid.uuid4())
-                is_platform_admin = (u_role == 'platform_admin')
+            # Build map: (type, val) -> identity_id
+            identity_map = {}
+            for r in existing_idents:
+                if r[1]: identity_map[f"e:{r[1]}"] = r[0]
+                if r[2]: identity_map[f"p:{r[2]}"] = r[0]
+                if r[3]: identity_map[f"u:{r[3]}"] = r[0]
+     
+            for row in users_data:
+                u_id, u_email, u_phone, u_username, u_pwd, u_email_verified, u_active, u_role = row
                 
-                conn.execute(sa.text("""
-                    INSERT INTO identities (id, email, phone, username, password_hash, email_verified, is_active, is_platform_admin)
-                    VALUES (:id, :email, :phone, :username, :password_hash, :email_verified, :is_active, :admin)
-                """), {
-                    "id": found_id,
-                    "email": u_email,
-                    "phone": u_phone,
-                    "username": u_username,
-                    "password_hash": u_pwd,
-                    "email_verified": u_email_verified if u_email_verified is not None else False,
-                    "is_active": u_active if u_active is not None else True,
-                    "admin": is_platform_admin
+                # Check if this person already has an identity
+                found_id = None
+                if u_email and f"e:{u_email}" in identity_map: found_id = identity_map[f"e:{u_email}"]
+                elif u_phone and f"p:{u_phone}" in identity_map: found_id = identity_map[f"p:{u_phone}"]
+                elif u_username and f"u:{u_username}" in identity_map: found_id = identity_map[f"u:{u_username}"]
+                
+                if not found_id:
+                    # Create new identity
+                    found_id = str(uuid.uuid4())
+                    is_platform_admin = (u_role == 'platform_admin')
+                    
+                    conn.execute(sa.text("""
+                        INSERT INTO identities (id, email, phone, username, password_hash, email_verified, is_active, is_platform_admin)
+                        VALUES (:id, :email, :phone, :username, :password_hash, :email_verified, :is_active, :admin)
+                    """), {
+                        "id": found_id,
+                        "email": u_email,
+                        "phone": u_phone,
+                        "username": u_username,
+                        "password_hash": u_pwd,
+                        "email_verified": u_email_verified if u_email_verified is not None else False,
+                        "is_active": u_active if u_active is not None else True,
+                        "admin": is_platform_admin
+                    })
+                    # Update map to prevent duplicates in this loop
+                    if u_email: identity_map[f"e:{u_email}"] = found_id
+                    if u_phone: identity_map[f"p:{u_phone}"] = found_id
+                    if u_username: identity_map[f"u:{u_username}"] = found_id
+                
+                # Update user
+                conn.execute(sa.text("UPDATE users SET identity_id = :identity_id WHERE id = :user_id"), {
+                    "identity_id": found_id,
+                    "user_id": u_id
                 })
-                # Update map to prevent duplicates in this loop
-                if u_email: identity_map[f"e:{u_email}"] = found_id
-                if u_phone: identity_map[f"p:{u_phone}"] = found_id
-                if u_username: identity_map[f"u:{u_username}"] = found_id
-            
-            # Update user
-            conn.execute(sa.text("UPDATE users SET identity_id = :identity_id WHERE id = :user_id"), {
-                "identity_id": found_id,
-                "user_id": u_id
-            })
  
-    # 6. Cleanup: Make username/email nullable and DROP redundant columns
-    op.alter_column('users', 'username', existing_type=sa.String(length=100), nullable=True)
-    op.alter_column('users', 'email', existing_type=sa.String(length=255), nullable=True)
-
-    # Physically drop redundant columns
-    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS username")
-    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS email")
-    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS password_hash")
-    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS email_verified")
+    # 6. Cleanup: Make username/email nullable and DROP redundant columns (idempotent)
+    if 'username' in user_columns:
+        op.alter_column('users', 'username', existing_type=sa.String(length=100), nullable=True)
+        op.execute("ALTER TABLE users DROP COLUMN IF EXISTS username")
+    if 'email' in user_columns:
+        op.alter_column('users', 'email', existing_type=sa.String(length=255), nullable=True)
+        op.execute("ALTER TABLE users DROP COLUMN IF EXISTS email")
+    if 'password_hash' in user_columns:
+        op.execute("ALTER TABLE users DROP COLUMN IF EXISTS password_hash")
+    if 'email_verified' in user_columns:
+        op.execute("ALTER TABLE users DROP COLUMN IF EXISTS email_verified")
     op.execute("ALTER TABLE users DROP COLUMN IF EXISTS primary_mobile")
     op.execute("ALTER TABLE users DROP COLUMN IF EXISTS primary_email")
  
