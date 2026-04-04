@@ -62,15 +62,6 @@ async def lifespan(app: FastAPI):
     intercept_standard_logging()
     logger.info("[startup] Logging configured")
 
-    # Load Clawith Custom Extensions (isolated triggers, etc.) — Fork custom
-    try:
-        from app.extensions import load_extensions
-        load_extensions()
-        logger.info("[startup] Clawith extensions loaded")
-    except Exception as e:
-        logger.error(f"[startup] Failed to load extensions: {e}")
-        raise
-
     import asyncio
     import sys
     import os
@@ -108,15 +99,10 @@ async def lifespan(app: FastAPI):
         import app.models.notification   # noqa
         import app.models.gateway_message # noqa
         import app.models.agent_credential  # noqa
+
         import app.models.identity       # noqa
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-            # Add 'atlassian' to channel_type_enum if it doesn't exist yet (idempotent)
-            await conn.execute(
-                __import__("sqlalchemy").text(
-                    "ALTER TYPE channel_type_enum ADD VALUE IF NOT EXISTS 'atlassian'"
-                )
-            )
         logger.info("[startup] Database tables ready")
     except Exception as e:
         logger.warning(f"[startup] create_all failed: {e}")
@@ -156,16 +142,6 @@ async def lifespan(app: FastAPI):
                     _new_dir = _data_dir / f"enterprise_info_{_tenant.id}"
                     if not _new_dir.exists():
                         shutil.copytree(str(_old_dir), str(_new_dir))
-                        logger.info(f"[startup] Migrated enterprise_info → enterprise_info_{_tenant.id}")
-                    else:
-                        logger.info(f"[startup] enterprise_info_{_tenant.id} already exists, skipping migration")
-    except Exception as e:
-        logger.warning(f"[startup] enterprise_info migration failed: {e}")
-
-    try:
-        await seed_builtin_tools()
-    except Exception as e:
-        logger.warning(f"[startup] Builtin tools seed failed: {e}")
                         print(f"[startup] ✅ Migrated enterprise_info → enterprise_info_{_tenant.id}", flush=True)
                     else:
                         print(f"[startup] ℹ️ enterprise_info_{_tenant.id} already exists, skipping migration", flush=True)
