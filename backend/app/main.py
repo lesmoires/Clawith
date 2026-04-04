@@ -107,7 +107,8 @@ async def lifespan(app: FastAPI):
         import app.models.trigger        # noqa
         import app.models.notification   # noqa
         import app.models.gateway_message # noqa
-<<<<<<< HEAD
+        import app.models.agent_credential  # noqa
+        import app.models.identity       # noqa
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             # Add 'atlassian' to channel_type_enum if it doesn't exist yet (idempotent)
@@ -116,13 +117,6 @@ async def lifespan(app: FastAPI):
                     "ALTER TYPE channel_type_enum ADD VALUE IF NOT EXISTS 'atlassian'"
                 )
             )
-=======
-        import app.models.agent_credential  # noqa
-
-        import app.models.identity       # noqa
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
->>>>>>> upstream/main
         logger.info("[startup] Database tables ready")
     except Exception as e:
         logger.warning(f"[startup] create_all failed: {e}")
@@ -162,7 +156,6 @@ async def lifespan(app: FastAPI):
                     _new_dir = _data_dir / f"enterprise_info_{_tenant.id}"
                     if not _new_dir.exists():
                         shutil.copytree(str(_old_dir), str(_new_dir))
-<<<<<<< HEAD
                         logger.info(f"[startup] Migrated enterprise_info → enterprise_info_{_tenant.id}")
                     else:
                         logger.info(f"[startup] enterprise_info_{_tenant.id} already exists, skipping migration")
@@ -173,7 +166,6 @@ async def lifespan(app: FastAPI):
         await seed_builtin_tools()
     except Exception as e:
         logger.warning(f"[startup] Builtin tools seed failed: {e}")
-=======
                         print(f"[startup] ✅ Migrated enterprise_info → enterprise_info_{_tenant.id}", flush=True)
                     else:
                         print(f"[startup] ℹ️ enterprise_info_{_tenant.id} already exists, skipping migration", flush=True)
@@ -186,7 +178,6 @@ async def lifespan(app: FastAPI):
         await clean_orphaned_mcp_tools()
     except Exception as e:
         logger.warning(f"[startup] Builtin tools seed or cleanup failed: {e}")
->>>>>>> upstream/main
 
     try:
         from app.services.tool_seeder import seed_atlassian_rovo_config, get_atlassian_api_key
@@ -310,20 +301,14 @@ from app.api.teams import router as teams_router
 from app.api.triggers import router as triggers_router
 
 from app.api.atlassian import router as atlassian_router
-<<<<<<< HEAD
-=======
 
->>>>>>> upstream/main
 from app.api.webhooks import router as webhooks_router
 from app.api.notification import router as notification_router
 from app.api.gateway import router as gateway_router
 from app.api.admin import router as admin_router
 from app.api.pages import router as pages_router, public_router as pages_public_router
-<<<<<<< HEAD
-=======
 from app.api.agent_credentials import router as credentials_router
 from app.api.agentbay_control import router as agentbay_control_router
->>>>>>> upstream/main
 
 app.include_router(auth_router, prefix=settings.API_PREFIX)
 app.include_router(agents_router, prefix=settings.API_PREFIX)
@@ -352,10 +337,7 @@ app.include_router(wecom_router, prefix=settings.API_PREFIX)
 app.include_router(teams_router, prefix=settings.API_PREFIX)
 
 app.include_router(atlassian_router, prefix=settings.API_PREFIX)
-<<<<<<< HEAD
-=======
 
->>>>>>> upstream/main
 app.include_router(triggers_router)
 app.include_router(chat_sessions_router)
 app.include_router(plaza_router)
@@ -366,11 +348,8 @@ app.include_router(gateway_router, prefix=settings.API_PREFIX)
 app.include_router(admin_router, prefix=settings.API_PREFIX)
 app.include_router(pages_router, prefix=settings.API_PREFIX)
 app.include_router(pages_public_router)  # Public endpoint for /p/{short_id}, no API prefix
-<<<<<<< HEAD
-=======
 app.include_router(credentials_router, prefix=settings.API_PREFIX)
 app.include_router(agentbay_control_router, prefix=settings.API_PREFIX)
->>>>>>> upstream/main
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["health"])
