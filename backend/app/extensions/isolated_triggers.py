@@ -1,4 +1,3 @@
-Warning: Permanently added '46.225.220.208' (ED25519) to the list of known hosts.
 """
 Isolated Trigger Executor — Clawith Custom Extension (v2 with Trigger Logs)
 
