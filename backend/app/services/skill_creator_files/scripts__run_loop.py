@@ -16,10 +16,7 @@ import webbrowser
 from pathlib import Path
 
 import anthropic
-<<<<<<< HEAD
-=======
 from loguru import logger
->>>>>>> upstream/main
 
 from scripts.generate_report import generate_html
 from scripts.improve_description import improve_description
@@ -74,11 +71,7 @@ def run_loop(
     if holdout > 0:
         train_set, test_set = split_eval_set(eval_set, holdout)
         if verbose:
-<<<<<<< HEAD
-            print(f"Split: {len(train_set)} train, {len(test_set)} test (holdout={holdout})", file=sys.stderr)
-=======
             logger.info(f"Split: {len(train_set)} train, {len(test_set)} test (holdout={holdout})")
->>>>>>> upstream/main
     else:
         train_set = eval_set
         test_set = []
@@ -89,17 +82,10 @@ def run_loop(
 
     for iteration in range(1, max_iterations + 1):
         if verbose:
-<<<<<<< HEAD
-            print(f"\n{'='*60}", file=sys.stderr)
-            print(f"Iteration {iteration}/{max_iterations}", file=sys.stderr)
-            print(f"Description: {current_description}", file=sys.stderr)
-            print(f"{'='*60}", file=sys.stderr)
-=======
             logger.info(f"\n{'='*60}")
             logger.info(f"Iteration {iteration}/{max_iterations}")
             logger.info(f"Description: {current_description}")
             logger.info(f"{'='*60}")
->>>>>>> upstream/main
 
         # Evaluate train + test together in one batch for parallelism
         all_queries = train_set + test_set
@@ -182,19 +168,11 @@ def run_loop(
                 precision = tp / (tp + fp) if (tp + fp) > 0 else 1.0
                 recall = tp / (tp + fn) if (tp + fn) > 0 else 1.0
                 accuracy = (tp + tn) / total if total > 0 else 0.0
-<<<<<<< HEAD
-                print(f"{label}: {tp+tn}/{total} correct, precision={precision:.0%} recall={recall:.0%} accuracy={accuracy:.0%} ({elapsed:.1f}s)", file=sys.stderr)
-                for r in results:
-                    status = "PASS" if r["pass"] else "FAIL"
-                    rate_str = f"{r['triggers']}/{r['runs']}"
-                    print(f"  [{status}] rate={rate_str} expected={r['should_trigger']}: {r['query'][:60]}", file=sys.stderr)
-=======
                 logger.info(f"{label}: {tp+tn}/{total} correct, precision={precision:.0%} recall={recall:.0%} accuracy={accuracy:.0%} ({elapsed:.1f}s)")
                 for r in results:
                     status = "PASS" if r["pass"] else "FAIL"
                     rate_str = f"{r['triggers']}/{r['runs']}"
                     logger.info(f"  [{status}] rate={rate_str} expected={r['should_trigger']}: {r['query'][:60]}")
->>>>>>> upstream/main
 
             print_eval_stats("Train", train_results["results"], eval_elapsed)
             if test_summary:
@@ -203,30 +181,18 @@ def run_loop(
         if train_summary["failed"] == 0:
             exit_reason = f"all_passed (iteration {iteration})"
             if verbose:
-<<<<<<< HEAD
-                print(f"\nAll train queries passed on iteration {iteration}!", file=sys.stderr)
-=======
                 logger.info(f"\nAll train queries passed on iteration {iteration}!")
->>>>>>> upstream/main
             break
 
         if iteration == max_iterations:
             exit_reason = f"max_iterations ({max_iterations})"
             if verbose:
-<<<<<<< HEAD
-                print(f"\nMax iterations reached ({max_iterations}).", file=sys.stderr)
-=======
                 logger.info(f"\nMax iterations reached ({max_iterations}).")
->>>>>>> upstream/main
             break
 
         # Improve the description based on train results
         if verbose:
-<<<<<<< HEAD
-            print(f"\nImproving description...", file=sys.stderr)
-=======
             logger.info(f"\nImproving description...")
->>>>>>> upstream/main
 
         t0 = time.time()
         # Strip test scores from history so improvement model can't see them
@@ -248,11 +214,7 @@ def run_loop(
         improve_elapsed = time.time() - t0
 
         if verbose:
-<<<<<<< HEAD
-            print(f"Proposed ({improve_elapsed:.1f}s): {new_description}", file=sys.stderr)
-=======
             logger.info(f"Proposed ({improve_elapsed:.1f}s): {new_description}")
->>>>>>> upstream/main
 
         current_description = new_description
 
@@ -265,13 +227,8 @@ def run_loop(
         best_score = f"{best['train_passed']}/{best['train_total']}"
 
     if verbose:
-<<<<<<< HEAD
-        print(f"\nExit reason: {exit_reason}", file=sys.stderr)
-        print(f"Best score: {best_score} (iteration {best['iteration']})", file=sys.stderr)
-=======
         logger.info(f"\nExit reason: {exit_reason}")
         logger.info(f"Best score: {best_score} (iteration {best['iteration']})")
->>>>>>> upstream/main
 
     return {
         "exit_reason": exit_reason,
@@ -310,11 +267,7 @@ def main():
     skill_path = Path(args.skill_path)
 
     if not (skill_path / "SKILL.md").exists():
-<<<<<<< HEAD
-        print(f"Error: No SKILL.md found at {skill_path}", file=sys.stderr)
-=======
         logger.error(f"Error: No SKILL.md found at {skill_path}")
->>>>>>> upstream/main
         sys.exit(1)
 
     name, _, _ = parse_skill_md(skill_path)
@@ -367,21 +320,13 @@ def main():
     # Write final HTML report (without auto-refresh)
     if live_report_path:
         live_report_path.write_text(generate_html(output, auto_refresh=False, skill_name=name))
-<<<<<<< HEAD
-        print(f"\nReport: {live_report_path}", file=sys.stderr)
-=======
         logger.info(f"\nReport: {live_report_path}")
->>>>>>> upstream/main
 
     if results_dir and live_report_path:
         (results_dir / "report.html").write_text(generate_html(output, auto_refresh=False, skill_name=name))
 
     if results_dir:
-<<<<<<< HEAD
-        print(f"Results saved to: {results_dir}", file=sys.stderr)
-=======
         logger.info(f"Results saved to: {results_dir}")
->>>>>>> upstream/main
 
 
 if __name__ == "__main__":

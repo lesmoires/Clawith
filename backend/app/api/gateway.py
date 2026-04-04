@@ -6,7 +6,6 @@ to poll for messages, report results, send messages, and send heartbeat pings.
 
 import asyncio
 import hashlib
-import logging
 import secrets
 import uuid
 from datetime import datetime, timezone
@@ -25,7 +24,10 @@ from app.schemas.schemas import (
     GatewayHistoryItem, GatewayRelationshipItem, GatewaySendMessageRequest,
 )
 
+<<<<<<< HEAD
 logger = logging.getLogger(__name__)
+=======
+>>>>>>> upstream/main
 router = APIRouter(prefix="/gateway", tags=["gateway"])
 
 
@@ -193,7 +195,11 @@ async def poll_messages(
     for r in h_result.scalars().all():
         if r.member:
             channels = []
+<<<<<<< HEAD
             if getattr(r.member, 'feishu_user_id', None) or getattr(r.member, 'feishu_open_id', None):
+=======
+            if getattr(r.member, 'external_id', None) or getattr(r.member, 'open_id', None):
+>>>>>>> upstream/main
                 channels.append("feishu")
             if getattr(r.member, 'email', None):
                 channels.append("email")
@@ -291,12 +297,18 @@ async def report_result(
 
     # If the original message was from another agent (OpenClaw-to-OpenClaw),
     # write the reply back as a gateway_message for the sender agent to poll
+<<<<<<< HEAD
     # AND push WebSocket notification + save as ChatMessage for real-time UX
     if body.result and msg.sender_agent_id:
         async with async_session() as reply_db:
             conv_id = msg.conversation_id or f"gw_agent_{msg.sender_agent_id}_{agent.id}"
             
             # 1. Write reply to gateway_messages (for polling)
+=======
+    if body.result and msg.sender_agent_id:
+        async with async_session() as reply_db:
+            conv_id = msg.conversation_id or f"gw_agent_{msg.sender_agent_id}_{agent.id}"
+>>>>>>> upstream/main
             gw_reply = GatewayMessage(
                 agent_id=msg.sender_agent_id,
                 sender_agent_id=agent.id,
@@ -305,6 +317,7 @@ async def report_result(
                 conversation_id=conv_id,
             )
             reply_db.add(gw_reply)
+<<<<<<< HEAD
             
             # 2. Save as ChatMessage in target agent's conversation (for history + UI)
             from app.models.audit import ChatMessage
@@ -379,6 +392,9 @@ async def report_result(
             except Exception as e:
                 logger.warning(f"[Gateway] WebSocket push failed: {e}")
             
+=======
+            await reply_db.commit()
+>>>>>>> upstream/main
             logger.info(f"[Gateway] Reply routed back to sender agent {msg.sender_agent_id}")
 
     return {"status": "ok"}
@@ -422,7 +438,10 @@ async def _send_to_agent_background(
     logger.info(f"[Gateway] _send_to_agent_background started: {source_agent_name} -> {target_agent_name}")
     try:
         from app.api.websocket import call_llm
+<<<<<<< HEAD
         from app.services.agent_context import build_agent_context
+=======
+>>>>>>> upstream/main
         from app.models.llm import LLMModel
         from app.models.audit import ChatMessage
         from app.models.chat_session import ChatSession
@@ -436,6 +455,13 @@ async def _send_to_agent_background(
             model = result.scalar_one_or_none()
             if not model:
                 return
+<<<<<<< HEAD
+=======
+            # Skip if model is disabled by admin
+            if not model.enabled:
+                logger.warning(f"Target agent {target_agent_name}'s model {model.model} is disabled, skipping")
+                return
+>>>>>>> upstream/main
 
             # Create or find a ChatSession for this agent pair
             # Use deterministic UUID so the same pair always gets the same session
@@ -481,12 +507,20 @@ async def _send_to_agent_background(
             from datetime import datetime, timezone
             session.last_message_at = datetime.now(timezone.utc)
 
+<<<<<<< HEAD
             # Build system prompt for target agent
             system_prompt = await build_agent_context(
                 target_agent_id, target_agent_name, target_role_description
             )
             system_prompt += (
                 "\n\n--- Agent-to-Agent Communication Alert ---\n"
+=======
+
+            # Agent-to-agent communication context (injected as prefix to user message
+            # since call_llm builds the full system prompt internally)
+            agent_comm_alert = (
+                "--- Agent-to-Agent Communication Alert ---\n"
+>>>>>>> upstream/main
                 f"You are receiving a direct message from another digital employee ({source_agent_name}). "
                 "CRITICAL INSTRUCTION: Your direct text reply will automatically be delivered back to them. "
                 "DO NOT use the `send_agent_message` tool to reply to this conversation. Just reply naturally in text.\n"
@@ -502,12 +536,21 @@ async def _send_to_agent_background(
             )
             hist_msgs = list(reversed(hist_result.scalars().all()))
 
+<<<<<<< HEAD
             messages = [{"role": "system", "content": system_prompt}]
             for h in hist_msgs:
                 messages.append({"role": h.role, "content": h.content or ""})
 
             # Add the new message
             user_msg = f"[Message from agent: {source_agent_name}]\n{content}"
+=======
+            messages = []
+            for h in hist_msgs:
+                messages.append({"role": h.role, "content": h.content or ""})
+
+            # Add the new message with agent communication context
+            user_msg = f"{agent_comm_alert}\n\n[Message from agent: {source_agent_name}]\n{content}"
+>>>>>>> upstream/main
             messages.append({"role": "user", "content": user_msg})
 
             from app.models.participant import Participant
@@ -681,7 +724,11 @@ async def send_message(
         )
 
     # Send via feishu if available
+<<<<<<< HEAD
     if (target_member.feishu_user_id or target_member.feishu_open_id) and (not channel_hint or channel_hint == "feishu"):
+=======
+    if (target_member.external_id or target_member.open_id) and (not channel_hint or channel_hint == "feishu"):
+>>>>>>> upstream/main
         from app.models.channel_config import ChannelConfig
         from app.services.feishu_service import feishu_service
         import json as _json
@@ -703,18 +750,32 @@ async def send_message(
 
         # Prefer user_id (tenant-stable, works across apps), fallback to open_id
         resp = None
+<<<<<<< HEAD
         if target_member.feishu_user_id:
             resp = await feishu_service.send_message(
                 config.app_id, config.app_secret,
                 receive_id=target_member.feishu_user_id,
+=======
+        if target_member.external_id:
+            resp = await feishu_service.send_message(
+                config.app_id, config.app_secret,
+                receive_id=target_member.external_id,
+>>>>>>> upstream/main
                 msg_type="text",
                 content=_json.dumps({"text": content}, ensure_ascii=False),
                 receive_id_type="user_id",
             )
+<<<<<<< HEAD
         if (resp is None or resp.get("code") != 0) and target_member.feishu_open_id:
             resp = await feishu_service.send_message(
                 config.app_id, config.app_secret,
                 receive_id=target_member.feishu_open_id,
+=======
+        if (resp is None or resp.get("code") != 0) and target_member.open_id:
+            resp = await feishu_service.send_message(
+                config.app_id, config.app_secret,
+                receive_id=target_member.open_id,
+>>>>>>> upstream/main
                 msg_type="text",
                 content=_json.dumps({"text": content}, ensure_ascii=False),
                 receive_id_type="open_id",
@@ -737,7 +798,11 @@ async def send_message(
     await db.commit()
     raise HTTPException(
         status_code=400,
+<<<<<<< HEAD
         detail=f"No available channel to reach {target_member.name}. feishu_user_id={'yes' if target_member.feishu_user_id else 'no'}, feishu_open_id={'yes' if target_member.feishu_open_id else 'no'}"
+=======
+        detail=f"No available channel to reach {target_member.name}. feishu_user_id={'yes' if target_member.external_id else 'no'}, feishu_open_id={'yes' if target_member.open_id else 'no'}"
+>>>>>>> upstream/main
     )
 
 
