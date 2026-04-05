@@ -16,7 +16,6 @@ import httpx
 import json
 import os
 import uuid
-from typing import Optional
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1531,17 +1530,8 @@ async def execute_tool(
     arguments: dict,
     agent_id: uuid.UUID,
     user_id: uuid.UUID,
-    session_id: Optional[uuid.UUID] = None,
 ) -> str:
-    """Execute a tool call and return the result as a string.
-    
-    Args:
-        tool_name: Name of the tool to execute
-        arguments: Tool arguments dict
-        agent_id: Agent UUID
-        user_id: User UUID (or agent_id if system call)
-        session_id: Optional session UUID for context tracking
-    """
+    """Execute a tool call and return the result as a string."""
     _agent_tenant_id = await _get_agent_tenant_id(agent_id)
 
     ws = await ensure_workspace(agent_id, tenant_id=_agent_tenant_id)
@@ -6174,3 +6164,104 @@ async def _hetzner_power_off(agent_id: uuid.UUID, arguments: dict) -> str:
 async def _hetzner_shutdown(agent_id: uuid.UUID, arguments: dict) -> str:
     """Shutdown server via LiteLLM Hetzner MCP."""
     return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_shutdown', arguments)
+
+
+# ── v1.8.1 File Management Tools ──
+async def search_files(
+    agent_id: uuid.UUID,
+    user_id: uuid.UUID,
+    session_id: Optional[uuid.UUID] = None,
+    pattern: str = "",
+    path: str = ".",
+) -> str:
+    """Search for files matching pattern in workspace."""
+    try:
+        import re
+        from pathlib import Path
+        ws = await ensure_workspace(agent_id)
+        search_path = ws / path if path != "." else ws
+        search_path = Path(search_path)
+        if not search_path.exists():
+            return f"Path not found: {path}"
+        results = []
+        is_regex = bool(re.search(r'[*?\[\]]', pattern))
+        if is_regex:
+            regex = re.compile(pattern, re.IGNORECASE)
+        for file_path in search_path.rglob('*'):
+            if file_path.is_file():
+                rel_path = file_path.relative_to(ws)
+                if is_regex:
+                    if regex.search(str(rel_path)):
+                        results.append(str(rel_path))
+                else:
+                    if pattern.lower() in str(rel_path).lower():
+                        results.append(str(rel_path))
+        if not results:
+            return f"No files found matching '{pattern}' in {path}"
+        return f"Found {len(results)} file(s):\n" + "\n".join(f"- {f}" for f in sorted(results)[:50])
+    except Exception as e:
+        return f"Error searching files: {str(e)[:200]}"
+
+
+async def find_files(
+    agent_id: uuid.UUID,
+    user_id: uuid.UUID,
+    session_id: Optional[uuid.UUID] = None,
+    glob_pattern: str = "*.md",
+    path: str = ".",
+) -> str:
+    """Find files matching glob pattern."""
+    try:
+        from pathlib import Path
+        ws = await ensure_workspace(agent_id)
+        search_path = ws / path if path != "." else ws
+        search_path = Path(search_path)
+        if not search_path.exists():
+            return f"Path not found: {path}"
+        results = []
+        for file_path in search_path.glob(glob_pattern):
+            if file_path.is_file():
+                rel_path = file_path.relative_to(ws)
+                results.append(str(rel_path))
+        if not results:
+            return f"No files found matching '{glob_pattern}' in {path}"
+        return f"Found {len(results)} file(s):\n" + "\n".join(f"- {f}" for f in sorted(results)[:50])
+    except Exception as e:
+        return f"Error finding files: {str(e)[:200]}"
+
+
+async def edit_file(
+    agent_id: uuid.UUID,
+    user_id: uuid.UUID,
+    session_id: Optional[uuid.UUID] = None,
+    path: str = "",
+    old_text: str = "",
+    new_text: str = "",
+    start_line: Optional[int] = None,
+    end_line: Optional[int] = None,
+) -> str:
+    """Edit file by replacing text or line range."""
+    try:
+        from pathlib import Path
+        ws = await ensure_workspace(agent_id)
+        file_path = ws / path
+        file_path = Path(file_path)
+        if not file_path.exists():
+            return f"File not found: {path}"
+        content = file_path.read_text()
+        lines = content.splitlines(keepends=True)
+        if start_line is not None and end_line is not None:
+            if start_line < 1 or end_line > len(lines) or start_line > end_line:
+                return f"Invalid line range: {start_line}-{end_line}"
+            lines[start_line-1:end_line] = [new_text + '\n']
+            new_content = ''.join(lines)
+        elif old_text:
+            if old_text not in content:
+                return f"Text not found in file"
+            new_content = content.replace(old_text, new_text, 1)
+        else:
+            return "Error: Must provide either (start_line + end_line) or old_text"
+        file_path.write_text(new_content)
+        return f"Successfully edited {path}"
+    except Exception as e:
+        return f"Error editing file: {str(e)[:200]}"
