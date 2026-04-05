@@ -2,9 +2,14 @@
 
 This module provides a client wrapper around the official AgentBay SDK
 for browser and code execution operations.
+
+Supports multiple regions:
+- china: https://agentbay.wuying.aliyuncs.com/v2 (default)
+- intl/singapore: https://agentbay-intl.wuying.aliyuncs.com/v2
 """
 
 import asyncio
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -12,6 +17,16 @@ from typing import Optional
 from loguru import logger
 
 from agentbay import AgentBay, BrowserOption, CreateSessionParams
+
+
+# Region endpoint configuration
+AGENTBAY_ENDPOINTS = {
+    'china': 'https://agentbay.wuying.aliyuncs.com/v2',
+    'cn': 'https://agentbay.wuying.aliyuncs.com/v2',
+    'intl': 'https://agentbay-intl.wuying.aliyuncs.com/v2',
+    'singapore': 'https://agentbay-intl.wuying.aliyuncs.com/v2',
+    'sg': 'https://agentbay-intl.wuying.aliyuncs.com/v2',
+}
 
 
 @dataclass
@@ -26,8 +41,24 @@ class AgentBaySession:
 class AgentBayClient:
     """Client for AgentBay SDK interactions."""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, region: str = 'intl'):
+        """Initialize AgentBay client.
+        
+        Args:
+            api_key: AgentBay API key (ako-...)
+            region: Region endpoint ('china', 'intl', 'singapore', 'sg')
+                   Default: 'intl' (Singapore international endpoint)
+        """
         self.api_key = api_key
+        self.region = region.lower()
+        self.endpoint = AGENTBAY_ENDPOINTS.get(self.region, AGENTBAY_ENDPOINTS['intl'])
+        
+        # Set environment variable for SDK to use (if SDK respects it)
+        os.environ['AGENTBAY_ENDPOINT'] = self.endpoint
+        os.environ['AGENTBAY_REGION'] = self.region
+        
+        logger.info(f"[AgentBay] Initializing client with region={self.region}, endpoint={self.endpoint}")
+        
         self._sdk = AgentBay(api_key=api_key)
         self._session = None
         self._image_type = None
@@ -738,22 +769,29 @@ async def get_agentbay_client_for_agent(agent_id: uuid.UUID, image_type: str, se
 
     tool_config = await _get_tool_config(agent_id, "agentbay_browser_navigate")
     api_key = None
+    region = 'intl'  # Default to Singapore international endpoint
 
-    if tool_config and tool_config.get("api_key"):
-        api_key = tool_config.get("api_key")
-        from app.core.security import decrypt_data
-        from app.config import get_settings
-        try:
-            api_key = decrypt_data(api_key, get_settings().SECRET_KEY)
-        except Exception:
-            pass  # Fallback if it's somehow plaintext
+    if tool_config:
+        # Get API key from tool config
+        if tool_config.get("api_key"):
+            api_key = tool_config.get("api_key")
+            from app.core.security import decrypt_data
+            from app.config import get_settings
+            try:
+                api_key = decrypt_data(api_key, get_settings().SECRET_KEY)
+            except Exception:
+                pass  # Fallback if it's somehow plaintext
+        
+        # Get region preference from tool config
+        region = tool_config.get("region", "intl")
     else:
         api_key = await get_agentbay_api_key_for_agent(agent_id)
 
     if not api_key:
         raise RuntimeError("AgentBay not configured for this agent. Please configure in Tools > AgentBay.")
 
-    client = AgentBayClient(api_key)
+    logger.info(f"[AgentBay] Creating client for agent={agent_id}, region={region}")
+    client = AgentBayClient(api_key, region=region)
 
     if image_type == "browser":
         await client.create_session("browser_latest")
