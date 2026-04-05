@@ -333,6 +333,14 @@ app.include_router(gateway_router, prefix=settings.API_PREFIX)
 app.include_router(admin_router, prefix=settings.API_PREFIX)
 app.include_router(pages_router, prefix=settings.API_PREFIX)
 app.include_router(pages_public_router)  # Public endpoint for /p/{short_id}, no API prefix
+
+# AgentBay Take Control API
+from app.api.agentbay_control import router as agentbay_control_router
+app.include_router(agentbay_control_router, prefix=settings.API_PREFIX)
+
+# Agent Credentials API
+from app.api.agent_credentials import router as credentials_router
+app.include_router(credentials_router, prefix=settings.API_PREFIX)
 app.include_router(credentials_router, prefix=settings.API_PREFIX)
 app.include_router(agentbay_control_router, prefix=settings.API_PREFIX)
 
