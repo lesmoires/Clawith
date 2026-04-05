@@ -6265,3 +6265,986 @@ async def edit_file(
         return f"Successfully edited {path}"
     except Exception as e:
         return f"Error editing file: {str(e)[:200]}"
+        for p in pages:
+            lines.append(f"- {p.title or 'Untitled'}")
+            lines.append(f"  URL: /p/{p.short_id}")
+            lines.append(f"  Source: {p.source_path}")
+            lines.append(f"  Views: {p.view_count}")
+            lines.append("")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Failed to list pages: {e}"
+
+
+# ─── AgentBay Tool Handlers ─────────────────────────────────────
+
+async def _agentbay_browser_navigate(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """AgentBay browser navigation.
+
+    After navigating, always captures a screenshot.  Whether that screenshot is
+    stored to disk or kept only in memory depends on save_to_workspace:
+      - False (default): bytes are held in the process-level memory cache;
+        the returned sentinel [ImageID: ...] is consumed by vision_inject.py
+        in the same request cycle and then discarded — zero disk writes.
+      - True: screenshot is written to workspace/ so the user can see it in
+        their file manager, and a Markdown link is included in the return value.
+    """
+    if not agent_id:
+        return "❌ AgentBay 工具需要 agent 上下文"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    url = arguments.get("url", "")
+    wait_for = arguments.get("wait_for", "")
+    save_to_workspace = arguments.get("save_to_workspace", False)
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "browser", session_id=_session_id)
+        # Always request a screenshot for navigation so the model can observe the result
+        result = await client.browser_navigate(url, wait_for=wait_for, screenshot=True)
+
+        # Build text parts from the navigation result
+        parts = [f"✅ 已访问: {url}"]
+        if result.get("title"):
+            parts.append(f"标题: {result['title']}")
+        if result.get("content"):
+            content = result["content"][:3000]
+            parts.append(f"内容:\n{content}")
+        logger.info(f"[AgentBay] Browser navigate result: {result.get('title')}")
+
+        screenshot_data = result.get("screenshot")
+        if screenshot_data:
+            import base64 as _base64
+            # Normalise to raw bytes regardless of whether it's a data URL or plain b64
+            if isinstance(screenshot_data, str):
+                if screenshot_data.startswith("data:image"):
+                    screenshot_data = screenshot_data.split(",", 1)[1]
+                raw_bytes = _base64.b64decode(screenshot_data)
+            elif isinstance(screenshot_data, bytes):
+                raw_bytes = screenshot_data
+            else:
+                raw_bytes = None
+
+            if raw_bytes:
+                if save_to_workspace:
+                    # Persist to workspace/ so the user can see the file
+                    import time as _time
+                    rel_path = f"workspace/screenshot_{int(_time.time())}.png"
+                    screenshot_path = ws / rel_path
+                    screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+                    screenshot_path.write_bytes(raw_bytes)
+                    parts.append(
+                        f"截图已保存至 `{rel_path}`。\n"
+                        f"![Browser Navigation Screenshot](/api/agents/{agent_id}/files/download?path={rel_path})\n"
+                        f"CRITICAL: Do NOT call 'send_channel_file' or 'upload_image'. Just print the Markdown above exactly as shown."
+                    )
+                    logger.info(f"[AgentBay] Browser navigate screenshot saved to {rel_path}")
+                else:
+                    # Store in memory only — vision_inject.py will consume it
+                    from app.services.vision_inject import store_temp_screenshot
+                    img_id = store_temp_screenshot(raw_bytes)
+                    parts.append(
+                        f"Internal screenshot captured for analysis. [ImageID: {img_id}]\n"
+                        f"NOTE: This screenshot is for YOUR eyes only (LLM vision). The user CANNOT see it. "
+                        f"If the user asked to SEE a screenshot, call this tool again with save_to_workspace=true."
+                    )
+                    logger.info(f"[AgentBay] Browser navigate screenshot stored in memory (id={img_id})")
+
+        return "\n\n".join(parts)
+
+    except RuntimeError as e:
+        return f"❌ {str(e)}。请先在 Agent 设置中配置 AgentBay 通道。"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Browser navigate failed for agent {agent_id}")
+        return f"❌ AgentBay 浏览器访问失败: {str(e)[:200]}"
+
+
+async def _agentbay_browser_screenshot(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Take a screenshot of the CURRENT browser page without navigating.
+
+    Correct way to observe the result of a click, type, or form submit — never
+    call browser_navigate again just to screenshot, that refreshes the page.
+
+    By default (save_to_workspace=False) the image is held in the process-level
+    memory cache and consumed once by the LLM vision pipeline — no disk write,
+    nothing shown in the user's file manager or chat history.
+    Set save_to_workspace=True to persist and display the image.
+    """
+    if not agent_id:
+        return "❌ AgentBay 工具需要 agent 上下文"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    save_to_workspace = arguments.get("save_to_workspace", False)
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "browser", session_id=_session_id)
+        result = await client.browser_screenshot()
+
+        screenshot_data = result.get("screenshot")
+        if not screenshot_data:
+            return "❌ 截图失败：未返回图像数据"
+
+        import base64 as _base64
+        # Normalise to raw bytes
+        if isinstance(screenshot_data, str):
+            if screenshot_data.startswith("data:image"):
+                screenshot_data = screenshot_data.split(",", 1)[1]
+            raw_bytes = _base64.b64decode(screenshot_data)
+        elif isinstance(screenshot_data, bytes):
+            raw_bytes = screenshot_data
+        else:
+            return "❌ 截图失败：未知数据格式"
+
+        if save_to_workspace:
+            # Persist to workspace/ so the user can see the file
+            import time as _time
+            rel_path = f"workspace/screenshot_{int(_time.time())}.png"
+            screenshot_path = ws / rel_path
+            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+            screenshot_path.write_bytes(raw_bytes)
+            logger.info(f"[AgentBay] Browser screenshot saved to workspace: {rel_path}")
+            return (
+                f"✅ 截图已保存至 `{rel_path}`。\n"
+                f"![Browser Screenshot](/api/agents/{agent_id}/files/download?path={rel_path})\n"
+                f"CRITICAL: Do NOT call 'send_channel_file' or 'upload_image'. Just print the Markdown above exactly as shown."
+            )
+        else:
+            # Store in memory only — vision_inject.py will consume it for LLM vision
+            from app.services.vision_inject import store_temp_screenshot
+            img_id = store_temp_screenshot(raw_bytes)
+            logger.info(f"[AgentBay] Browser screenshot stored in memory (id={img_id})")
+            return (
+                f"Internal screenshot captured for analysis. [ImageID: {img_id}]\n"
+                f"NOTE: This screenshot is for YOUR eyes only (LLM vision). The user CANNOT see it. "
+                f"If the user asked to SEE a screenshot, call this tool again with save_to_workspace=true."
+            )
+
+    except RuntimeError as e:
+        return f"❌ {str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Browser screenshot failed for agent {agent_id}")
+        return f"❌ 截图失败: {str(e)[:200]}"
+
+
+async def _agentbay_browser_click(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """AgentBay 浏览器点击。"""
+    if not agent_id:
+        return "❌ AgentBay 工具需要 agent 上下文"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    selector = arguments.get("selector", "")
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "browser", session_id=_session_id)
+        await client.browser_click(selector)
+        return f"✅ 已点击元素: {selector}"
+    except RuntimeError as e:
+        return f"❌ {str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Browser click failed")
+        return f"❌ 点击失败: {str(e)[:200]}"
+
+
+async def _agentbay_browser_type(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """AgentBay 浏览器输入。"""
+    if not agent_id:
+        return "❌ AgentBay 工具需要 agent 上下文"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    selector = arguments.get("selector", "")
+    text = arguments.get("text", "")
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "browser", session_id=_session_id)
+        await client.browser_type(selector, text)
+        return f"✅ 已在 {selector} 输入文本"
+    except RuntimeError as e:
+        return f"❌ {str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Browser type failed")
+        return f"❌ 输入失败: {str(e)[:200]}"
+
+
+async def _agentbay_code_execute(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """在 AgentBay 代码空间执行代码。"""
+    if not agent_id:
+        return "❌ AgentBay 工具需要 agent 上下文"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    language = arguments.get("language", "python")
+    code = arguments.get("code", "")
+    timeout = arguments.get("timeout", 30)
+
+    if not code.strip():
+        return "❌ 请提供要执行的代码"
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "code", session_id=_session_id)
+        result = await client.code_execute(language, code, timeout)
+
+        # 格式化返回结果
+        parts = [f"✅ 代码执行完成 ({language})"]
+        if result.get("stdout"):
+            parts.append(f"📤 输出:\n{result['stdout']}")
+        if result.get("stderr"):
+            parts.append(f"⚠️ 错误输出:\n{result['stderr']}")
+        if result.get("exit_code") != 0:
+            parts.append(f"退出码: {result['exit_code']}")
+
+        return "\n\n".join(parts)
+
+    except RuntimeError as e:
+        return f"❌ {str(e)}。请先在 Agent 设置中配置 AgentBay 通道。"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Code execution failed for agent {agent_id}")
+        return f"❌ 代码执行失败: {str(e)[:200]}"
+
+
+async def _handle_email_tool(tool_name: str, agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
+    """Dispatch email tool calls to the email_service module."""
+    from app.services.email_service import send_email, read_emails, reply_email
+
+    config = await _get_email_config(agent_id)
+    if not config.get("email_address") or not config.get("auth_code"):
+        return (
+            "❌ Email not configured for this agent.\n\n"
+            "Please go to Agent → Tools → Send Email → Config to set up your email:\n"
+            "1. Select your email provider\n"
+            "2. Enter your email address\n"
+            "3. Enter your authorization code (not your login password)"
+        )
+
+    try:
+        if tool_name == "send_email":
+            return await send_email(
+                config=config,
+                to=arguments.get("to", ""),
+                subject=arguments.get("subject", ""),
+                body=arguments.get("body", ""),
+                cc=arguments.get("cc"),
+                attachments=arguments.get("attachments"),
+                workspace_path=ws,
+            )
+        elif tool_name == "read_emails":
+            return await read_emails(
+                config=config,
+                limit=arguments.get("limit", 10),
+                search=arguments.get("search"),
+                folder=arguments.get("folder", "INBOX"),
+            )
+        elif tool_name == "reply_email":
+            return await reply_email(
+                config=config,
+                message_id=arguments.get("message_id", ""),
+                body=arguments.get("body", ""),
+            )
+        else:
+            return f"❌ Unknown email tool: {tool_name}"
+    except Exception as e:
+        return f"❌ Email tool error: {str(e)[:200]}"
+
+
+# ─── Skill Management Tools ────────────────────────────────────
+
+
+async def _search_clawhub(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Search the ClawHub skill registry."""
+    import httpx
+    query = arguments.get("query", "").strip()
+    if not query:
+        return "Missing required argument 'query'"
+
+    # Resolve tenant ClawHub API key
+    from app.api.skills import _get_clawhub_key
+    tenant_id = await _get_agent_tenant_id(agent_id)
+    api_key = await _get_clawhub_key(tenant_id)
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                "https://clawhub.ai/api/search",
+                params={"q": query},
+                headers=headers,
+            )
+            if resp.status_code != 200:
+                return f"ClawHub search failed (HTTP {resp.status_code})"
+            data = resp.json()
+    except Exception as e:
+        return f"❌ ClawHub search error: {str(e)[:200]}"
+
+    results = data.get("results", [])
+    if not results:
+        return f"No skills found matching '{query}'."
+
+    lines = [f"Found {len(results)} skill(s) matching '{query}':\n"]
+    for r in results:
+        name = r.get("displayName") or r.get("slug", "?")
+        slug = r.get("slug", "")
+        summary = (r.get("summary") or "")[:120]
+        updated = ""
+        if r.get("updatedAt"):
+            from datetime import datetime
+            try:
+                dt = datetime.fromtimestamp(r["updatedAt"] / 1000)
+                updated = f" | Updated: {dt.strftime('%Y-%m-%d')}"
+            except Exception:
+                pass
+        lines.append(f"• **{name}** (`{slug}`){updated}")
+        if summary:
+            lines.append(f"  {summary}")
+    lines.append("\nTo install a skill, use: install_skill(source=\"<slug>\")")
+    return "\n".join(lines)
+
+
+async def _install_skill(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
+    """Install a skill from ClawHub slug or GitHub URL into the agent's workspace."""
+    import httpx
+    source = arguments.get("source", "").strip()
+    if not source:
+        return "❌ Missing required argument 'source'. Provide a ClawHub slug (e.g. 'market-research') or a GitHub URL."
+
+    is_url = source.startswith("http://") or source.startswith("https://")
+    base = ws  # agent workspace dir (skills/ lives under workspace/)
+
+    try:
+        if is_url:
+            # ── GitHub URL path ──
+            from app.api.skills import _parse_github_url, _fetch_github_directory, _get_github_token
+
+            parsed = _parse_github_url(source)
+            if not parsed:
+                return "❌ Invalid GitHub URL. Expected format: https://github.com/{owner}/{repo} or https://github.com/{owner}/{repo}/tree/{branch}/{path}"
+
+            owner, repo, branch, path = parsed["owner"], parsed["repo"], parsed["branch"], parsed["path"]
+            tenant_id = await _get_agent_tenant_id(agent_id)
+            token = await _get_github_token(tenant_id)
+            files = await _fetch_github_directory(owner, repo, path, branch, token)
+            if not files:
+                return "❌ No files found at the specified URL."
+
+            folder_name = path.rstrip("/").split("/")[-1] if path else repo
+        else:
+            # ── ClawHub slug path ──
+            slug = source
+            from app.api.skills import _fetch_github_directory, _get_github_token, _get_clawhub_key
+
+            # 1. Fetch metadata from ClawHub (with tenant API key)
+            tenant_id = await _get_agent_tenant_id(agent_id)
+            api_key = await _get_clawhub_key(tenant_id)
+            ch_headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.get(f"https://clawhub.ai/api/v1/skills/{slug}", headers=ch_headers)
+                    if resp.status_code == 404:
+                        return f"Skill '{slug}' not found on ClawHub. Use search_clawhub to find available skills."
+                    if resp.status_code != 200:
+                        return f"ClawHub API error (HTTP {resp.status_code})"
+                    meta = resp.json()
+            except Exception as e:
+                return f"Failed to connect to ClawHub: {str(e)[:200]}"
+
+            owner_info = meta.get("owner", {})
+            handle = owner_info.get("handle", "").lower()
+            if not handle:
+                return "❌ Could not determine skill owner from ClawHub metadata."
+
+            # 2. Fetch files from GitHub
+            github_path = f"skills/{handle}/{slug}"
+            token = await _get_github_token(tenant_id)
+            files = await _fetch_github_directory("openclaw", "skills", github_path, "main", token)
+            if not files:
+                return f"❌ No files found for skill '{slug}' in GitHub archive."
+
+            folder_name = slug
+
+        # 3. Write files to agent workspace
+        skill_dir = base / "skills" / folder_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+
+        written = []
+        for f in files:
+            file_path = (skill_dir / f["path"]).resolve()
+            if not str(file_path).startswith(str(base.resolve())):
+                continue  # safety: skip path traversal
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(f["content"], encoding="utf-8")
+            written.append(f["path"])
+
+        return f"✅ Skill '{folder_name}' installed successfully ({len(written)} files written to skills/{folder_name}/).\n\nFiles: {', '.join(written)}"
+
+    except Exception as e:
+        return f"❌ Install failed: {str(e)[:300]}"
+
+
+# ─── AgentBay: Browser Extract & Observe ────────────────────────────────
+
+async def _agentbay_browser_extract(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Extract structured data from current browser page."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    instruction = arguments.get("instruction", "")
+    selector = arguments.get("selector", "")
+
+    if not instruction.strip():
+        return "Missing required argument 'instruction'"
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "browser", session_id=_session_id)
+        result = await client.browser_extract(instruction, selector=selector)
+
+        if result.get("success"):
+            import json
+            data = result.get("data", {})
+            data_str = json.dumps(data, ensure_ascii=False, indent=2) if isinstance(data, (dict, list)) else str(data)
+            return f"Extraction successful:\n\n{data_str[:5000]}"
+        else:
+            return f"Extraction failed: {result}"
+
+    except RuntimeError as e:
+        return f"{str(e)}. Please configure AgentBay in Agent settings."
+    except Exception as e:
+        logger.exception(f"[AgentBay] Browser extract failed for agent {agent_id}")
+        return f"Browser extract failed: {str(e)[:200]}"
+
+
+async def _agentbay_browser_observe(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Observe the current browser page state."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    instruction = arguments.get("instruction", "")
+    selector = arguments.get("selector", "")
+
+    if not instruction.strip():
+        return "Missing required argument 'instruction'"
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "browser", session_id=_session_id)
+        result = await client.browser_observe(instruction, selector=selector)
+
+        if result.get("success"):
+            import json
+            elements = result.get("elements", [])
+            if not elements:
+                return "No interactive elements found matching your instruction."
+            elements_str = json.dumps(elements, ensure_ascii=False, indent=2)
+            return f"Found {len(elements)} interactive element(s):\n\n{elements_str[:5000]}"
+        else:
+            return f"Observation failed: {result}"
+
+    except RuntimeError as e:
+        return f"{str(e)}. Please configure AgentBay in Agent settings."
+    except Exception as e:
+        logger.exception(f"[AgentBay] Browser observe failed for agent {agent_id}")
+        return f"Browser observe failed: {str(e)[:200]}"
+
+
+# ─── AgentBay: Command (Shell) ──────────────────────────────────────────
+
+async def _agentbay_browser_login(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Perform an automated login using AgentBay's built-in login skill.
+
+    Supports complex login flows including CAPTCHAs, OTP inputs,
+    and multi-step authentication via AgentBay's AI-driven capability.
+    """
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    url = arguments.get("url", "")
+    login_config = arguments.get("login_config", "")
+
+    if not url.strip():
+        return "Missing required argument 'url'"
+    if not login_config.strip():
+        return "Missing required argument 'login_config' (JSON string with api_key + skill_id)"
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "browser", session_id=_session_id)
+        result = await client.browser_login(url, login_config)
+
+        if result.get("success"):
+            return f"Login completed successfully. {result.get('message', '')}"
+        else:
+            return f"Login failed: {result.get('message', 'Unknown error')}"
+
+    except RuntimeError as e:
+        return f"{str(e)}. Please configure AgentBay in Agent settings."
+    except Exception as e:
+        logger.exception(f"[AgentBay] Browser login failed for agent {agent_id}")
+        return f"Login failed: {str(e)[:200]}"
+
+
+async def _agentbay_command_exec(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Execute a shell command in the AgentBay environment."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    command = arguments.get("command", "")
+    timeout_ms = arguments.get("timeout_ms", 50000)
+    cwd = arguments.get("cwd", "")
+
+    if not command.strip():
+        return "Missing required argument 'command'"
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "code", session_id=_session_id)
+        result = await client.command_exec(command, timeout_ms=timeout_ms, cwd=cwd)
+
+        parts = []
+        if result.get("success"):
+            parts.append(f"Command executed successfully (exit code: {result.get('exit_code', 0)})")
+        else:
+            parts.append(f"Command failed (exit code: {result.get('exit_code', -1)})")
+
+        if result.get("stdout"):
+            parts.append(f"stdout:\n{result['stdout'][:3000]}")
+        if result.get("stderr"):
+            parts.append(f"stderr:\n{result['stderr'][:1000]}")
+        if result.get("error_message"):
+            parts.append(f"Error: {result['error_message']}")
+
+        return "\n\n".join(parts)
+
+    except RuntimeError as e:
+        return f"{str(e)}. Please configure AgentBay in Agent settings."
+    except Exception as e:
+        logger.exception(f"[AgentBay] Command exec failed for agent {agent_id}")
+        return f"Command execution failed: {str(e)[:200]}"
+
+
+# ─── AgentBay: Computer Use Handlers ────────────────────────────────────
+
+def _save_screenshot_to_workspace(agent_id: uuid.UUID, ws: Path, data) -> str:
+    """Save screenshot data to workspace and return markdown image link.
+
+    Common helper for computer_screenshot and browser screenshot data.
+    """
+    import time
+    import base64
+
+    rel_path = f"workspace/desktop-screenshot-{int(time.time())}.png"
+    screenshot_path = ws / rel_path
+    screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Handle various data formats from the SDK
+    if isinstance(data, str):
+        if data.startswith("data:image"):
+            data = data.split(",", 1)[1]
+        raw_bytes = base64.b64decode(data)
+    elif isinstance(data, bytes):
+        raw_bytes = data
+    else:
+        return ""
+
+    screenshot_path.write_bytes(raw_bytes)
+    return (
+        f"Screenshot saved to `{rel_path}`.\n\n"
+        f"![Desktop Screenshot](/api/agents/{agent_id}/files/download?path={rel_path})\n"
+        f"CRITICAL: Do NOT call 'send_channel_file' or 'upload_image'. Just print the Markdown above exactly as shown."
+    )
+
+
+async def _agentbay_computer_screenshot(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Take a screenshot of the AgentBay cloud desktop.
+
+    By default (save_to_workspace=False) the image is held in the process-level
+    memory cache for LLM vision analysis only — no disk write, nothing shown in
+    the user's file manager or chat history.
+    Set save_to_workspace=True to persist and display the image.
+    """
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    save_to_workspace = arguments.get("save_to_workspace", False)
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "computer", session_id=_session_id)
+        result = await client.computer_screenshot()
+
+        if not (result.get("success") and result.get("data")):
+            return f"Screenshot failed: {result.get('error_message', 'Unknown error')}"
+
+        raw_data = result["data"]
+
+        # Normalise to raw bytes regardless of SDK return format
+        import base64 as _base64
+        if isinstance(raw_data, str):
+            if raw_data.startswith("data:image"):
+                raw_data = raw_data.split(",", 1)[1]
+            raw_bytes = _base64.b64decode(raw_data)
+        elif isinstance(raw_data, bytes):
+            raw_bytes = raw_data
+        else:
+            return "Screenshot captured but data format is unrecognised."
+
+        if save_to_workspace:
+            # Persist to workspace/ for user visibility
+            import time as _time
+            rel_path = f"workspace/desktop-screenshot-{int(_time.time())}.png"
+            screenshot_path = ws / rel_path
+            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+            screenshot_path.write_bytes(raw_bytes)
+            logger.info(f"[AgentBay] Desktop screenshot saved to workspace: {rel_path}")
+            return (
+                f"Desktop screenshot saved to `{rel_path}`.\n"
+                f"![Desktop Screenshot](/api/agents/{agent_id}/files/download?path={rel_path})\n"
+                f"CRITICAL: Do NOT call 'send_channel_file' or 'upload_image'. Just print the Markdown above exactly as shown."
+            )
+        else:
+            # Store in memory only — vision_inject.py will consume it for LLM vision
+            from app.services.vision_inject import store_temp_screenshot
+            img_id = store_temp_screenshot(raw_bytes)
+            logger.info(f"[AgentBay] Desktop screenshot stored in memory (id={img_id})")
+            return (
+                f"Internal desktop screenshot captured for analysis. [ImageID: {img_id}]\n"
+                f"NOTE: This screenshot is for YOUR eyes only (LLM vision). The user CANNOT see it. "
+                f"If the user asked to SEE a screenshot, call this tool again with save_to_workspace=true."
+            )
+
+    except RuntimeError as e:
+        return f"{str(e)}. Please configure AgentBay in Agent settings."
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer screenshot failed for agent {agent_id}")
+        return f"Desktop screenshot failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_click(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Click the mouse at specific coordinates on the desktop."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    x = arguments.get("x", 0)
+    y = arguments.get("y", 0)
+    button = arguments.get("button", "left")
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "computer", session_id=_session_id)
+        result = await client.computer_click(x, y, button=button)
+        if result.get("success"):
+            return f"Clicked at ({x}, {y}) with {button} button"
+        return f"Click failed at ({x}, {y})"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer click failed")
+        return f"Click failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_input_text(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Type text at the current cursor position."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    text = arguments.get("text", "")
+    if not text:
+        return "Missing required argument 'text'"
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "computer", session_id=_session_id)
+        result = await client.computer_input_text(text)
+        if result.get("success"):
+            return f"Typed text: {text[:100]}"
+        return f"Text input failed"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer input_text failed")
+        return f"Text input failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_press_keys(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Press keyboard keys or shortcuts."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    keys = arguments.get("keys", [])
+    hold = arguments.get("hold", False)
+
+    if not keys:
+        return "Missing required argument 'keys'"
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "computer", session_id=_session_id)
+        result = await client.computer_press_keys(keys, hold=hold)
+        key_str = "+".join(keys)
+        if result.get("success"):
+            return f"Pressed keys: {key_str}" + (" (held)" if hold else "")
+        return f"Key press failed: {key_str}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer press_keys failed")
+        return f"Key press failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_scroll(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Scroll the screen at a specific position."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    x = arguments.get("x", 0)
+    y = arguments.get("y", 0)
+    direction = arguments.get("direction", "down")
+    amount = arguments.get("amount", 1)
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "computer", session_id=_session_id)
+        result = await client.computer_scroll(x, y, direction=direction, amount=amount)
+        if result.get("success"):
+            return f"Scrolled {direction} by {amount} step(s) at ({x}, {y})"
+        return f"Scroll failed"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer scroll failed")
+        return f"Scroll failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_move_mouse(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Move mouse to coordinates without clicking."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    x = arguments.get("x", 0)
+    y = arguments.get("y", 0)
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "computer", session_id=_session_id)
+        result = await client.computer_move_mouse(x, y)
+        if result.get("success"):
+            return f"Mouse moved to ({x}, {y})"
+        return f"Mouse move failed"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer move_mouse failed")
+        return f"Mouse move failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_drag_mouse(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Drag mouse from one position to another."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    from_x = arguments.get("from_x", 0)
+    from_y = arguments.get("from_y", 0)
+    to_x = arguments.get("to_x", 0)
+    to_y = arguments.get("to_y", 0)
+    button = arguments.get("button", "left")
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "computer", session_id=_session_id)
+        result = await client.computer_drag_mouse(from_x, from_y, to_x, to_y, button=button)
+        if result.get("success"):
+            return f"Dragged from ({from_x}, {from_y}) to ({to_x}, {to_y})"
+        return f"Drag failed"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer drag_mouse failed")
+        return f"Drag failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_get_screen_size(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Get the screen resolution."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "computer", session_id=_session_id)
+        result = await client.computer_get_screen_size()
+        if result.get("success"):
+            import json
+            data = result.get("data")
+            data_str = json.dumps(data, ensure_ascii=False) if isinstance(data, (dict, list)) else str(data)
+            return f"Screen size: {data_str}"
+        return f"Failed to get screen size: {result.get('error_message', 'Unknown error')}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer get_screen_size failed")
+        return f"Get screen size failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_start_app(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Start an application on the desktop."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    cmd = arguments.get("cmd", "")
+    work_dir = arguments.get("work_dir", "")
+
+    if not cmd.strip():
+        return "Missing required argument 'cmd'"
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "computer", session_id=_session_id)
+        result = await client.computer_start_app(cmd, work_dir=work_dir)
+        if result.get("success"):
+            # result.data may contain non-serializable objects (e.g. Process),
+            # so convert to string safely instead of json.dumps()
+            data = result.get("data")
+            if data is not None:
+                try:
+                    import json
+                    data_str = json.dumps(data, ensure_ascii=False, indent=2) if isinstance(data, (dict, list, str, int, float, bool)) else str(data)
+                except (TypeError, ValueError):
+                    data_str = str(data)
+            else:
+                data_str = ""
+            return f"Application started: {cmd}" + (f"\n\n{data_str[:1000]}" if data_str else "")
+        return f"Failed to start application: {result.get('error_message', 'Unknown error')}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer start_app failed")
+        return f"Start application failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_get_cursor_position(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Get current cursor position."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "computer", session_id=_session_id)
+        result = await client.computer_get_cursor_position()
+        if result.get("success"):
+            import json
+            data = result.get("data")
+            data_str = json.dumps(data, ensure_ascii=False) if isinstance(data, (dict, list)) else str(data)
+            return f"Cursor position: {data_str}"
+        return f"Failed to get cursor position: {result.get('error_message', 'Unknown error')}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer get_cursor_position failed")
+        return f"Get cursor position failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_get_active_window(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Get info about the currently active window."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "computer", session_id=_session_id)
+        result = await client.computer_get_active_window()
+        if result.get("success"):
+            import json
+            window = result.get("window")
+            window_str = json.dumps(window, ensure_ascii=False, indent=2) if isinstance(window, dict) else str(window)
+            return f"Active window:\n\n{window_str}"
+        return f"Failed to get active window: {result.get('error_message', 'Unknown error')}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer get_active_window failed")
+        return f"Get active window failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_activate_window(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Activate (bring to front) a window by its ID."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    window_id = arguments.get("window_id")
+    if window_id is None:
+        return "Missing required argument 'window_id'"
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "computer", session_id=_session_id)
+        result = await client.computer_activate_window(int(window_id))
+        if result.get("success"):
+            return f"Window {window_id} activated (brought to front)"
+        return f"Failed to activate window {window_id}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer activate_window failed")
+        return f"Activate window failed: {str(e)[:200]}"
+
+
+async def _agentbay_computer_list_visible_apps(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """List currently visible/running applications."""
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    try:
+        _session_id = arguments.pop("_session_id", "")
+        client = await get_agentbay_client_for_agent(agent_id, "computer", session_id=_session_id)
+        result = await client.computer_list_visible_apps()
+        if result.get("success"):
+            import json
+            apps = result.get("apps", [])
+            if not apps:
+                return "No visible applications running."
+            apps_str = json.dumps(apps, ensure_ascii=False, indent=2)
+            return f"Visible applications ({len(apps)}):\n\n{apps_str[:3000]}"
+        return f"Failed to list applications: {result.get('error_message', 'Unknown error')}"
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] Computer list_visible_apps failed")
+        return f"List applications failed: {str(e)[:200]}"
