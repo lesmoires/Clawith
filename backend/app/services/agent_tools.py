@@ -16,6 +16,7 @@ import httpx
 import json
 import os
 import uuid
+from typing import Optional
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1530,8 +1531,17 @@ async def execute_tool(
     arguments: dict,
     agent_id: uuid.UUID,
     user_id: uuid.UUID,
+    session_id: Optional[uuid.UUID] = None,
 ) -> str:
-    """Execute a tool call and return the result as a string."""
+    """Execute a tool call and return the result as a string.
+    
+    Args:
+        tool_name: Name of the tool to execute
+        arguments: Tool arguments dict
+        agent_id: Agent UUID
+        user_id: User UUID (or agent_id if system call)
+        session_id: Optional session UUID for context tracking
+    """
     _agent_tenant_id = await _get_agent_tenant_id(agent_id)
 
     ws = await ensure_workspace(agent_id, tenant_id=_agent_tenant_id)
