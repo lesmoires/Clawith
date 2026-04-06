@@ -1734,7 +1734,7 @@ async def execute_tool(
         elif tool_name == "execute_code":
             result = await _execute_code(ws, arguments)
         elif tool_name == "ssh_exec":
-            result = await _ssh_exec(agent_id, arguments)
+            result = await _ssh_exec_direct(agent_id, user_id, arguments)
         elif tool_name == "upload_image":
             result = await _upload_image(agent_id, ws, arguments)
         elif tool_name == "discover_resources":
@@ -7536,3 +7536,70 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
         return f"SSH Error: {str(e)[:200]}"
     except Exception as e:
         return f"Error: {str(e)[:200]}"
+
+
+# ── Direct SSH Execution Tool (No MCP) ──────────────────────────
+
+async def _ssh_exec_direct(agent_id: uuid.UUID, user_id: uuid.UUID, arguments: dict) -> str:
+    """Execute command on remote server via SSH (direct, no MCP)."""
+    import asyncssh
+    import base64
+    from app.config import get_settings
+    
+    host = arguments.get("host", "")
+    command = arguments.get("command", "")
+    username = arguments.get("username", "root")
+    
+    if not host or not command:
+        return "Error: 'host' and 'command' are required"
+    
+    # Get SSH key from Infisical
+    try:
+        async with async_session() as db:
+            from app.models.agent import AgentInfisicalProject
+            result = await db.execute(select(AgentInfisicalProject).where(AgentInfisicalProject.agent_id == agent_id))
+            assignment = result.scalar_one_or_none()
+        
+        if not assignment:
+            return "Error: No Infisical project assigned"
+        
+        # Fetch SSH key via Infisical API
+        infisical_host = os.getenv('INFISICAL_HOST_URL', 'https://secrets.moiria.com')
+        client_id = os.getenv('INFISICAL_UNIVERSAL_AUTH_CLIENT_ID')
+        client_secret = os.getenv('INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET')
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            auth_resp = await client.post(
+                f'{infisical_host}/api/v1/auth/universal-auth/login',
+                json={'clientId': client_id, 'clientSecret': client_secret}
+            )
+            access_token = auth_resp.json().get('accessToken')
+            
+            resp = await client.get(
+                f'{infisical_host}/api/v3/secrets/raw',
+                headers={'Authorization': f'Bearer {access_token}'},
+                params={'workspaceId': assignment.infisical_project_id, 'environment': 'prod'}
+            )
+            secrets = resp.json().get('secrets', [])
+            ssh_key_b64 = next((s['secretValue'] for s in secrets if s['secretKey'] == 'HETZNER_SSH_KEY_BASE64'), None)
+        
+        if not ssh_key_b64:
+            return "Error: HETZNER_SSH_KEY_BASE64 not found in Infisical"
+        
+        # Decode and connect
+        ssh_key = base64.b64decode(ssh_key_b64).decode('utf-8')
+        conn = await asyncssh.connect(host=host, username=username, client_keys=[ssh_key], known_hosts=None)
+        result = await conn.run(command)
+        await conn.close()
+        
+        output = result.stdout.strip() if result.stdout else ""
+        error = result.stderr.strip() if result.stderr else ""
+        
+        if error and not output:
+            return f"Error: {error[:500]}"
+        return output[:4000] if output else "Command executed (no output)"
+        
+    except asyncssh.Error as e:
+        return f"SSH Error: {str(e)[:500]}"
+    except Exception as e:
+        return f"Error: {str(e)[:500]}"
