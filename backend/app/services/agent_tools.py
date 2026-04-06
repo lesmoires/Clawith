@@ -7512,19 +7512,23 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
     if ssh_key_raw.startswith("Error:"):
         return f"Error: Cannot fetch SSH key - {ssh_key_raw}"
     
-    # Decode base64 if needed
+    # Decode base64 and write to temp file
     try:
         ssh_key = base64.b64decode(ssh_key_raw).decode('utf-8')
     except:
         ssh_key = ssh_key_raw
     
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.pem') as f:
+        f.write(ssh_key)
+        key_file = f.name
+    
     try:
-        conn = await asyncssh.connect(host, username=username, client_keys=[ssh_key], known_hosts=None)
+        conn = await asyncssh.connect(host, username=username, client_keys=[key_file], known_hosts=None)
         result = await conn.run(command)
-        await conn.close()
-        
         output = result.stdout.strip()
         error = result.stderr.strip()
+        await conn.close()
         
         if error and not output:
             return f"Error: {error[:500]}"
@@ -7536,6 +7540,8 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
         return f"SSH Error: {str(e)[:200]}"
     except Exception as e:
         return f"Error: {str(e)[:200]}"
+    finally:
+        os.unlink(key_file)
 
 
 # ── Direct SSH Execution Tool (No MCP) ──────────────────────────
