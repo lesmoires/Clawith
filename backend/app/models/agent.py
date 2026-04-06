@@ -166,6 +166,24 @@ class AgentTemplate(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AgentInfisicalProject(Base):
+    """Mapping of agents to their Infisical project access."""
+
+    __tablename__ = "agent_infisical_projects"
+
+    agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, ForeignKey("agents.id"))
+    infisical_project_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    infisical_project_name: Mapped[str | None] = mapped_column(String(255))
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    granted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    agent: Mapped["Agent"] = relationship()
+    granter: Mapped["User"] = relationship(foreign_keys=[granted_by])
+
+
 # Import for relationship resolution
 from app.models.task import Task  # noqa: E402, F401
 from app.models.channel_config import ChannelConfig  # noqa: E402, F401
