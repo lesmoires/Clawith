@@ -1531,6 +1531,7 @@ async def execute_tool(
     arguments: dict,
     agent_id: uuid.UUID,
     user_id: uuid.UUID,
+    session_id: Optional[uuid.UUID] = None,
 ) -> str:
     """Execute a tool call and return the result as a string."""
     _agent_tenant_id = await _get_agent_tenant_id(agent_id)
