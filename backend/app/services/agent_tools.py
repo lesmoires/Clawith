@@ -7268,6 +7268,7 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
         Command output or error message
     """
     import asyncssh
+from typing import Optional
     
     host = arguments.get("host", "")
     username = arguments.get("username", "root")
