@@ -7588,7 +7588,7 @@ async def _ssh_exec_direct(agent_id: uuid.UUID, user_id: uuid.UUID, arguments: d
         
         # Decode and write to temp file
         ssh_key = base64.b64decode(ssh_key_b64).decode('utf-8')
-        import tempfile, os
+        import tempfile
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.pem') as f:
             f.write(ssh_key)
             key_file = f.name
