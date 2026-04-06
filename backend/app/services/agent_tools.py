@@ -1734,7 +1734,7 @@ async def execute_tool(
         elif tool_name == "execute_code":
             result = await _execute_code(ws, arguments)
         elif tool_name == "ssh_exec":
-            result = await _ssh_exec_direct(agent_id, user_id, arguments)
+            result = await _ssh_exec(agent_id, arguments)
         elif tool_name == "upload_image":
             result = await _upload_image(agent_id, ws, arguments)
         elif tool_name == "discover_resources":
