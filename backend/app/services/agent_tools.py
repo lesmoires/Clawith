@@ -422,6 +422,35 @@ AGENT_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "ssh_exec",
+            "description": "Execute a command on a remote server via SSH. Requires SSH key stored in Infisical. Use for infrastructure management, container operations, log viewing, and server administration.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "host": {
+                        "type": "string",
+                        "description": "Server IP or hostname, e.g. '46.225.220.208'",
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "SSH username (default: 'root')",
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "Shell command to execute, e.g. 'docker ps', 'uptime', 'df -h'",
+                    },
+                    "key_name": {
+                        "type": "string",
+                        "description": "Infisical secret name for SSH key (default: 'HETZNER_SSH_KEY_BASE64')",
+                    },
+                },
+                "required": ["host", "command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "upload_image",
             "description": "Upload an image file from your workspace (or from a public URL) to a cloud CDN and get a permanent public URL. Use this when you need to share images externally, embed them in messages/reports, or make workspace images accessible via URL. Supports common formats: PNG, JPG, GIF, WebP, SVG.",
             "parameters": {
@@ -1623,6 +1652,8 @@ async def execute_tool(
             result = await _plaza_add_comment(agent_id, arguments)
         elif tool_name == "execute_code":
             result = await _execute_code(ws, arguments)
+        elif tool_name == "ssh_exec":
+            result = await _ssh_exec(agent_id, arguments)
         elif tool_name == "upload_image":
             result = await _upload_image(agent_id, ws, arguments)
         elif tool_name == "discover_resources":
