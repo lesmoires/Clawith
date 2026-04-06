@@ -16,6 +16,7 @@ import httpx
 import json
 import os
 import uuid
+from typing import Optional
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
