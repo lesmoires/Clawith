@@ -7248,3 +7248,118 @@ async def _agentbay_computer_list_visible_apps(agent_id: Optional[uuid.UUID], ws
     except Exception as e:
         logger.exception(f"[AgentBay] Computer list_visible_apps failed")
         return f"List applications failed: {str(e)[:200]}"
+
+
+# ── SSH Execution Tool ─────────────────────────────────────
+
+async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Execute command on remote server via SSH.
+    
+    Args:
+        agent_id: Agent UUID
+        arguments: {
+            "host": "46.225.220.208",
+            "username": "root",
+            "command": "docker ps",
+            "key_name": "moiria-deploy"  # Infisical secret name for SSH key
+        }
+    
+    Returns:
+        Command output or error message
+    """
+    import asyncssh
+    
+    host = arguments.get("host", "")
+    username = arguments.get("username", "root")
+    command = arguments.get("command", "")
+    key_name = arguments.get("key_name", "HETZNER_SSH_KEY")
+    
+    if not host or not command:
+        return "Error: 'host' and 'command' are required"
+    
+    # Fetch SSH key from Infisical
+    ssh_key = await _infisical_get_secret_inner(agent_id, key_name)
+    if ssh_key.startswith("Error:"):
+        return f"Error: Cannot fetch SSH key - {ssh_key}"
+    
+    try:
+        # Connect via SSH
+        conn = await asyncssh.connect(
+            host,
+            username=username,
+            client_keys=[ssh_key],
+            known_hosts=None,  # Skip host key verification for automation
+        )
+        
+        # Execute command
+        result = await conn.run(command)
+        
+        await conn.close()
+        
+        output = result.stdout.strip()
+        error = result.stderr.strip()
+        
+        if error and not output:
+            return f"Error: {error[:500]}"
+        
+        if output and error:
+            return f"{output[:2000]}\n\n[Stderr: {error[:200]}]"
+        
+        return output[:4000] if output else "Command executed successfully (no output)"
+        
+    except asyncssh.Error as e:
+        return f"SSH Error: {str(e)[:200]}"
+    except Exception as e:
+        return f"Error: {str(e)[:200]}"
+
+
+async def _infisical_get_secret_inner(agent_id: uuid.UUID, secret_name: str) -> str:
+    """Internal function to get secret from Infisical (for SSH key fetch)."""
+    import httpx
+    
+    infisical_host = os.getenv('INFISICAL_HOST_URL', 'https://secrets.moiria.com').rstrip('/')
+    client_id = os.getenv('INFISICAL_UNIVERSAL_AUTH_CLIENT_ID')
+    client_secret = os.getenv('INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET')
+    
+    if not client_id or not client_secret:
+        return 'Error: INFISICAL credentials not configured'
+    
+    async with async_session() as db:
+        from app.models.agent import AgentInfisicalProject
+        result = await db.execute(select(AgentInfisicalProject).where(AgentInfisicalProject.agent_id == agent_id))
+        assignment = result.scalar_one_or_none()
+    
+    if not assignment:
+        return 'Error: No Infisical project assigned to this agent'
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            auth_resp = await client.post(
+                f'{infisical_host}/api/v1/auth/universal-auth/login',
+                headers={'Content-Type': 'application/json'},
+                json={'clientId': client_id, 'clientSecret': client_secret}
+            )
+            auth_resp.raise_for_status()
+            access_token = auth_resp.json().get('accessToken')
+            
+            if not access_token:
+                return 'Error: Failed to get access token'
+            
+            resp = await client.get(
+                f'{infisical_host}/api/v3/secrets/raw',
+                headers={'Authorization': f'Bearer {access_token}'},
+                params={'workspaceId': assignment.infisical_project_id, 'environment': 'prod'}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            
+            secrets = data.get('secrets', [])
+            for secret in secrets:
+                if secret.get('secretKey') == secret_name:
+                    return secret.get('secretValue', '')
+            
+            available = [s['secretKey'] for s in secrets]
+            return f'Error: Secret "{secret_name}" not found. Available: {", ".join(available) if available else "none"}'
+            
+    except Exception as e:
+        return f'Error: {str(e)[:200]}'
