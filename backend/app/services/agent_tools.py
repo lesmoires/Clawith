@@ -7586,13 +7586,19 @@ async def _ssh_exec_direct(agent_id: uuid.UUID, user_id: uuid.UUID, arguments: d
         if not ssh_key_b64:
             return "Error: HETZNER_SSH_KEY_BASE64 not found in Infisical"
         
-        # Decode and connect
+        # Decode and write to temp file
         ssh_key = base64.b64decode(ssh_key_b64).decode('utf-8')
-        conn = await asyncssh.connect(host=host, username=username, client_keys=[ssh_key], known_hosts=None)
-        result = await conn.run(command)
-        await conn.close()
-        
-        output = result.stdout.strip() if result.stdout else ""
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.pem') as f:
+            f.write(ssh_key)
+            key_file = f.name
+        try:
+            conn = await asyncssh.connect(host=host, username=username, client_keys=[key_file], known_hosts=None)
+            result = await conn.run(command)
+            await conn.close()
+            output = result.stdout.strip() if result.stdout else ""
+        finally:
+            os.unlink(key_file)
         error = result.stderr.strip() if result.stderr else ""
         
         if error and not output:
