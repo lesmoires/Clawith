@@ -7272,15 +7272,22 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
     host = arguments.get("host", "")
     username = arguments.get("username", "root")
     command = arguments.get("command", "")
-    key_name = arguments.get("key_name", "HETZNER_SSH_KEY")
+    key_name = arguments.get("key_name", "HETZNER_SSH_KEY_BASE64")
     
     if not host or not command:
         return "Error: 'host' and 'command' are required"
     
     # Fetch SSH key from Infisical
-    ssh_key = await _infisical_get_secret_inner(agent_id, key_name)
-    if ssh_key.startswith("Error:"):
-        return f"Error: Cannot fetch SSH key - {ssh_key}"
+    ssh_key_raw = await _infisical_get_secret_inner(agent_id, key_name)
+    if ssh_key_raw.startswith("Error:"):
+        return f"Error: Cannot fetch SSH key - {ssh_key_raw}"
+    
+    # Decode base64 if needed (HETZNER_SSH_KEY_BASE64 is base64 encoded)
+    import base64
+    try:
+        ssh_key = base64.b64decode(ssh_key_raw).decode('utf-8')
+    except:
+        ssh_key = ssh_key_raw  # Already in plain text format
     
     try:
         # Connect via SSH
