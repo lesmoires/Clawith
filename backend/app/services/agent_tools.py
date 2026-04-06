@@ -7595,15 +7595,15 @@ async def _ssh_exec_direct(agent_id: uuid.UUID, user_id: uuid.UUID, arguments: d
         try:
             conn = await asyncssh.connect(host=host, username=username, client_keys=[key_file], known_hosts=None)
             result = await conn.run(command)
-            await conn.close()
             output = result.stdout.strip() if result.stdout else ""
+            error = result.stderr.strip() if result.stderr else ""
+            await conn.close()
+            
+            if error and not output:
+                return f"Error: {error[:500]}"
+            return output[:4000] if output else "Command executed (no output)"
         finally:
             os.unlink(key_file)
-        error = result.stderr.strip() if result.stderr else ""
-        
-        if error and not output:
-            return f"Error: {error[:500]}"
-        return output[:4000] if output else "Command executed (no output)"
         
     except asyncssh.Error as e:
         return f"SSH Error: {str(e)[:500]}"
