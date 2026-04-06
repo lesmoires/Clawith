@@ -497,6 +497,81 @@ AGENT_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_files",
+            "description": "Search for files in your workspace by pattern (substring or regex). Returns list of matching file paths.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Search pattern (substring or regex like *.md)",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Subdirectory to search in (default: workspace root)",
+                    },
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_files",
+            "description": "Find files by glob pattern (e.g., *.md, **/*.py). Returns list of matching file paths.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "glob_pattern": {
+                        "type": "string",
+                        "description": "Glob pattern like '*.md' or '**/*.py'",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Subdirectory to search in (default: workspace root)",
+                    },
+                },
+                "required": ["glob_pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_file",
+            "description": "Edit a file by replacing text or specific line ranges.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path relative to workspace",
+                    },
+                    "old_text": {
+                        "type": "string",
+                        "description": "Text to find and replace",
+                    },
+                    "new_text": {
+                        "type": "string",
+                        "description": "Replacement text",
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Start line number (1-indexed) for line-range edit",
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "End line number (1-indexed) for line-range edit",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
     # ── Feishu Document Tools ──────────────────────────────────────
     {
         "type": "function",
@@ -1614,6 +1689,12 @@ async def execute_tool(
             result = _write_file(ws, path, content, tenant_id=_agent_tenant_id)
         elif tool_name == "delete_file":
             result = _delete_file(ws, arguments.get("path", ""))
+        elif tool_name == "search_files":
+            result = await search_files(agent_id, user_id, arguments.get("session_id"), arguments.get("pattern", ""), arguments.get("path", "."))
+        elif tool_name == "find_files":
+            result = await find_files(agent_id, user_id, arguments.get("session_id"), arguments.get("glob_pattern", "*.md"), arguments.get("path", "."))
+        elif tool_name == "edit_file":
+            result = await edit_file(agent_id, user_id, arguments.get("session_id"), arguments.get("path", ""), arguments.get("old_text", ""), arguments.get("new_text", ""), arguments.get("start_line"), arguments.get("end_line"))
         elif tool_name == "manage_tasks":
             result = await _manage_tasks(agent_id, user_id, ws, arguments)
         elif tool_name == "set_trigger":
