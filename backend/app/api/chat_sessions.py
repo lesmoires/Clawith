@@ -152,30 +152,69 @@ async def list_sessions(
         return out
 
     else:  # scope == "mine"
+        # For "mine" scope, show:
+        # 1. User's direct sessions (user_id = current_user)
+        # 2. A2A sessions where user created/owns one of the agents
+        agent_ids_user_owns = select(Agent.id).where(Agent.creator_id == current_user.id)
+        
         result = await db.execute(
             select(ChatSession)
             .where(
                 ChatSession.agent_id == agent_id,
-                ChatSession.user_id == current_user.id,
-                ChatSession.is_group == False,  # Group sessions are not "mine"
-                ChatSession.source_channel.notin_(["agent", "trigger"]),  # Exclude agent-to-agent and reflection sessions
+                ChatSession.is_group == False,
+                # Include: user's sessions OR A2A sessions where user owns an agent
+                (
+                    (ChatSession.user_id == current_user.id) &
+                    (ChatSession.source_channel.notin_(["agent", "trigger"]))
+                ) |
+                (
+                    (ChatSession.source_channel == "agent") &
+                    (
+                        (ChatSession.agent_id.in_(agent_ids_user_owns)) |
+                        ((ChatSession.peer_agent_id != None) & (ChatSession.peer_agent_id.in_(agent_ids_user_owns)))
+                    )
+                )
             )
             .order_by(ChatSession.last_message_at.desc().nulls_last(), ChatSession.created_at.desc())
         )
         sessions = result.scalars().all()
         out = []
         for session in sessions:
-            # Count only — skip sessions with no user messages (orphan assistant-only records)
-            count_result = await db.execute(
-                select(func.count(ChatMessage.id)).where(
-                    ChatMessage.conversation_id == str(session.id),
-                    ChatMessage.agent_id == agent_id,
-                    ChatMessage.role == "user",
+            # Determine peer agent info for A2A sessions
+            peer_agent_id = None
+            peer_agent_name = None
+            participant_type = "user"
+            
+            if session.source_channel == "agent" and session.peer_agent_id:
+                # A2A session — get peer agent name
+                participant_type = "agent"
+                peer_agent_id = str(session.peer_agent_id)
+                a2_r = await db.execute(select(Agent.name).where(Agent.id == session.peer_agent_id))
+                peer_agent_name = a2_r.scalar_one_or_none() or "Agent"
+            
+            # Count messages
+            if session.source_channel == "agent":
+                # For A2A, count all messages
+                count_result = await db.execute(
+                    select(func.count(ChatMessage.id)).where(
+                        ChatMessage.conversation_id == str(session.id),
+                        ChatMessage.agent_id == agent_id,
+                    )
                 )
-            )
-            user_msg_count = count_result.scalar() or 0
-            if user_msg_count == 0:
-                continue  # hide empty or orphan sessions
+            else:
+                # For user sessions, count user messages
+                count_result = await db.execute(
+                    select(func.count(ChatMessage.id)).where(
+                        ChatMessage.conversation_id == str(session.id),
+                        ChatMessage.agent_id == agent_id,
+                        ChatMessage.role == "user",
+                    )
+                )
+            
+            msg_count = count_result.scalar() or 0
+            if msg_count == 0:
+                continue  # hide empty sessions
+            
             # Total message count for display
             total_result = await db.execute(
                 select(func.count(ChatMessage.id)).where(
@@ -183,7 +222,8 @@ async def list_sessions(
                     ChatMessage.agent_id == agent_id,
                 )
             )
-            count = total_result.scalar() or 0
+            total_count = total_result.scalar() or 0
+            
             out.append(SessionOut(
                 id=str(session.id),
                 agent_id=str(session.agent_id),
@@ -192,7 +232,12 @@ async def list_sessions(
                 title=session.title,
                 created_at=session.created_at.isoformat(),
                 last_message_at=session.last_message_at.isoformat() if session.last_message_at else None,
-                message_count=count,
+                message_count=total_count,
+                peer_agent_id=peer_agent_id,
+                peer_agent_name=peer_agent_name,
+                participant_type=participant_type,
+                is_group=False,
+                group_name=None,
             ))
         return out
 
