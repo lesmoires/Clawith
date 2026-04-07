@@ -154,7 +154,10 @@ async def list_sessions(
     else:  # scope == "mine"
         # For "mine" scope, show:
         # 1. User's direct sessions (user_id = current_user)
-        # 2. A2A sessions where user created/owns one of the agents
+        # 2. A2A sessions where user owns the AGENT BEING VIEWED (agent_id)
+        #    A2A sessions where user only owns peer_agent appear in "Other users" (scope=all)
+        #    This fixes the issue where A2A sessions showed in "My Sessions" when viewing
+        #    another user's agent (e.g., DevOps Moiria) even though user doesn't own it.
         agent_ids_user_owns = select(Agent.id).where(Agent.creator_id == current_user.id)
         
         result = await db.execute(
@@ -162,17 +165,14 @@ async def list_sessions(
             .where(
                 ChatSession.agent_id == agent_id,
                 ChatSession.is_group == False,
-                # Include: user's sessions OR A2A sessions where user owns an agent
+                # Include: user's sessions OR A2A sessions where user owns THIS agent
                 (
                     (ChatSession.user_id == current_user.id) &
                     (ChatSession.source_channel.notin_(["agent", "trigger"]))
                 ) |
                 (
                     (ChatSession.source_channel == "agent") &
-                    (
-                        (ChatSession.agent_id.in_(agent_ids_user_owns)) |
-                        ((ChatSession.peer_agent_id != None) & (ChatSession.peer_agent_id.in_(agent_ids_user_owns)))
-                    )
+                    (ChatSession.agent_id.in_(agent_ids_user_owns))
                 )
             )
             .order_by(ChatSession.last_message_at.desc().nulls_last(), ChatSession.created_at.desc())
