@@ -7401,7 +7401,7 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
         conn = await asyncssh.connect(
             host,
             username=username,
-            client_keys=[ssh_key],
+            client_keys=[asyncssh.import_private_key(ssh_key.replace("\\n", "\n"))],
             known_hosts=None,  # Skip host key verification for automation
         )
         
