@@ -7408,7 +7408,7 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
         # Execute command
         result = await conn.run(command)
         
-        await conn.close()
+        conn.close()
         
         output = result.stdout.strip()
         error = result.stderr.strip()
@@ -7538,7 +7538,7 @@ async def _ssh_exec_direct(agent_id: uuid.UUID, user_id: uuid.UUID, arguments: d
             result = await conn.run(command)
             output = result.stdout.strip() if result.stdout else ""
             error = result.stderr.strip() if result.stderr else ""
-            await conn.close()
+            conn.close()
             
             if error and not output:
                 return f"Error: {error[:500]}"
