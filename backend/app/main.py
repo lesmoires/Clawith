@@ -24,9 +24,16 @@ async def _start_ss_local() -> None:
     # Load proxy nodes from config file (gitignored, mounted as Docker volume)
     import json as _json
     cfg_file = os.environ.get("SS_CONFIG_FILE", "/data/ss-nodes.json")
-    if os.path.exists(cfg_file):
-        nodes = _json.load(open(cfg_file))
-        logger.info(f"[Proxy] Loaded {len(nodes)} node(s) from {cfg_file}")
+    if os.path.isfile(cfg_file):
+        try:
+            nodes = _json.load(open(cfg_file))
+            logger.info(f"[Proxy] Loaded {len(nodes)} node(s) from {cfg_file}")
+        except (json.JSONDecodeError, IsADirectoryError, PermissionError) as e:
+            logger.warning(f"[Proxy] Failed to load {cfg_file}: {e} — skipping proxy")
+            nodes = []
+    elif os.path.isdir(cfg_file):
+        logger.warning(f"[Proxy] {cfg_file} is a directory, not a file — skipping proxy")
+        nodes = []
     elif os.environ.get("SS_SERVER") and os.environ.get("SS_PASSWORD"):
         nodes = [{"server": os.environ["SS_SERVER"], "port": int(os.environ.get("SS_PORT", "1080")),
                   "password": os.environ["SS_PASSWORD"], "method": os.environ.get("SS_METHOD", "chacha20-ietf-poly1305"), "label": "env"}]
