@@ -1622,6 +1622,8 @@ async def execute_tool(
             result = await _plaza_add_comment(agent_id, arguments)
         elif tool_name == "execute_code":
             result = await _execute_code(ws, arguments)
+        elif tool_name == "ssh_exec":
+            result = await _ssh_exec(agent_id, arguments)
         elif tool_name == "upload_image":
             result = await _upload_image(agent_id, ws, arguments)
         elif tool_name == "discover_resources":
@@ -6832,3 +6834,58 @@ async def _hetzner_power_off(agent_id: uuid.UUID, arguments: dict) -> str:
 async def _hetzner_shutdown(agent_id: uuid.UUID, arguments: dict) -> str:
     """Shutdown server via LiteLLM Hetzner MCP."""
     return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_shutdown', arguments)
+
+# ── SSH Remote Execution ──
+async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Execute command on remote server via SSH using Infisical-stored key."""
+    import asyncssh
+    
+    host = arguments.get("host", "")
+    username = arguments.get("username", "root")
+    command = arguments.get("command", "")
+    key_name = arguments.get("key_name", "HETZNER_SSH_KEY_BASE64")
+    
+    if not host or not command:
+        return "Error: host and command are required"
+    
+    # Fetch SSH key from Infisical
+    from app.services.tool_seeder import get_infisical_api_key
+    from app.services.infisical_client import InfisicalClient
+    
+    api_key = get_infisical_api_key()
+    if not api_key:
+        return "Error: Infisical API key not configured"
+    
+    client = InfisicalClient(api_key)
+    try:
+        secret = await client.get_secret(project_id="clawith", environment="prod", secret_name=key_name)
+        ssh_key = secret.get("value", "")
+    except Exception as e:
+        return f"Error: Cannot fetch SSH key - {str(e)[:200]}"
+    
+    if not ssh_key:
+        return f"Error: SSH key {key_name} not found in Infisical"
+    
+    try:
+        conn = await asyncssh.connect(
+            host,
+            username=username,
+            client_keys=[ssh_key],
+            known_hosts=None,
+        )
+        result = await conn.run(command)
+        await conn.close()
+        
+        output = result.stdout.strip()
+        error = result.stderr.strip()
+        
+        if error and not output:
+            return f"Error: {error[:500]}"
+        if output and error:
+            return f"{output[:2000]}\n\n[Stderr: {error[:200]}]"
+        return output[:4000] if output else "Command executed (no output)"
+        
+    except asyncssh.Error as e:
+        return f"SSH Error: {str(e)[:500]}"
+    except Exception as e:
+        return f"Error: {str(e)[:500]}"

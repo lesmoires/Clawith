@@ -2878,6 +2878,26 @@ BUILTIN_TOOLS = [
     # ── Hetzner Cloud Tools ──
     *HETZNER_TOOLS,
     # ── AgentBay Tools ──  
+    {
+        "name": "ssh_exec",
+        "display_name": "SSH Execute",
+        "description": "Execute a command on a remote server via SSH. Requires SSH key stored in Infisical.",
+        "category": "infrastructure",
+        "icon": "🔐",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "host": {"type": "string", "description": "Server IP or hostname"},
+                "username": {"type": "string", "description": "SSH username (default: root)"},
+                "command": {"type": "string", "description": "Shell command to execute"},
+                "key_name": {"type": "string", "description": "Infisical secret name for SSH key"}
+            },
+            "required": ["host", "command"]
+        },
+        "config": {},
+        "config_schema": {}
+    },
     *AGENTBAY_TOOLS,
 ]
 
