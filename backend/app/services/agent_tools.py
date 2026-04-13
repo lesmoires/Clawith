@@ -6841,6 +6841,8 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
     import asyncssh
     import httpx
     import os
+    import tempfile
+    import base64
     from sqlalchemy import select
     from app.database import async_session
     
@@ -6852,7 +6854,7 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
     if not host or not command:
         return "Error: host and command are required"
     
-    # Fetch SSH key from Infisical using same pattern as _infisical_get_secret
+    # Fetch SSH key from Infisical
     infisical_host = os.getenv('INFISICAL_HOST_URL', 'https://secrets.moiria.com').rstrip('/')
     client_id = os.getenv('INFISICAL_UNIVERSAL_AUTH_CLIENT_ID')
     client_secret = os.getenv('INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET')
@@ -6868,6 +6870,7 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
     if not assignment:
         return "Error: No Infisical project assigned to this agent"
     
+    ssh_key_data = None
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             auth_resp = await client.post(
@@ -6890,24 +6893,38 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
             data = resp.json()
             
             secrets = data.get('secrets', [])
-            ssh_key = None
             for secret in secrets:
                 if secret.get('secretKey') == key_name:
-                    ssh_key = secret.get('secretValue', '')
+                    ssh_key_data = secret.get('secretValue', '')
                     break
             
-            if not ssh_key:
+            if not ssh_key_data:
                 available = [s['secretKey'] for s in secrets]
                 return f"Error: SSH key '{key_name}' not found. Available: {', '.join(available) if available else 'none'}"
     except Exception as e:
         return f"Error fetching SSH key: {str(e)[:200]}"
     
-    # Connect via SSH
+    # Decode base64 key and write to temp file
+    key_file = None
     try:
+        # Decode base64 if needed
+        try:
+            key_bytes = base64.b64decode(ssh_key_data)
+            key_content = key_bytes.decode('utf-8')
+        except Exception:
+            key_content = ssh_key_data  # Already decoded
+        
+        # Write to temp file
+        key_file = tempfile.NamedTemporaryFile(mode='w', delete=False, prefix='ssh_key_')
+        key_file.write(key_content)
+        key_file.close()
+        os.chmod(key_file.name, 0o600)
+        
+        # Connect via SSH using temp file
         conn = await asyncssh.connect(
             host,
             username=username,
-            client_keys=[ssh_key],
+            client_keys=[key_file.name],
             known_hosts=None,
         )
         result = await conn.run(command)
@@ -6926,3 +6943,10 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
         return f"SSH Error: {str(e)[:500]}"
     except Exception as e:
         return f"Error: {str(e)[:500]}"
+    finally:
+        # Clean up temp file
+        if key_file and os.path.exists(key_file.name):
+            try:
+                os.unlink(key_file.name)
+            except:
+                pass
