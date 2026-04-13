@@ -6928,7 +6928,7 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
             known_hosts=None,
         )
         result = await conn.run(command)
-        await conn.close()
+        conn.close()
         
         output = result.stdout.strip()
         error = result.stderr.strip()
