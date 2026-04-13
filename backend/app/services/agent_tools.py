@@ -6839,6 +6839,10 @@ async def _hetzner_shutdown(agent_id: uuid.UUID, arguments: dict) -> str:
 async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
     """Execute command on remote server via SSH using Infisical-stored key."""
     import asyncssh
+    import httpx
+    import os
+    from sqlalchemy import select
+    from app.database import async_session
     
     host = arguments.get("host", "")
     username = arguments.get("username", "root")
@@ -6848,24 +6852,57 @@ async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
     if not host or not command:
         return "Error: host and command are required"
     
-    # Fetch SSH key from Infisical
-    from app.services.tool_seeder import get_infisical_api_key
-    from app.services.infisical_client import InfisicalClient
+    # Fetch SSH key from Infisical using same pattern as _infisical_get_secret
+    infisical_host = os.getenv('INFISICAL_HOST_URL', 'https://secrets.moiria.com').rstrip('/')
+    client_id = os.getenv('INFISICAL_UNIVERSAL_AUTH_CLIENT_ID')
+    client_secret = os.getenv('INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET')
     
-    api_key = get_infisical_api_key()
-    if not api_key:
-        return "Error: Infisical API key not configured"
+    if not client_id or not client_secret:
+        return "Error: Infisical credentials not configured"
     
-    client = InfisicalClient(api_key)
+    async with async_session() as db:
+        from app.models.agent import AgentInfisicalProject
+        result = await db.execute(select(AgentInfisicalProject).where(AgentInfisicalProject.agent_id == agent_id))
+        assignment = result.scalar_one_or_none()
+    
+    if not assignment:
+        return "Error: No Infisical project assigned to this agent"
+    
     try:
-        secret = await client.get_secret(project_id="clawith", environment="prod", secret_name=key_name)
-        ssh_key = secret.get("value", "")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            auth_resp = await client.post(
+                f'{infisical_host}/api/v1/auth/universal-auth/login',
+                headers={'Content-Type': 'application/json'},
+                json={'clientId': client_id, 'clientSecret': client_secret}
+            )
+            auth_resp.raise_for_status()
+            access_token = auth_resp.json().get('accessToken')
+            
+            if not access_token:
+                return "Error: Failed to get access token from Infisical"
+            
+            resp = await client.get(
+                f'{infisical_host}/api/v3/secrets/raw',
+                headers={'Authorization': f'Bearer {access_token}'},
+                params={'workspaceId': assignment.infisical_project_id, 'environment': 'prod'}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            
+            secrets = data.get('secrets', [])
+            ssh_key = None
+            for secret in secrets:
+                if secret.get('secretKey') == key_name:
+                    ssh_key = secret.get('secretValue', '')
+                    break
+            
+            if not ssh_key:
+                available = [s['secretKey'] for s in secrets]
+                return f"Error: SSH key '{key_name}' not found. Available: {', '.join(available) if available else 'none'}"
     except Exception as e:
-        return f"Error: Cannot fetch SSH key - {str(e)[:200]}"
+        return f"Error fetching SSH key: {str(e)[:200]}"
     
-    if not ssh_key:
-        return f"Error: SSH key {key_name} not found in Infisical"
-    
+    # Connect via SSH
     try:
         conn = await asyncssh.connect(
             host,
