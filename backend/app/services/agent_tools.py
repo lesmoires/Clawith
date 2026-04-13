@@ -1788,6 +1788,292 @@ async def execute_tool(
         elif tool_name == "hetzner_shutdown":
             result = await _hetzner_shutdown(agent_id, arguments)
 
+        # ── Hetzner Extended Tools ──
+
+        elif tool_name == "hetzner_update_server":
+            result = await _hetzner_update_server(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_server":
+            result = await _hetzner_delete_server(agent_id, arguments)
+
+        elif tool_name == "hetzner_reset":
+            result = await _hetzner_reset(agent_id, arguments)
+
+        elif tool_name == "hetzner_rebuild_server":
+            result = await _hetzner_rebuild_server(agent_id, arguments)
+
+        elif tool_name == "hetzner_resize_server":
+            result = await _hetzner_resize_server(agent_id, arguments)
+
+        elif tool_name == "hetzner_enable_rescue":
+            result = await _hetzner_enable_rescue(agent_id, arguments)
+
+        elif tool_name == "hetzner_disable_rescue":
+            result = await _hetzner_disable_rescue(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_images":
+            result = await _hetzner_list_images(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_image":
+            result = await _hetzner_get_image(agent_id, arguments)
+
+        elif tool_name == "hetzner_update_image":
+            result = await _hetzner_update_image(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_image":
+            result = await _hetzner_delete_image(agent_id, arguments)
+
+        elif tool_name == "hetzner_create_image":
+            result = await _hetzner_create_image(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_isos":
+            result = await _hetzner_list_isos(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_iso":
+            result = await _hetzner_get_iso(agent_id, arguments)
+
+        elif tool_name == "hetzner_attach_iso":
+            result = await _hetzner_attach_iso(agent_id, arguments)
+
+        elif tool_name == "hetzner_detach_iso":
+            result = await _hetzner_detach_iso(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_placement_groups":
+            result = await _hetzner_list_placement_groups(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_placement_group":
+            result = await _hetzner_get_placement_group(agent_id, arguments)
+
+        elif tool_name == "hetzner_create_placement_group":
+            result = await _hetzner_create_placement_group(agent_id, arguments)
+
+        elif tool_name == "hetzner_update_placement_group":
+            result = await _hetzner_update_placement_group(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_placement_group":
+            result = await _hetzner_delete_placement_group(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_datacenters":
+            result = await _hetzner_list_datacenters(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_datacenter":
+            result = await _hetzner_get_datacenter(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_location":
+            result = await _hetzner_get_location(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_server_types":
+            result = await _hetzner_list_server_types(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_server_type":
+            result = await _hetzner_get_server_type(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_networks":
+            result = await _hetzner_list_networks(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_network":
+            result = await _hetzner_get_network(agent_id, arguments)
+
+        elif tool_name == "hetzner_create_network":
+            result = await _hetzner_create_network(agent_id, arguments)
+
+        elif tool_name == "hetzner_update_network":
+            result = await _hetzner_update_network(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_network":
+            result = await _hetzner_delete_network(agent_id, arguments)
+
+        elif tool_name == "hetzner_add_subnet":
+            result = await _hetzner_add_subnet(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_subnet":
+            result = await _hetzner_delete_subnet(agent_id, arguments)
+
+        elif tool_name == "hetzner_add_route":
+            result = await _hetzner_add_route(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_route":
+            result = await _hetzner_delete_route(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_firewalls":
+            result = await _hetzner_list_firewalls(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_firewall":
+            result = await _hetzner_get_firewall(agent_id, arguments)
+
+        elif tool_name == "hetzner_create_firewall":
+            result = await _hetzner_create_firewall(agent_id, arguments)
+
+        elif tool_name == "hetzner_update_firewall":
+            result = await _hetzner_update_firewall(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_firewall":
+            result = await _hetzner_delete_firewall(agent_id, arguments)
+
+        elif tool_name == "hetzner_set_firewall_rules":
+            result = await _hetzner_set_firewall_rules(agent_id, arguments)
+
+        elif tool_name == "hetzner_apply_firewall":
+            result = await _hetzner_apply_firewall(agent_id, arguments)
+
+        elif tool_name == "hetzner_remove_firewall":
+            result = await _hetzner_remove_firewall(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_load_balancers":
+            result = await _hetzner_list_load_balancers(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_load_balancer":
+            result = await _hetzner_get_load_balancer(agent_id, arguments)
+
+        elif tool_name == "hetzner_create_load_balancer":
+            result = await _hetzner_create_load_balancer(agent_id, arguments)
+
+        elif tool_name == "hetzner_update_load_balancer":
+            result = await _hetzner_update_load_balancer(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_load_balancer":
+            result = await _hetzner_delete_load_balancer(agent_id, arguments)
+
+        elif tool_name == "hetzner_add_lb_target":
+            result = await _hetzner_add_lb_target(agent_id, arguments)
+
+        elif tool_name == "hetzner_remove_lb_target":
+            result = await _hetzner_remove_lb_target(agent_id, arguments)
+
+        elif tool_name == "hetzner_add_lb_service":
+            result = await _hetzner_add_lb_service(agent_id, arguments)
+
+        elif tool_name == "hetzner_update_lb_service":
+            result = await _hetzner_update_lb_service(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_lb_service":
+            result = await _hetzner_delete_lb_service(agent_id, arguments)
+
+        elif tool_name == "hetzner_change_lb_algorithm":
+            result = await _hetzner_change_lb_algorithm(agent_id, arguments)
+
+        elif tool_name == "hetzner_change_lb_type":
+            result = await _hetzner_change_lb_type(agent_id, arguments)
+
+        elif tool_name == "hetzner_attach_lb_to_network":
+            result = await _hetzner_attach_lb_to_network(agent_id, arguments)
+
+        elif tool_name == "hetzner_detach_lb_from_network":
+            result = await _hetzner_detach_lb_from_network(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_lb_metrics":
+            result = await _hetzner_get_lb_metrics(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_lb_types":
+            result = await _hetzner_list_lb_types(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_certificates":
+            result = await _hetzner_list_certificates(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_certificate":
+            result = await _hetzner_get_certificate(agent_id, arguments)
+
+        elif tool_name == "hetzner_create_certificate":
+            result = await _hetzner_create_certificate(agent_id, arguments)
+
+        elif tool_name == "hetzner_update_certificate":
+            result = await _hetzner_update_certificate(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_certificate":
+            result = await _hetzner_delete_certificate(agent_id, arguments)
+
+        elif tool_name == "hetzner_retry_certificate":
+            result = await _hetzner_retry_certificate(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_volumes":
+            result = await _hetzner_list_volumes(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_volume":
+            result = await _hetzner_get_volume(agent_id, arguments)
+
+        elif tool_name == "hetzner_create_volume":
+            result = await _hetzner_create_volume(agent_id, arguments)
+
+        elif tool_name == "hetzner_update_volume":
+            result = await _hetzner_update_volume(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_volume":
+            result = await _hetzner_delete_volume(agent_id, arguments)
+
+        elif tool_name == "hetzner_attach_volume":
+            result = await _hetzner_attach_volume(agent_id, arguments)
+
+        elif tool_name == "hetzner_detach_volume":
+            result = await _hetzner_detach_volume(agent_id, arguments)
+
+        elif tool_name == "hetzner_resize_volume":
+            result = await _hetzner_resize_volume(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_floating_ips":
+            result = await _hetzner_list_floating_ips(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_floating_ip":
+            result = await _hetzner_get_floating_ip(agent_id, arguments)
+
+        elif tool_name == "hetzner_create_floating_ip":
+            result = await _hetzner_create_floating_ip(agent_id, arguments)
+
+        elif tool_name == "hetzner_update_floating_ip":
+            result = await _hetzner_update_floating_ip(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_floating_ip":
+            result = await _hetzner_delete_floating_ip(agent_id, arguments)
+
+        elif tool_name == "hetzner_assign_floating_ip":
+            result = await _hetzner_assign_floating_ip(agent_id, arguments)
+
+        elif tool_name == "hetzner_unassign_floating_ip":
+            result = await _hetzner_unassign_floating_ip(agent_id, arguments)
+
+        elif tool_name == "hetzner_change_floating_ip_rdns":
+            result = await _hetzner_change_floating_ip_rdns(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_primary_ips":
+            result = await _hetzner_list_primary_ips(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_primary_ip":
+            result = await _hetzner_get_primary_ip(agent_id, arguments)
+
+        elif tool_name == "hetzner_create_primary_ip":
+            result = await _hetzner_create_primary_ip(agent_id, arguments)
+
+        elif tool_name == "hetzner_update_primary_ip":
+            result = await _hetzner_update_primary_ip(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_primary_ip":
+            result = await _hetzner_delete_primary_ip(agent_id, arguments)
+
+        elif tool_name == "hetzner_assign_primary_ip":
+            result = await _hetzner_assign_primary_ip(agent_id, arguments)
+
+        elif tool_name == "hetzner_unassign_primary_ip":
+            result = await _hetzner_unassign_primary_ip(agent_id, arguments)
+
+        elif tool_name == "hetzner_change_primary_ip_rdns":
+            result = await _hetzner_change_primary_ip_rdns(agent_id, arguments)
+
+        elif tool_name == "hetzner_list_ssh_keys":
+            result = await _hetzner_list_ssh_keys(agent_id, arguments)
+
+        elif tool_name == "hetzner_get_ssh_key":
+            result = await _hetzner_get_ssh_key(agent_id, arguments)
+
+        elif tool_name == "hetzner_create_ssh_key":
+            result = await _hetzner_create_ssh_key(agent_id, arguments)
+
+        elif tool_name == "hetzner_update_ssh_key":
+            result = await _hetzner_update_ssh_key(agent_id, arguments)
+
+        elif tool_name == "hetzner_delete_ssh_key":
+            result = await _hetzner_delete_ssh_key(agent_id, arguments)
+
+
+
         # ── Infisical Tools ──
         elif tool_name == "infisical_get_secret":
             result = await _infisical_get_secret(agent_id, arguments)
@@ -6230,6 +6516,387 @@ async def _agentmail_update_message_lite(agent_id: uuid.UUID, arguments: dict) -
 
 
 # ── LiteLLM MCP Hetzner Cloud Tools ──
+
+# ── LiteLLM MCP Hetzner Cloud Tools (Extended) ──
+
+async def _hetzner_update_server(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update a server's name or labels."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_update_server', arguments)
+
+async def _hetzner_delete_server(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Permanently delete a server."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_server', arguments)
+
+async def _hetzner_reset(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Perform a hard reset on the server, equivalent to pressing the reset button."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_reset', arguments)
+
+async def _hetzner_rebuild_server(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Rebuild a server from an image, wiping all data on the server."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_rebuild_server', arguments)
+
+async def _hetzner_resize_server(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Change the server type."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_resize_server', arguments)
+
+async def _hetzner_enable_rescue(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Enable rescue mode on a server."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_enable_rescue', arguments)
+
+async def _hetzner_disable_rescue(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Disable rescue mode on a server."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_disable_rescue', arguments)
+
+async def _hetzner_list_images(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all available images, including system, snapshot, and backup images."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_images', arguments)
+
+async def _hetzner_get_image(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific image by ID."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_image', arguments)
+
+async def _hetzner_update_image(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update an image's description, type, or labels."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_update_image', arguments)
+
+async def _hetzner_delete_image(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Permanently delete a snapshot or backup image."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_image', arguments)
+
+async def _hetzner_create_image(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Create a snapshot image from an existing server."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_create_image', arguments)
+
+async def _hetzner_list_isos(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all available ISO images for mounting on servers."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_isos', arguments)
+
+async def _hetzner_get_iso(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific ISO image by ID."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_iso', arguments)
+
+async def _hetzner_attach_iso(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Attach an ISO image to a server."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_attach_iso', arguments)
+
+async def _hetzner_detach_iso(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Detach an ISO image from a server."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_detach_iso', arguments)
+
+async def _hetzner_list_placement_groups(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all placement groups in the project."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_placement_groups', arguments)
+
+async def _hetzner_get_placement_group(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific placement group by ID."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_placement_group', arguments)
+
+async def _hetzner_create_placement_group(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Create a new placement group to control server distribution across hosts."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_create_placement_group', arguments)
+
+async def _hetzner_update_placement_group(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update a placement group's name or labels."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_update_placement_group', arguments)
+
+async def _hetzner_delete_placement_group(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Delete a placement group."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_placement_group', arguments)
+
+async def _hetzner_list_datacenters(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all available datacenters and their supported server types."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_datacenters', arguments)
+
+async def _hetzner_get_datacenter(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific datacenter by ID."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_datacenter', arguments)
+
+async def _hetzner_get_location(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific location by ID."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_location', arguments)
+
+async def _hetzner_list_server_types(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all available server types with their specs and pricing."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_server_types', arguments)
+
+async def _hetzner_get_server_type(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific server type, including specs and pricing."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_server_type', arguments)
+
+async def _hetzner_list_networks(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all networks in the project, with optional filtering by name or labels."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_networks', arguments)
+
+async def _hetzner_get_network(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific network by its ID."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_network', arguments)
+
+async def _hetzner_create_network(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Create a new network with the specified IP range, and optionally subnets and routes."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_create_network', arguments)
+
+async def _hetzner_update_network(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update properties of a network such as name, labels, or vSwitch route exposure."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_update_network', arguments)
+
+async def _hetzner_delete_network(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Delete a network."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_network', arguments)
+
+async def _hetzner_add_subnet(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Add a subnet to an existing network."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_add_subnet', arguments)
+
+async def _hetzner_delete_subnet(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Remove a subnet from an existing network by its IP range."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_subnet', arguments)
+
+async def _hetzner_add_route(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Add a route to an existing network."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_add_route', arguments)
+
+async def _hetzner_delete_route(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Remove a route from an existing network."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_route', arguments)
+
+async def _hetzner_list_firewalls(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all firewalls in the project, with optional filtering by name or labels."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_firewalls', arguments)
+
+async def _hetzner_get_firewall(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific firewall by its ID."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_firewall', arguments)
+
+async def _hetzner_create_firewall(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Create a new firewall with optional rules and resource assignments."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_create_firewall', arguments)
+
+async def _hetzner_update_firewall(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update a firewall name or labels."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_update_firewall', arguments)
+
+async def _hetzner_delete_firewall(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Delete a firewall."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_firewall', arguments)
+
+async def _hetzner_set_firewall_rules(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Replace all rules of a firewall with a new set of rules."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_set_firewall_rules', arguments)
+
+async def _hetzner_apply_firewall(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Apply a firewall to one or more servers or label selectors."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_apply_firewall', arguments)
+
+async def _hetzner_remove_firewall(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Remove a firewall from one or more servers or label selectors."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_remove_firewall', arguments)
+
+async def _hetzner_list_load_balancers(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all load balancers in the project, with optional filtering by name or labels."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_load_balancers', arguments)
+
+async def _hetzner_get_load_balancer(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific load balancer by its ID."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_load_balancer', arguments)
+
+async def _hetzner_create_load_balancer(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Create a new load balancer with the specified type, location, and optional targets and services."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_create_load_balancer', arguments)
+
+async def _hetzner_update_load_balancer(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update a load balancer name or labels."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_update_load_balancer', arguments)
+
+async def _hetzner_delete_load_balancer(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Permanently delete a load balancer."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_load_balancer', arguments)
+
+async def _hetzner_add_lb_target(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Add a target (server, label selector, or IP) to a load balancer."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_add_lb_target', arguments)
+
+async def _hetzner_remove_lb_target(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Remove a target from a load balancer."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_remove_lb_target', arguments)
+
+async def _hetzner_add_lb_service(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Add a service (port listener with forwarding rules) to a load balancer."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_add_lb_service', arguments)
+
+async def _hetzner_update_lb_service(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update an existing service on a load balancer."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_update_lb_service', arguments)
+
+async def _hetzner_delete_lb_service(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Remove a service from a load balancer by its listen port."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_lb_service', arguments)
+
+async def _hetzner_change_lb_algorithm(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Change the balancing algorithm of a load balancer."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_change_lb_algorithm', arguments)
+
+async def _hetzner_change_lb_type(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Change the type (plan) of a load balancer."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_change_lb_type', arguments)
+
+async def _hetzner_attach_lb_to_network(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Attach a load balancer to a network."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_attach_lb_to_network', arguments)
+
+async def _hetzner_detach_lb_from_network(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Detach a load balancer from a network."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_detach_lb_from_network', arguments)
+
+async def _hetzner_get_lb_metrics(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get metrics for a load balancer over a specified time range."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_lb_metrics', arguments)
+
+async def _hetzner_list_lb_types(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all available load balancer types with pricing and limits."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_lb_types', arguments)
+
+async def _hetzner_list_certificates(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all SSL/TLS certificates in the project, with optional filtering."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_certificates', arguments)
+
+async def _hetzner_get_certificate(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific certificate by its ID."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_certificate', arguments)
+
+async def _hetzner_create_certificate(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Create an uploaded certificate (provide PEM data) or a managed certificate (provide domain names)."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_create_certificate', arguments)
+
+async def _hetzner_update_certificate(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update a certificate name or labels."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_update_certificate', arguments)
+
+async def _hetzner_delete_certificate(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Delete a certificate."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_certificate', arguments)
+
+async def _hetzner_retry_certificate(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Retry issuance or renewal of a managed certificate that has failed."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_retry_certificate', arguments)
+
+async def _hetzner_list_volumes(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all volumes in the project, with optional filtering by name, label, or status."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_volumes', arguments)
+
+async def _hetzner_get_volume(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific volume by ID."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_volume', arguments)
+
+async def _hetzner_create_volume(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Create a new volume."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_create_volume', arguments)
+
+async def _hetzner_update_volume(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update a volume's name or labels."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_update_volume', arguments)
+
+async def _hetzner_delete_volume(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Delete a volume permanently."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_volume', arguments)
+
+async def _hetzner_attach_volume(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Attach a volume to a server."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_attach_volume', arguments)
+
+async def _hetzner_detach_volume(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Detach a volume from the server it is attached to."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_detach_volume', arguments)
+
+async def _hetzner_resize_volume(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Increase the size of a volume."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_resize_volume', arguments)
+
+async def _hetzner_list_floating_ips(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all floating IPs in the project, with optional filtering by name or label."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_floating_ips', arguments)
+
+async def _hetzner_get_floating_ip(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific floating IP by ID."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_floating_ip', arguments)
+
+async def _hetzner_create_floating_ip(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Create a new floating IP."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_create_floating_ip', arguments)
+
+async def _hetzner_update_floating_ip(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update a floating IP's name, description, or labels."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_update_floating_ip', arguments)
+
+async def _hetzner_delete_floating_ip(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Delete a floating IP permanently."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_floating_ip', arguments)
+
+async def _hetzner_assign_floating_ip(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Assign a floating IP to a server in the same location."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_assign_floating_ip', arguments)
+
+async def _hetzner_unassign_floating_ip(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Unassign a floating IP from the server it is currently assigned to."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_unassign_floating_ip', arguments)
+
+async def _hetzner_change_floating_ip_rdns(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Change the reverse DNS entry for a floating IP."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_change_floating_ip_rdns', arguments)
+
+async def _hetzner_list_primary_ips(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all primary IPs in the project, with optional filtering by name, label, or IP address."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_primary_ips', arguments)
+
+async def _hetzner_get_primary_ip(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific primary IP by ID."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_primary_ip', arguments)
+
+async def _hetzner_create_primary_ip(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Create a new primary IP with the specified type and assignee type."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_create_primary_ip', arguments)
+
+async def _hetzner_update_primary_ip(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update a primary IP's name, auto_delete setting, or labels."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_update_primary_ip', arguments)
+
+async def _hetzner_delete_primary_ip(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Delete a primary IP permanently."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_primary_ip', arguments)
+
+async def _hetzner_assign_primary_ip(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Assign a primary IP to a server."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_assign_primary_ip', arguments)
+
+async def _hetzner_unassign_primary_ip(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Unassign a primary IP from the server it is currently assigned to."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_unassign_primary_ip', arguments)
+
+async def _hetzner_change_primary_ip_rdns(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Change the reverse DNS entry for a primary IP."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_change_primary_ip_rdns', arguments)
+
+async def _hetzner_list_ssh_keys(agent_id: uuid.UUID, arguments: dict) -> str:
+    """List all SSH keys in the project, with optional filtering by name, label, or fingerprint."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_ssh_keys', arguments)
+
+async def _hetzner_get_ssh_key(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Get details of a specific SSH key by ID."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_ssh_key', arguments)
+
+async def _hetzner_create_ssh_key(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Add a new SSH public key to the project for use when creating servers."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_create_ssh_key', arguments)
+
+async def _hetzner_update_ssh_key(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Update an SSH key's name or labels."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_update_ssh_key', arguments)
+
+async def _hetzner_delete_ssh_key(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Delete an SSH key from the project permanently."""
+    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_delete_ssh_key', arguments)
+
+
+
 async def _hetzner_list_servers(agent_id: uuid.UUID, arguments: dict) -> str:
     """List servers via LiteLLM Hetzner MCP."""
     return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_servers', arguments)
