@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import check_agent_access
 from app.core.security import get_current_user
 from app.database import get_db
 from app.models.audit import ChatMessage
@@ -26,6 +27,11 @@ def _is_admin_or_creator(user: User, agent: Agent) -> bool:
     )
 
 
+def _can_view_all_agent_chat_sessions(user: User) -> bool:
+    """Only admin roles may list/view/delete other users' chat sessions."""
+    return user.role in ("platform_admin", "org_admin", "agent_admin")
+
+
 class SessionOut(BaseModel):
     id: str
     agent_id: str
@@ -40,6 +46,9 @@ class SessionOut(BaseModel):
     peer_agent_id: Optional[str] = None
     peer_agent_name: Optional[str] = None
     participant_type: str = "user"       # 'user' | 'agent'
+    # Group chat session fields
+    is_group: bool = False
+    group_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -60,15 +69,16 @@ async def list_sessions(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List chat sessions for an agent. 'all' requires admin or creator role."""
+    """List chat sessions for an agent. scope=all for org/platform admins and agent_admin."""
     # Verify agent exists
     agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = agent_result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+    await check_agent_access(db, current_user, agent_id)
 
     if scope == "all":
-        if not _is_admin_or_creator(current_user, agent):
+        if not _can_view_all_agent_chat_sessions(current_user):
             raise HTTPException(status_code=403, detail="Not authorized to view all sessions")
 
         # Fetch all sessions (including agent-to-agent where this agent is peer)
@@ -108,11 +118,17 @@ async def list_sessions(
                 a1_name = a1_r.scalar_one_or_none() or "Agent"
                 a2_name = a2_r.scalar_one_or_none() or "Agent"
                 peer_agent_name = a2_name
-                display = f"🤖 {a1_name} ↔ {a2_name}"
+                display = f"Agent {a1_name} - {a2_name}"
+            elif session.is_group:
+                # Group chat session — display group name instead of username
+                display = session.group_name or session.title or "Group Chat"
             else:
                 # Human session — resolve username
+                # Note: User.username is an association_proxy, so we need to join through Identity
+                from app.models.user import Identity
                 user_r = await db.execute(
-                    select(func.coalesce(User.display_name, User.username))
+                    select(func.coalesce(User.display_name, Identity.username))
+                    .join(Identity, User.identity_id == Identity.id)
                     .where(User.id == session.user_id)
                 )
                 display = user_r.scalar_one_or_none() or "Unknown"
@@ -129,34 +145,76 @@ async def list_sessions(
                 message_count=count,
                 peer_agent_id=peer_agent_id,
                 peer_agent_name=peer_agent_name,
-                participant_type=participant_type,
+                participant_type="group" if session.is_group else participant_type,
+                is_group=session.is_group,
+                group_name=session.group_name,
             ))
         return out
 
     else:  # scope == "mine"
+        # For "mine" scope, show:
+        # 1. User's direct sessions (user_id = current_user)
+        # 2. A2A sessions where user owns the AGENT BEING VIEWED (agent_id)
+        #    A2A sessions where user only owns peer_agent appear in "Other users" (scope=all)
+        #    This fixes the issue where A2A sessions showed in "My Sessions" when viewing
+        #    another user's agent (e.g., DevOps Moiria) even though user doesn't own it.
+        agent_ids_user_owns = select(Agent.id).where(Agent.creator_id == current_user.id)
+        
         result = await db.execute(
             select(ChatSession)
             .where(
                 ChatSession.agent_id == agent_id,
-                ChatSession.user_id == current_user.id,
-                ChatSession.source_channel.notin_(["agent", "trigger"]),  # Exclude agent-to-agent and reflection sessions
+                ChatSession.is_group == False,
+                # Include: user's sessions OR A2A sessions where user owns THIS agent
+                (
+                    (ChatSession.user_id == current_user.id) &
+                    (ChatSession.source_channel.notin_(["agent", "trigger"]))
+                ) |
+                (
+                    (ChatSession.source_channel == "agent") &
+                    (ChatSession.agent_id.in_(agent_ids_user_owns))
+                )
             )
             .order_by(ChatSession.last_message_at.desc().nulls_last(), ChatSession.created_at.desc())
         )
         sessions = result.scalars().all()
         out = []
         for session in sessions:
-            # Count only — skip sessions with no user messages (orphan assistant-only records)
-            count_result = await db.execute(
-                select(func.count(ChatMessage.id)).where(
-                    ChatMessage.conversation_id == str(session.id),
-                    ChatMessage.agent_id == agent_id,
-                    ChatMessage.role == "user",
+            # Determine peer agent info for A2A sessions
+            peer_agent_id = None
+            peer_agent_name = None
+            participant_type = "user"
+            
+            if session.source_channel == "agent" and session.peer_agent_id:
+                # A2A session — get peer agent name
+                participant_type = "agent"
+                peer_agent_id = str(session.peer_agent_id)
+                a2_r = await db.execute(select(Agent.name).where(Agent.id == session.peer_agent_id))
+                peer_agent_name = a2_r.scalar_one_or_none() or "Agent"
+            
+            # Count messages
+            if session.source_channel == "agent":
+                # For A2A, count all messages
+                count_result = await db.execute(
+                    select(func.count(ChatMessage.id)).where(
+                        ChatMessage.conversation_id == str(session.id),
+                        ChatMessage.agent_id == agent_id,
+                    )
                 )
-            )
-            user_msg_count = count_result.scalar() or 0
-            if user_msg_count == 0:
-                continue  # hide empty or orphan sessions
+            else:
+                # For user sessions, count user messages
+                count_result = await db.execute(
+                    select(func.count(ChatMessage.id)).where(
+                        ChatMessage.conversation_id == str(session.id),
+                        ChatMessage.agent_id == agent_id,
+                        ChatMessage.role == "user",
+                    )
+                )
+            
+            msg_count = count_result.scalar() or 0
+            if msg_count == 0:
+                continue  # hide empty sessions
+            
             # Total message count for display
             total_result = await db.execute(
                 select(func.count(ChatMessage.id)).where(
@@ -164,7 +222,8 @@ async def list_sessions(
                     ChatMessage.agent_id == agent_id,
                 )
             )
-            count = total_result.scalar() or 0
+            total_count = total_result.scalar() or 0
+            
             out.append(SessionOut(
                 id=str(session.id),
                 agent_id=str(session.agent_id),
@@ -173,7 +232,12 @@ async def list_sessions(
                 title=session.title,
                 created_at=session.created_at.isoformat(),
                 last_message_at=session.last_message_at.isoformat() if session.last_message_at else None,
-                message_count=count,
+                message_count=total_count,
+                peer_agent_id=peer_agent_id,
+                peer_agent_name=peer_agent_name,
+                participant_type=participant_type,
+                is_group=False,
+                group_name=None,
             ))
         return out
 
@@ -186,10 +250,7 @@ async def create_session(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new chat session for the current user."""
-    agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = agent_result.scalar_one_or_none()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    await check_agent_access(db, current_user, agent_id)
 
     now = datetime.now(tz.utc)
     new_id = uuid.uuid4()
@@ -198,6 +259,7 @@ async def create_session(
         agent_id=agent_id,
         user_id=current_user.id,
         title=body.title or f"Session {now.strftime('%m-%d %H:%M')}",
+        source_channel="web",
         created_at=now,
     )
     db.add(session)
@@ -207,10 +269,13 @@ async def create_session(
         id=str(session.id),
         agent_id=str(session.agent_id),
         user_id=str(session.user_id),
+        source_channel=session.source_channel,
         title=session.title,
         created_at=session.created_at.isoformat(),
         last_message_at=None,
         message_count=0,
+        participant_type="user",
+        is_group=False,
     )
 
 
@@ -222,7 +287,8 @@ async def rename_session(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Rename a session. Only owner, admin, or creator can rename."""
+    """Rename a session. Owner, or org/platform admin (others' sessions)."""
+    await check_agent_access(db, current_user, agent_id)
     result = await db.execute(
         select(ChatSession).where(ChatSession.id == session_id, ChatSession.agent_id == agent_id)
     )
@@ -230,10 +296,7 @@ async def rename_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = agent_result.scalar_one_or_none()
-
-    if str(session.user_id) != str(current_user.id) and not _is_admin_or_creator(current_user, agent):
+    if str(session.user_id) != str(current_user.id) and not _can_view_all_agent_chat_sessions(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     session.title = body.title
@@ -248,7 +311,8 @@ async def delete_session(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a chat session and its messages. Owner, admin, or creator only."""
+    """Delete a chat session and its messages. Owner, or org/platform admin (others' sessions)."""
+    await check_agent_access(db, current_user, agent_id)
     result = await db.execute(
         select(ChatSession).where(ChatSession.id == session_id, ChatSession.agent_id == agent_id)
     )
@@ -256,10 +320,7 @@ async def delete_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = agent_result.scalar_one_or_none()
-
-    if str(session.user_id) != str(current_user.id) and not _is_admin_or_creator(current_user, agent):
+    if str(session.user_id) != str(current_user.id) and not _can_view_all_agent_chat_sessions(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     # Delete associated messages first
@@ -278,6 +339,7 @@ async def get_session_messages(
     db: AsyncSession = Depends(get_db),
 ):
     """Get chat messages for a specific session."""
+    await check_agent_access(db, current_user, agent_id)
     # Allow looking up sessions where agent_id OR peer_agent_id matches
     result = await db.execute(
         select(ChatSession).where(
@@ -289,10 +351,8 @@ async def get_session_messages(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Permission: owner, admin, or creator can view
-    agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = agent_result.scalar_one_or_none()
-    if str(session.user_id) != str(current_user.id) and not _is_admin_or_creator(current_user, agent):
+    # Permission: session owner, or any user with manage access to the viewed agent.
+    if str(session.user_id) != str(current_user.id) and not _can_view_all_agent_chat_sessions(current_user):
         raise HTTPException(status_code=403, detail="Not authorized to view this session")
 
     # Query messages by conversation_id only (agent-to-agent uses session_agent_id)

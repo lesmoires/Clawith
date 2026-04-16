@@ -9,6 +9,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
+# Default context window size — used as the fallback when
+# agent.context_window_size is None or 0 across all channels.
+# Centralizing this constant prevents inconsistent fallback values
+# (see: https://github.com/dataelement/Clawith/issues/238).
+DEFAULT_CONTEXT_WINDOW_SIZE = 100
+
 
 class Agent(Base):
     """Digital employee (Agent) instance.
@@ -158,6 +164,24 @@ class AgentTemplate(Base):
     is_builtin: Mapped[bool] = mapped_column(default=False)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AgentInfisicalProject(Base):
+    """Mapping of agents to their Infisical project access."""
+
+    __tablename__ = "agent_infisical_projects"
+
+    agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True)
+    infisical_project_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    infisical_project_name: Mapped[str | None] = mapped_column(String(255))
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    granted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    agent: Mapped["Agent"] = relationship()
+    granter: Mapped["User"] = relationship(foreign_keys=[granted_by])
 
 
 # Import for relationship resolution

@@ -30,10 +30,12 @@ def upgrade() -> None:
     """))
 
     # 2. Backfill: create Participant for every existing User
+    # Note: In v1.8.0+, email/username moved to identities table. Join to get email.
     conn.execute(sa.text("""
         INSERT INTO participants (id, type, ref_id, display_name, avatar_url)
-        SELECT gen_random_uuid(), 'user', id, COALESCE(display_name, username), avatar_url
-        FROM users
+        SELECT gen_random_uuid(), 'user', u.id, COALESCE(u.display_name, i.email, 'user_' || u.id), u.avatar_url
+        FROM users u
+        LEFT JOIN identities i ON u.identity_id = i.id
         ON CONFLICT DO NOTHING
     """))
 

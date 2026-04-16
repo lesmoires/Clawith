@@ -41,11 +41,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-<<<<<<< HEAD
-=======
 from loguru import logger
 
->>>>>>> upstream/main
 
 def calculate_stats(values: list[float]) -> dict:
     """Calculate mean, stddev, min, max for a list of values."""
@@ -83,11 +80,7 @@ def load_run_results(benchmark_dir: Path) -> dict:
     elif list(benchmark_dir.glob("eval-*")):
         search_dir = benchmark_dir
     else:
-<<<<<<< HEAD
-        print(f"No eval directories found in {benchmark_dir} or {benchmark_dir / 'runs'}")
-=======
         logger.warning(f"No eval directories found in {benchmark_dir} or {benchmark_dir / 'runs'}")
->>>>>>> upstream/main
         return {}
 
     results: dict[str, list] = {}
@@ -122,22 +115,14 @@ def load_run_results(benchmark_dir: Path) -> dict:
                 grading_file = run_dir / "grading.json"
 
                 if not grading_file.exists():
-<<<<<<< HEAD
-                    print(f"Warning: grading.json not found in {run_dir}")
-=======
                     logger.warning(f"Warning: grading.json not found in {run_dir}")
->>>>>>> upstream/main
                     continue
 
                 try:
                     with open(grading_file) as f:
                         grading = json.load(f)
                 except json.JSONDecodeError as e:
-<<<<<<< HEAD
-                    print(f"Warning: Invalid JSON in {grading_file}: {e}")
-=======
                     logger.warning(f"Warning: Invalid JSON in {grading_file}: {e}")
->>>>>>> upstream/main
                     continue
 
                 # Extract metrics
@@ -174,11 +159,7 @@ def load_run_results(benchmark_dir: Path) -> dict:
                 raw_expectations = grading.get("expectations", [])
                 for exp in raw_expectations:
                     if "text" not in exp or "passed" not in exp:
-<<<<<<< HEAD
-                        print(f"Warning: expectation in {grading_file} missing required fields (text, passed, evidence): {exp}")
-=======
                         logger.warning(f"Warning: expectation in {grading_file} missing required fields (text, passed, evidence): {exp}")
->>>>>>> upstream/main
                 result["expectations"] = raw_expectations
 
                 # Extract notes from user_notes_summary
@@ -384,11 +365,7 @@ def main():
     args = parser.parse_args()
 
     if not args.benchmark_dir.exists():
-<<<<<<< HEAD
-        print(f"Directory not found: {args.benchmark_dir}")
-=======
         logger.error(f"Directory not found: {args.benchmark_dir}")
->>>>>>> upstream/main
         sys.exit(1)
 
     # Generate benchmark
@@ -401,42 +378,25 @@ def main():
     # Write benchmark.json
     with open(output_json, "w") as f:
         json.dump(benchmark, f, indent=2)
-<<<<<<< HEAD
-    print(f"Generated: {output_json}")
-=======
     logger.info(f"Generated: {output_json}")
->>>>>>> upstream/main
 
     # Write benchmark.md
     markdown = generate_markdown(benchmark)
     with open(output_md, "w") as f:
         f.write(markdown)
-<<<<<<< HEAD
-    print(f"Generated: {output_md}")
-=======
     logger.info(f"Generated: {output_md}")
->>>>>>> upstream/main
 
     # Print summary
     run_summary = benchmark["run_summary"]
     configs = [k for k in run_summary if k != "delta"]
     delta = run_summary.get("delta", {})
 
-<<<<<<< HEAD
-    print(f"\nSummary:")
-    for config in configs:
-        pr = run_summary[config]["pass_rate"]["mean"]
-        label = config.replace("_", " ").title()
-        print(f"  {label}: {pr*100:.1f}% pass rate")
-    print(f"  Delta:         {delta.get('pass_rate', '—')}")
-=======
     logger.info(f"\nSummary:")
     for config in configs:
         pr = run_summary[config]["pass_rate"]["mean"]
         label = config.replace("_", " ").title()
         logger.info(f"  {label}: {pr*100:.1f}% pass rate")
     logger.info(f"  Delta:         {delta.get('pass_rate', '—')}")
->>>>>>> upstream/main
 
 
 if __name__ == "__main__":

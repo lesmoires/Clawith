@@ -24,9 +24,16 @@ async def _start_ss_local() -> None:
     # Load proxy nodes from config file (gitignored, mounted as Docker volume)
     import json as _json
     cfg_file = os.environ.get("SS_CONFIG_FILE", "/data/ss-nodes.json")
-    if os.path.exists(cfg_file):
-        nodes = _json.load(open(cfg_file))
-        logger.info(f"[Proxy] Loaded {len(nodes)} node(s) from {cfg_file}")
+    if os.path.isfile(cfg_file):
+        try:
+            nodes = _json.load(open(cfg_file))
+            logger.info(f"[Proxy] Loaded {len(nodes)} node(s) from {cfg_file}")
+        except (json.JSONDecodeError, IsADirectoryError, PermissionError) as e:
+            logger.warning(f"[Proxy] Failed to load {cfg_file}: {e} — skipping proxy")
+            nodes = []
+    elif os.path.isdir(cfg_file):
+        logger.warning(f"[Proxy] {cfg_file} is a directory, not a file — skipping proxy")
+        nodes = []
     elif os.environ.get("SS_SERVER") and os.environ.get("SS_PASSWORD"):
         nodes = [{"server": os.environ["SS_SERVER"], "port": int(os.environ.get("SS_PORT", "1080")),
                   "password": os.environ["SS_PASSWORD"], "method": os.environ.get("SS_METHOD", "chacha20-ietf-poly1305"), "label": "env"}]
@@ -61,6 +68,15 @@ async def lifespan(app: FastAPI):
     configure_logging()
     intercept_standard_logging()
     logger.info("[startup] Logging configured")
+
+    # Load Clawith Custom Extensions (isolated triggers, etc.) — Fork custom
+    try:
+        from app.extensions import load_extensions
+        load_extensions()
+        logger.info("[startup] Clawith extensions loaded")
+    except Exception as e:
+        logger.error(f"[startup] Failed to load extensions: {e}")
+        raise
 
     import asyncio
     import sys
@@ -98,14 +114,11 @@ async def lifespan(app: FastAPI):
         import app.models.trigger        # noqa
         import app.models.notification   # noqa
         import app.models.gateway_message # noqa
+        import app.models.agent_credential  # noqa
+
+        import app.models.identity       # noqa
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-            # Add 'atlassian' to channel_type_enum if it doesn't exist yet (idempotent)
-            await conn.execute(
-                __import__("sqlalchemy").text(
-                    "ALTER TYPE channel_type_enum ADD VALUE IF NOT EXISTS 'atlassian'"
-                )
-            )
         logger.info("[startup] Database tables ready")
     except Exception as e:
         logger.warning(f"[startup] create_all failed: {e}")
@@ -145,16 +158,18 @@ async def lifespan(app: FastAPI):
                     _new_dir = _data_dir / f"enterprise_info_{_tenant.id}"
                     if not _new_dir.exists():
                         shutil.copytree(str(_old_dir), str(_new_dir))
-                        logger.info(f"[startup] Migrated enterprise_info → enterprise_info_{_tenant.id}")
+                        print(f"[startup] ✅ Migrated enterprise_info → enterprise_info_{_tenant.id}", flush=True)
                     else:
-                        logger.info(f"[startup] enterprise_info_{_tenant.id} already exists, skipping migration")
+                        print(f"[startup] ℹ️ enterprise_info_{_tenant.id} already exists, skipping migration", flush=True)
     except Exception as e:
-        logger.warning(f"[startup] enterprise_info migration failed: {e}")
+        print(f"[startup] ⚠️ enterprise_info migration failed: {e}", flush=True)
 
     try:
+        from app.services.tool_seeder import seed_builtin_tools, clean_orphaned_mcp_tools
         await seed_builtin_tools()
+        await clean_orphaned_mcp_tools()
     except Exception as e:
-        logger.warning(f"[startup] Builtin tools seed failed: {e}")
+        logger.warning(f"[startup] Builtin tools seed or cleanup failed: {e}")
 
     try:
         from app.services.tool_seeder import seed_atlassian_rovo_config, get_atlassian_api_key
@@ -254,6 +269,7 @@ from app.api.tasks import router as tasks_router
 from app.api.files import router as files_router
 from app.api.websocket import router as ws_router
 from app.api.feishu import router as feishu_router
+from app.api.sso import router as sso_router
 from app.api.organization import router as org_router
 from app.api.enterprise import router as enterprise_router
 from app.api.advanced import router as advanced_router
@@ -277,17 +293,21 @@ from app.api.teams import router as teams_router
 from app.api.triggers import router as triggers_router
 
 from app.api.atlassian import router as atlassian_router
+
 from app.api.webhooks import router as webhooks_router
 from app.api.notification import router as notification_router
 from app.api.gateway import router as gateway_router
 from app.api.admin import router as admin_router
 from app.api.pages import router as pages_router, public_router as pages_public_router
+from app.api.agent_credentials import router as credentials_router
+from app.api.agentbay_control import router as agentbay_control_router
 
 app.include_router(auth_router, prefix=settings.API_PREFIX)
 app.include_router(agents_router, prefix=settings.API_PREFIX)
 app.include_router(tasks_router, prefix=settings.API_PREFIX)
 app.include_router(files_router, prefix=settings.API_PREFIX)
 app.include_router(feishu_router, prefix=settings.API_PREFIX)
+app.include_router(sso_router, prefix=settings.API_PREFIX)
 app.include_router(org_router, prefix=settings.API_PREFIX)
 app.include_router(enterprise_router, prefix=settings.API_PREFIX)
 app.include_router(advanced_router, prefix=settings.API_PREFIX)
@@ -309,6 +329,7 @@ app.include_router(wecom_router, prefix=settings.API_PREFIX)
 app.include_router(teams_router, prefix=settings.API_PREFIX)
 
 app.include_router(atlassian_router, prefix=settings.API_PREFIX)
+
 app.include_router(triggers_router)
 app.include_router(chat_sessions_router)
 app.include_router(plaza_router)
@@ -319,6 +340,16 @@ app.include_router(gateway_router, prefix=settings.API_PREFIX)
 app.include_router(admin_router, prefix=settings.API_PREFIX)
 app.include_router(pages_router, prefix=settings.API_PREFIX)
 app.include_router(pages_public_router)  # Public endpoint for /p/{short_id}, no API prefix
+
+# AgentBay Take Control API
+from app.api.agentbay_control import router as agentbay_control_router
+app.include_router(agentbay_control_router, prefix=settings.API_PREFIX)
+
+# Agent Credentials API
+from app.api.agent_credentials import router as credentials_router
+app.include_router(credentials_router, prefix=settings.API_PREFIX)
+app.include_router(credentials_router, prefix=settings.API_PREFIX)
+app.include_router(agentbay_control_router, prefix=settings.API_PREFIX)
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["health"])
