@@ -3215,7 +3215,7 @@ async def _send_file_to_agent(from_agent_id: uuid.UUID, ws: Path, args: dict) ->
                         (AgentAgentRelationship.target_agent_id == Agent.id) & (AgentAgentRelationship.agent_id == from_agent_id)
                     )
                 )
-                rel_names = [n for (n,) in rel_r.all()]
+                rel_names = [row[0] if isinstance(row, tuple) else row for row in rel_r.all()]
                 return f"❌ No agent found matching '{agent_name}'. Your connected colleagues: {', '.join(rel_names) if rel_names else 'none — ask your administrator to set up relationships'}"
 
             if target_agent.is_expired or (target_agent.expires_at and datetime.now(timezone.utc) >= target_agent.expires_at):
@@ -3373,7 +3373,7 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
                         (AgentAgentRelationship.target_agent_id == Agent.id) & (AgentAgentRelationship.agent_id == from_agent_id)
                     )
                 )
-                rel_names = [n for (n,) in rel_r.all()]
+                rel_names = [row[0] if isinstance(row, tuple) else row for row in rel_r.all()]
                 return f"❌ No agent found matching '{agent_name}'. Your connected colleagues: {', '.join(rel_names) if rel_names else 'none — ask your administrator to set up relationships'}"
 
             # Check if target agent has expired
