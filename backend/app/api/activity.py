@@ -71,7 +71,8 @@ async def list_conversations(
     for row in web_users_q.fetchall():
         user_id, last_at, cnt = row
         user_r = await db.execute(select(User.display_name).where(User.id == user_id))
-        name = user_r.scalar_one_or_none() or "未知用户"
+        result = user_r.scalar_one_or_none()
+        name = (result[0] if isinstance(result, tuple) else result) or "未知用户"
         # Get last message
         last_msg_r = await db.execute(
             select(ChatMessage.content)
@@ -186,7 +187,8 @@ async def list_conversations(
         # Determine the partner agent
         partner_id = sess.peer_agent_id if sess.agent_id == agent_id else sess.agent_id
         agent_r = await db.execute(select(Agent.name).where(Agent.id == partner_id))
-        partner_name = agent_r.scalar_one_or_none() or "未知数字员工"
+        result = agent_r.scalar_one_or_none()
+        partner_name = (result[0] if isinstance(result, tuple) else result) or "未知数字员工"
 
         # Count messages in this session
         stats_q = await db.execute(
@@ -273,7 +275,8 @@ async def get_conversation_messages(
                 pid_str = str(m.participant_id)
                 if pid_str not in name_cache:
                     p_r = await db.execute(select(Participant.display_name).where(Participant.id == m.participant_id))
-                    name_cache[pid_str] = p_r.scalar_one_or_none() or "未知"
+                    result = p_r.scalar_one_or_none()
+                    name_cache[pid_str] = (result[0] if isinstance(result, tuple) else result) or "未知"
                 sender_name = name_cache[pid_str]
             messages.append({
                 "id": str(m.id),

@@ -136,10 +136,12 @@ async def poll_messages(
         sender_user_name = None
         if msg.sender_agent_id:
             r = await db.execute(select(Agent.name).where(Agent.id == msg.sender_agent_id))
-            sender_agent_name = r.scalar_one_or_none()
+            result = r.scalar_one_or_none()
+            sender_agent_name = result[0] if isinstance(result, tuple) else result
         if msg.sender_user_id:
             r = await db.execute(select(User.display_name).where(User.id == msg.sender_user_id))
-            sender_user_name = r.scalar_one_or_none()
+            result = r.scalar_one_or_none()
+            sender_user_name = result[0] if isinstance(result, tuple) else result
 
         # Fetch conversation history (last 10 messages) for context
         history = []
@@ -157,7 +159,8 @@ async def poll_messages(
                 h_sender = None
                 if h.role == "user" and h.user_id:
                     r = await db.execute(select(User.display_name).where(User.id == h.user_id))
-                    h_sender = r.scalar_one_or_none()
+                    result = r.scalar_one_or_none()
+                    h_sender = result[0] if isinstance(result, tuple) else result
                 elif h.role == "assistant":
                     h_sender = agent.name
                 history.append(GatewayHistoryItem(
