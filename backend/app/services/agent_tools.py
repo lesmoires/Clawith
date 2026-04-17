@@ -1622,6 +1622,34 @@ async def execute_tool(
             result = await _plaza_add_comment(agent_id, arguments)
         elif tool_name == "execute_code":
             result = await _execute_code(ws, arguments)
+        # ── v1.8.1 File Management Tools ──
+        elif tool_name == "search_files":
+            result = await search_files(
+                agent_id=agent_id,
+                user_id=user_id,
+                session_id=session_id,
+                pattern=arguments.get("pattern", ""),
+                path=arguments.get("path", "."),
+            )
+        elif tool_name == "find_files":
+            result = await find_files(
+                agent_id=agent_id,
+                user_id=user_id,
+                session_id=session_id,
+                glob_pattern=arguments.get("glob_pattern", "*.md"),
+                path=arguments.get("path", "."),
+            )
+        elif tool_name == "edit_file":
+            result = await edit_file(
+                agent_id=agent_id,
+                user_id=user_id,
+                session_id=session_id,
+                path=arguments.get("path", ""),
+                old_text=arguments.get("old_text", ""),
+                new_text=arguments.get("new_text", ""),
+                start_line=arguments.get("start_line"),
+                end_line=arguments.get("end_line"),
+            )
         elif tool_name == "upload_image":
             result = await _upload_image(agent_id, ws, arguments)
         elif tool_name == "discover_resources":
