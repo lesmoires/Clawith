@@ -8,6 +8,40 @@ Skills define _how_ tools work. This file is for _your_ specifics — the stuff 
 
 **See:** `MISSION_CLAWITH_HYPERACTIVITY.md` for operational doctrine
 
+---
+
+## ⚠️ CRITICAL SAFETY RULES (2026-04-17 Incident)
+
+**After incident 2026-04-17 where 10 hours of work were lost:**
+
+### NEVER Execute Without Backup
+
+```bash
+# ❌ NEVER run these without backup first:
+rm -rf /data/coolify/applications/*/backend/agent_data
+rm -rf /data/agents/
+mv /data/coolify/applications/*/backend/agent_data
+
+# ✅ ALWAYS backup first:
+/data/workspace/scripts/backup-agent-data.sh AVANT_INTERVENTION
+```
+
+### Backup Locations
+
+| Type | Location |
+|------|----------|
+| Agent Data | `/data/backups/agent_data_backup_*.tar.gz` |
+| Database | `/data/backups/db_backup_*.sql.gz` |
+| Manual Backups | `/data/backups/*_MANUAL.tar.gz` |
+
+### Emergency Restore
+
+See: `EMERGENCY_BACKUP_REFERENCE.md` — Keep this printed/accessible.
+
+### Incident Report
+
+See: `memory/INCIDENT_2026-04-17_CRITICAL_DATA_LOSS.md` — Full post-mortem.
+
 ### GitHub PAT
 ```
 GITHUB_TOKEN=[REDACTED - Use Infisical]
