@@ -365,7 +365,6 @@ async def call_llm(
                 tool_name, args,
                 agent_id=agent_id,
                 user_id=user_id or agent_id,
-                session_id=session_id,
             )
             logger.debug(f"[LLM] Tool result: {result[:100]}")
 
