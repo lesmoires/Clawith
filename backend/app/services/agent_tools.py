@@ -3482,7 +3482,13 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
                 return f"⚠️ {target.name} has no LLM model configured"
 
             # Build target system prompt
-            target_system = await build_agent_context(target.id, target.name, target.role_description or "")
+            # Note: build_agent_context returns tuple[str, str] (static, dynamic) in our fork
+            target_system_result = await build_agent_context(target.id, target.name, target.role_description or "")
+            if isinstance(target_system_result, tuple):
+                static_prompt, dynamic_prompt = target_system_result
+                target_system = static_prompt + ("\n\n" + dynamic_prompt if dynamic_prompt else "")
+            else:
+                target_system = target_system_result
             target_system += (
                 "\n\n--- Agent-to-Agent Message ---\n"
                 "You are receiving a message from another digital employee. "
