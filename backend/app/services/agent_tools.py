@@ -1627,7 +1627,6 @@ async def execute_tool(
             result = await search_files(
                 agent_id=agent_id,
                 user_id=user_id,
-                session_id=session_id,
                 pattern=arguments.get("pattern", ""),
                 path=arguments.get("path", "."),
             )
@@ -1635,7 +1634,6 @@ async def execute_tool(
             result = await find_files(
                 agent_id=agent_id,
                 user_id=user_id,
-                session_id=session_id,
                 glob_pattern=arguments.get("glob_pattern", "*.md"),
                 path=arguments.get("path", "."),
             )
@@ -1643,7 +1641,6 @@ async def execute_tool(
             result = await edit_file(
                 agent_id=agent_id,
                 user_id=user_id,
-                session_id=session_id,
                 path=arguments.get("path", ""),
                 old_text=arguments.get("old_text", ""),
                 new_text=arguments.get("new_text", ""),
