@@ -19,6 +19,7 @@ import uuid
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from loguru import logger
 
