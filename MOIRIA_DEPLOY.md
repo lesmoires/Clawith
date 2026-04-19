@@ -6,21 +6,21 @@
 
 ---
 
-## Changements par rapport à upstream
+## Changes vs upstream
 
 ### 1. Backend
 
-| Upstream (dev) | Moiria (prod) | Raison |
+| Upstream (dev) | Moiria (prod) | Reason |
 |----------------|---------------|--------|
-| `./backend:/app` (bind mount) | Code from built image | Prod: le container utilise le code buildé, pas le git clone |
-| `./backend/agent_data:/data/agents` (bind) | `agent_data:` (named volume) | Les données agents survivent aux redeployments |
-| Pas de ports exposés | `8000:8000` | Accès API pour Coolify health checks |
-| `DOCKER_NETWORK: clawith_network` | `DOCKER_NETWORK: clawith_network` | Idem |
-| Pas de réseaux custom | `clawith_network` + `coolify` (external) | Traefik proxy access |
-| `POSTGRES_PASSWORD: clawith` (hardcoded) | `${POSTGRES_PASSWORD:-clawith}` | Sécurité: variable d'env |
-| `DATABASE_URL: ...clawith@...` (hardcoded password) | `...${POSTGRES_PASSWORD:-clawith}@...` | Idem |
+| `./backend:/app` (bind mount) | Code from built image | Prod: container uses built image code, not git clone |
+| `./backend/agent_data:/data/agents` (bind) | `agent_data:` (named volume) | Agent data survives redeployments |
+| No exposed ports | `8000:8000` | API access for Coolify health checks |
+| `DOCKER_NETWORK: clawith_network` | `DOCKER_NETWORK: clawith_network` | Same |
+| No custom networks | `clawith_network` + `coolify` (external) | Traefik proxy access |
+| `POSTGRES_PASSWORD: clawith` (hardcoded) | `${POSTGRES_PASSWORD:-clawith}` | Security: env variable |
+| `DATABASE_URL: ...clawith@...` (hardcoded password) | `...${POSTGRES_PASSWORD:-clawith}@...` | Same |
 
-#### Env vars ajoutées (Moiria)
+#### Added env vars (Moiria-specific)
 
 | Variable | Usage |
 |----------|-------|
@@ -30,22 +30,22 @@
 | `INFISICAL_PROJECT_ID` | Infisical project scope |
 | `AGENTMAIL_API_KEY` | AgentMail API access |
 
-### 2. Supergateway (NOUVEAU — n'existe pas en upstream)
+### 2. Supergateway (NEW — not in upstream)
 
-Service MCP bridge pour Infisical:
+MCP bridge service for Infisical:
 - Image: `node:20-alpine`
 - Command: `supergateway --stdio 'npx -y @infisical/mcp' --port 8000`
-- Health check sur `/health`
+- Health check on `/health`
 - Network: `clawith_network`
 
 ### 3. Frontend
 
-| Upstream (dev) | Moiria (prod) | Raison |
+| Upstream (dev) | Moiria (prod) | Reason |
 |----------------|---------------|--------|
 | `VITE_API_URL: http://localhost:8000` | `VITE_API_URL: http://backend:8000` | Docker internal networking |
-| Pas de dépendance supergateway | `depends_on: [backend, supergateway]` | Startup ordering |
-| Pas de labels | Traefik labels (voir ci-dessous) | HTTPS routing |
-| Pas de réseaux custom | `clawith_network` + `coolify` | Traefik access |
+| No supergateway dependency | `depends_on: [backend, supergateway]` | Startup ordering |
+| No labels | Traefik labels (see below) | HTTPS routing |
+| No custom networks | `clawith_network` + `coolify` | Traefik access |
 
 #### Traefik labels
 
@@ -80,9 +80,9 @@ traefik.http.routers.clawith-https.middlewares=clawith-gzip
 
 ---
 
-## Merge strategy pour futures releases
+## Merge strategy for future releases
 
-Quand une nouvelle version upstream sort (ex: v1.8.2):
+When a new upstream version is released (e.g. v1.8.2):
 
 ```bash
 # 1. Fetch upstream
@@ -91,12 +91,12 @@ git fetch upstream
 # 2. Check what changed in docker-compose.yml
 git diff v1.8.1..upstream/v1.8.2 -- docker-compose.yml
 
-# 3. Si upstream a changé le docker-compose:
-#    a. Sauvegarder la nouvelle référence
+# 3. If upstream changed docker-compose:
+#    a. Save the new reference
 #    git show upstream/v1.8.2:docker-compose.yml > docker-compose.upstream-ref.yml
-#    b. Appliquer nos customisations manuellement sur docker-compose.yml
-#    c. Tester en staging
+#    b. Manually apply our customizations to docker-compose.yml
+#    c. Test in staging
 ```
 
-**Pourquoi pas un overlay `-f docker-compose.override.yml` ?**  
-Parce que nos changements remplacent des sections entières (volumes backend, networks, labels Traefik, service supergateway) — pas juste des ajouts. Un overlay ne peut pas *supprimer* des sections du fichier de base.
+**Why not a `-f docker-compose.override.yml` overlay?**  
+Because our changes replace entire sections (backend volumes, networks, Traefik labels, supergateway service) — not just additions. An overlay cannot *remove* sections from the base file.
