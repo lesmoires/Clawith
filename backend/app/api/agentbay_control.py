@@ -850,7 +850,7 @@ async def control_unlock(
         if data.export_cookies and data.platform_hint:
             try:
                 env_t = _get_session_env_type(str(agent_id), data.session_id)
-    client = await _get_client(agent_id, data.session_id, env_t)
+                client = await _get_client(agent_id, data.session_id, env_t)
                 export_count = await _export_cookies_from_session(
                     client, agent_id, data.platform_hint, db
                 )
