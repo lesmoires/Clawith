@@ -186,7 +186,7 @@ J'ai créé un trigger **POUR TOI** qui va:
 | **Exécutions** | ~20 updates |
 
 **Ce trigger va:**
-1. Vérifier le statut des triggers isolés
+1. Check isolated trigger status
 2. T'envoyer un update toutes les 30 minutes
 3. Te dire si tout fonctionne correctement
 
@@ -194,7 +194,7 @@ J'ai créé un trigger **POUR TOI** qui va:
 
 ## ✅ CHECKLIST — DEMAIN MATIN
 
-- [ ] Vérifier que le test 10h s'est bien passé (~20 exécutions)
+- [ ] Verify that the 10h test completed successfully (~20 executions)
 - [ ] Lire les updates dans ta conversation
 - [ ] Utiliser `isolated: true` pour tes prochains agents
 - [ ] Poser des questions à Claw si besoin

@@ -3,74 +3,74 @@
 **Date:** 2026-03-24  
 **From:** Guillaume + Claw (subagents)  
 **To:** Clawith Maintainer  
-**Status:** ⏳ En attente de création de l'agent
+**Status:** ⏳ Pending agent creation
 
 ---
 
 ## 📋 Context
 
-### Fork Clawith v1.7.0 → v1.7.1 en cours
+### Fork Clawith v1.7.0 → v1.7.1 in progress
 
-Aujourd'hui, **5 subagents** ont travaillé sur la migration et l'architecture du fork Clawith:
+Today, **5 subagents** worked on the Clawith fork migration and architecture:
 
-1. **Upgrade Evaluator** — Analyse complète de l'upgrade (88 commits, 95 fichiers)
-2. **DB Analyst** — Analyse des migrations de base de données
-3. **Fork Audit Lead** — Cleanup et audit du fork
-4. **Git Workflow Architect** — Stratégie de branching et upstream sync
-5. **Master Migration Coordinator** — Plan unifié de migration
+1. **Upgrade Evaluator** — Full upgrade analysis (88 commits, 95 files)
+2. **DB Analyst** — Database migration analysis
+3. **Fork Audit Lead** — Fork cleanup and audit
+4. **Git Workflow Architect** — Branching strategy and upstream sync
+5. **Master Migration Coordinator** — Unified migration plan
 
-### Mission de Clawith Maintainer
+### Clawith Maintainer Mission
 
-Tu es le **gardien de l'infrastructure Clawith** et le **coordinateur de la maintenance** du fork.
+You are the **guardian of the Clawith infrastructure** and the **fork maintenance coordinator**.
 
-Tes responsabilités principales:
-1. **Upstream Monitoring** — Surveiller `dataelement/Clawith` pour nouvelles versions
-2. **Fork Maintenance** — Gérer les branches, coordonner les merges upstream
-3. **Tools & Skills Distribution** — Maintenir le catalogue central de tools
-4. **Secret Management** — Gérer les accès Infisical et rotation des secrets
-5. **MCP Gateway Management** — Configurer les MCP servers dans LiteLLM
+Your main responsibilities:
+1. **Upstream Monitoring** — Watch `dataelement/Clawith` for new releases
+2. **Fork Maintenance** — Manage branches, coordinate upstream merges
+3. **Tools & Skills Distribution** — Maintain the central tool catalog
+4. **Secret Management** — Manage Infisical access and secret rotation
+5. **MCP Gateway Management** — Configure MCP servers in LiteLLM
 
 ---
 
 ## ✅ Knowledge Transferred
 
-### 1. Upgrade Knowledge (16 rapports)
+### 1. Upgrade Knowledge (16 reports)
 
-**Fichiers générés pendant l'upgrade v1.7.0 → v1.7.1:**
+**Files generated during v1.7.0 → v1.7.1 upgrade:**
 
-| Fichier | Description | Chemin |
-|---------|-------------|--------|
-| `UPGRADE_ANALYSIS.md` | Analyse complète de l'upgrade | `/data/workspace/clawith-fork/` |
-| `CONFLICT_MATRIX.md` | Matrice des conflits potentiels | `/data/workspace/clawith-fork/` |
-| `MERGE_STRATEGY.md` | Stratégie de merge détaillée | `/data/workspace/clawith-fork/` |
-| `ROLLBACK_PLAN.md` | Plan de rollback complet | `/data/workspace/clawith-fork/` |
-| `MASTER_MIGRATION_PLAN.md` | Plan unifié de migration | `/data/workspace/clawith-fork/` |
-| `MIGRATION_CHECKLIST.md` | Checklist étape par étape | `/data/workspace/clawith-fork/` |
-| `BACKUP_CHECKLIST.md` | Checklist de backup | `/data/workspace/clawith-fork/` |
-| `BRANCHING_STRATEGY.md` | Stratégie de branches Git | `/data/workspace/clawith-fork/` |
-| `GIT_WORKFLOW_ANALYSIS_v1.md` | Analyse du workflow Git | `/data/workspace/clawith-fork/` |
-| `IMPLEMENTATION_GUIDE.md` | Guide d'implémentation | `/data/workspace/clawith-fork/` |
-| `README_GIT_WORKFLOW.md` | README workflow Git | `/data/workspace/clawith-fork/` |
-| `REPO_ARCHITECTURE.md` | Architecture du repo | `/data/workspace/clawith-fork/` |
-| `CLEANUP_PLAN.md` | Plan de cleanup | `/data/workspace/clawith-fork/` |
-| `FORK_AUDIT_SUMMARY.md` | Résumé de l'audit | `/data/workspace/clawith-fork/` |
-| `RELEVANCE_MATRIX.md` | Matrice de pertinence | `/data/workspace/clawith-fork/` |
-| `MIGRATION_SUMMARY_FOR_GUILLAUME.md` | Résumé pour Guillaume | `/data/workspace/clawith-fork/` |
+| File | Description | Path |
+|------|-------------|------|
+| `UPGRADE_ANALYSIS.md` | Full upgrade analysis | `/data/workspace/clawith-fork/` |
+| `CONFLICT_MATRIX.md` | Potential conflict matrix | `/data/workspace/clawith-fork/` |
+| `MERGE_STRATEGY.md` | Detailed merge strategy | `/data/workspace/clawith-fork/` |
+| `ROLLBACK_PLAN.md` | Complete rollback plan | `/data/workspace/clawith-fork/` |
+| `MASTER_MIGRATION_PLAN.md` | Unified migration plan | `/data/workspace/clawith-fork/` |
+| `MIGRATION_CHECKLIST.md` | Step-by-step checklist | `/data/workspace/clawith-fork/` |
+| `BACKUP_CHECKLIST.md` | Backup checklist | `/data/workspace/clawith-fork/` |
+| `BRANCHING_STRATEGY.md` | Git branching strategy | `/data/workspace/clawith-fork/` |
+| `GIT_WORKFLOW_ANALYSIS_v1.md` | Git workflow analysis | `/data/workspace/clawith-fork/` |
+| `IMPLEMENTATION_GUIDE.md` | Implementation guide | `/data/workspace/clawith-fork/` |
+| `README_GIT_WORKFLOW.md` | Git workflow README | `/data/workspace/clawith-fork/` |
+| `REPO_ARCHITECTURE.md` | Repo architecture | `/data/workspace/clawith-fork/` |
+| `CLEANUP_PLAN.md` | Cleanup plan | `/data/workspace/clawith-fork/` |
+| `FORK_AUDIT_SUMMARY.md` | Audit summary | `/data/workspace/clawith-fork/` |
+| `RELEVANCE_MATRIX.md` | Relevance matrix | `/data/workspace/clawith-fork/` |
+| `MIGRATION_SUMMARY_FOR_GUILLAUME.md` | Summary for Guillaume | `/data/workspace/clawith-fork/` |
 
 **Key Learnings:**
-- 88 commits upstream entre v1.7.0 et v1.7.1
-- 95 fichiers changés
-- 33 fichiers en conflit potentiel
+- 88 upstream commits between v1.7.0 and v1.7.1
+- 95 files changed
+- 33 files with potential conflicts
 - 4 HIGH risk conflicts: `main.py`, `gateway.py`, `docker-compose.yml`, `websocket.py`
-- Stratégie utilisée: **Option B** (Fork + Feature Branches)
-- Merge progressif via `feature/upgrade-1.7.1`
-- Preservation des 4 features custom requise
+- Strategy used: **Option B** (Fork + Feature Branches)
+- Progressive merge via `feature/upgrade-1.7.1`
+- 4 custom features must be preserved
 
 **Lessons Learned (CRITICAL):**
-- ✅ Backup DB avant upgrade (CRITICAL)
-- ✅ Git snapshot avant merge (CRITICAL)
-- ✅ Test features custom après merge (CRITICAL)
-- ✅ Rollback plan prêt (10-15 min)
+- ✅ Backup DB before upgrade (CRITICAL)
+- ✅ Git snapshot before merge (CRITICAL)
+- ✅ Test custom features after merge (CRITICAL)
+- ✅ Rollback plan ready (10-15 min)
 
 ---
 
@@ -82,8 +82,8 @@ Tes responsabilités principales:
 |----------|-------|
 | **MCP Server** | `hetzner_cloud` |
 | **MCP URL** | `https://litellm.moiria.com/mcp` |
-| **API Key** | `[REDACTED - use Infisical]` (dans Infisical: `/clawith/mcp/hetzner`) |
-| **Tools** | 19 outils Hetzner enregistrés |
+| **API Key** | `[REDACTED - use Infisical]` (in Infisical: `/clawith/mcp/hetzner`) |
+| **Tools** | 19 Hetzner tools registered |
 | **Assigned Agents** | DevOps Moiria, Clawith Maintainer |
 | **Status** | ✅ Production |
 
@@ -95,7 +95,7 @@ Tes responsabilités principales:
 | **Config** | `INFISICAL_HOST_URL`, `CLIENT_ID`, `CLIENT_SECRET`, `PROJECT_ID` |
 | **Vault** | `/clawith/mcp/infisical` |
 | **Tools** | 3 (get-secret, list-secrets, create-secret) |
-| **Assigned Agents** | Tous les agents |
+| **Assigned Agents** | All agents |
 | **Status** | ✅ Production |
 
 #### LiteLLM MCP Gateway Config
@@ -113,7 +113,7 @@ Tes responsabilités principales:
 #### Remote Configuration
 
 ```bash
-# origin: notre fork
+# origin: our fork
 git remote -v
 # origin  https://github.com/lesmoires/Clawith.git (fetch)
 # origin  https://github.com/lesmoires/Clawith.git (push)
@@ -131,9 +131,9 @@ git remote -v
 |--------|-------|------------|
 | `main` | Production | ✅ Protected |
 | `develop` | Staging | ⚠️ Recommended |
-| `feature/*` | Features en développement | ❌ None |
-| `hotfix/*` | Fixes urgents | ❌ None |
-| `backup/*` | Snapshots avant upgrades | ❌ None |
+| `feature/*` | Features in development | ❌ None |
+| `hotfix/*` | Urgent fixes | ❌ None |
+| `backup/*` | Snapshots before upgrades | ❌ None |
 
 #### Upstream Sync Workflow
 
@@ -141,33 +141,33 @@ git remote -v
 # 1. Fetch upstream
 git fetch upstream --tags
 
-# 2. Créer branche de feature
+# 2. Create feature branch
 git checkout -b feature/upgrade-<version> develop
 
 # 3. Merge upstream
 git merge upstream/main
 
-# 4. Résoudre conflits
-# ... éditer les fichiers ...
+# 4. Resolve conflicts
+# ... edit files ...
 git add <files>
 git commit -m "Resolve conflicts with upstream"
 
-# 5. Push et PR
+# 5. Push and PR
 git push -u origin feature/upgrade-<version>
-# → Créer PR sur GitHub
+# → Create PR on GitHub
 ```
 
 #### Token Security
 
-- ⛔ **JAMAIS** de token dans les URLs
-- ✅ **TOUJOURS** utiliser SSH ou credential helper
-- ✅ **TOUJOURS** tokens dans Infisical uniquement
+- ⛔ **NEVER** put tokens in URLs
+- ✅ **ALWAYS** use SSH or credential helper
+- ✅ **ALWAYS** store tokens in Infisical only
 
 ---
 
-### 4. Features Custom Registry
+### 4. Custom Features Registry
 
-#### Core Features (P0 — À préserver absolument)
+#### Core Features (P0 — Must be preserved)
 
 | Feature | Files | Lines | Status |
 |---------|-------|-------|--------|
@@ -176,11 +176,11 @@ git push -u origin feature/upgrade-<version>
 | **Gateway API Enhanced** | `backend/app/api/gateway.py` | 767 | ✅ Production (Clawith Repair sync) |
 | **LiteLLM MCP Gateway** | `litellm-config.yaml` (Coolify) | - | ✅ Production (Hetzner MCP) |
 
-#### Refactor Features (P1 — À améliorer)
+#### Refactor Features (P1 — To improve)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| **Supergateway POC** | ⚠️ À remplacer par LiteLLM MCP Gateway | Legacy, à déprécier |
+| **Supergateway POC** | ⚠️ Replace with LiteLLM MCP Gateway | Legacy, to be deprecated |
 
 ---
 
@@ -188,43 +188,43 @@ git push -u origin feature/upgrade-<version>
 
 ### 1. AGENTS_REGISTRY.md
 
-**Chemin:** `/data/workspace/clawith-fork/AGENTS_REGISTRY.md`
+**Path:** `/data/workspace/clawith-fork/AGENTS_REGISTRY.md`
 
-**Contenu:**
-- Registry de tous les agents Clawith
-- Rôles et responsabilités
-- Tools assignés
-- Accès Infisical
-- Accès MCP
+**Content:**
+- Registry of all Clawith agents
+- Roles and responsibilities
+- Assigned tools
+- Infisical access
+- MCP access
 
-**Agents documentés:**
-- Clawith Maintainer (⏳ En création)
-- DevOps Moiria (✅ Actif)
-- Clawith Repair (✅ Actif)
+**Agents documented:**
+- Clawith Maintainer (⏳ Pending creation)
+- DevOps Moiria (✅ Active)
+- Clawith Repair (✅ Active)
 
 ---
 
 ### 2. TOOLS_REGISTRY.md
 
-**Chemin:** `/data/workspace/clawith-fork/TOOLS_REGISTRY.md`
+**Path:** `/data/workspace/clawith-fork/TOOLS_REGISTRY.md`
 
-**Contenu:**
-- Core Tools (tous les agents)
+**Content:**
+- Core Tools (all agents)
 - Custom Tools (AgentMail, Infisical, Gateway)
-- MCP Tools (Hetzner, 19 outils)
+- MCP Tools (Hetzner, 19 tools)
 - Tools Distribution Matrix
-- Workflow de demande de nouveaux tools
+- New tool request workflow
 
 ---
 
 ### 3. MCP_REGISTRY.md
 
-**Chemin:** `/data/workspace/clawith-fork/MCP_REGISTRY.md`
+**Path:** `/data/workspace/clawith-fork/MCP_REGISTRY.md`
 
-**Contenu:**
-- Configuration LiteLLM MCP Gateway
-- Hetzner MCP (19 outils)
-- Infisical MCP (3 outils)
+**Content:**
+- LiteLLM MCP Gateway configuration
+- Hetzner MCP (19 tools)
+- Infisical MCP (3 tools)
 - MCP Access Matrix
 - Troubleshooting guide
 
@@ -232,16 +232,16 @@ git push -u origin feature/upgrade-<version>
 
 ### 4. INFISICAL_VAULTS.md
 
-**Chemin:** `/data/workspace/clawith-fork/INFISICAL_VAULTS.md`
+**Path:** `/data/workspace/clawith-fork/INFISICAL_VAULTS.md`
 
-**Contenu:**
-- Structure des vaults Infisical
-- Secrets par vault
+**Content:**
+- Infisical vault structure
+- Secrets per vault
 - Vault Access Matrix
 - Secret Rotation Policy
 - Security Best Practices
 
-**Vaults documentés:**
+**Vaults documented:**
 - `/clawith/admin` — Admin credentials
 - `/clawith/mcp` — MCP server credentials
 - `/clawith/mcp/hetzner` — Hetzner API
@@ -254,69 +254,69 @@ git push -u origin feature/upgrade-<version>
 
 ## 🎯 Next Actions
 
-### Priority 1 (Immédiat)
+### Priority 1 (Immediate)
 
-1. **⏳ Créer l'agent Clawith Maintainer** dans Clawith
+1. **⏳ Create the Clawith Maintainer agent** in Clawith
    - Via UI: `https://agents.moiria.com`
-   - Via API: `POST /api/agents/` (nécessite auth admin)
-   - Rôle: "Infrastructure & Maintenance Guardian"
+   - Via API: `POST /api/agents/` (requires admin auth)
+   - Role: "Infrastructure & Maintenance Guardian"
 
-2. **⏳ Configurer les accès Infisical**
-   - Ajouter Clawith Maintainer aux vaults:
+2. **⏳ Configure Infisical access**
+   - Add Clawith Maintainer to vaults:
      - `/clawith/admin` (Full)
      - `/clawith/mcp` (Full)
      - `/clawith/agents/*` (Read)
 
-3. **⏳ Configurer les accès MCP**
-   - Admin access sur tous les MCP servers
-   - Tester la connexion Hetzner MCP
-   - Tester la connexion Infisical MCP
+3. **⏳ Configure MCP access**
+   - Admin access on all MCP servers
+   - Test Hetzner MCP connection
+   - Test Infisical MCP connection
 
-4. **⏳ Assigner les tools**
+4. **⏳ Assign tools**
    - Core Tools: All
    - Custom Tools: All
    - MCP Tools: All
 
-### Priority 2 (Cette semaine)
+### Priority 2 (This week)
 
-5. **⏳ Compléter la migration v1.7.1** (si pas encore fait)
-   - Suivre `MIGRATION_CHECKLIST.md`
-   - Tester les features custom post-migration
-   - Documenter dans MEMORY.md
+5. **⏳ Complete v1.7.1 migration** (if not already done)
+   - Follow `MIGRATION_CHECKLIST.md`
+   - Test custom features post-migration
+   - Document in MEMORY.md
 
-6. **⏳ Tester l'agent**
+6. **⏳ Test the agent**
    ```bash
    curl -s -X POST https://agents.moiria.com/api/gateway/send-message \
      -H "X-Api-Key: oc-YTNU2nbBSBWXdROK-U_hOBjgcq-8xPWpSI82iY9MEQs" \
      -H "Content-Type: application/json" \
-     -d '{"target":"Clawith Maintainer","content":"Hello! Peux-tu me résumer ton rôle et tes responsabilités?"}'
+     -d '{"target":"Clawith Maintainer","content":"Hello! Can you summarize your role and responsibilities?"}'
    ```
 
-7. **⏳ Mettre à jour les registries**
-   - Ajouter l'UUID de l'agent dans `AGENTS_REGISTRY.md`
-   - Ajouter l'API key dans `INFISICAL_VAULTS.md`
+7. **⏳ Update registries**
+   - Add agent UUID to `AGENTS_REGISTRY.md`
+   - Add API key to `INFISICAL_VAULTS.md`
 
 ### Priority 3 (Ongoing)
 
-8. **🔄 Monitor upstream pour v1.7.2**
-   - Surveiller `dataelement/Clawith` releases
-   - Analyser les changements
-   - Recommander Go/No Go
+8. **🔄 Monitor upstream for v1.7.2**
+   - Watch `dataelement/Clawith` releases
+   - Analyze changes
+   - Recommend Go/No Go
 
 9. **🔄 Onboard new agents as needed**
-   - Créer les agents dans Clawith
-   - Configurer les accès
-   - Documenter dans les registries
+   - Create agents in Clawith
+   - Configure access
+   - Document in registries
 
 10. **🔄 Maintain tools registry**
-    - Valider les nouveaux tools
-    - Assigner aux agents
-    - Documenter
+    - Validate new tools
+    - Assign to agents
+    - Document
 
 11. **🔄 Audit Infisical access quarterly**
-    - Revue des accès
-    - Rotation des secrets
-    - Mise à jour de la documentation
+    - Review access
+    - Rotate secrets
+    - Update documentation
 
 ---
 
@@ -337,66 +337,66 @@ git push -u origin feature/upgrade-<version>
 - **Base URL:** `https://agents.moiria.com/api/gateway/`
 - **API Key:** `oc-YTNU2nbBSBWXdROK-U_hOBjgcq-8xPWpSI82iY9MEQs`
 - **Endpoints:**
-  - `GET /poll` — Poller l'inbox
-  - `POST /send-message` — Envoyer un message
-  - `POST /report` — Reporter un message traité
+  - `GET /poll` — Poll inbox
+  - `POST /send-message` — Send a message
+  - `POST /report` — Report a processed message
 
-### Clawith Admin API (à authentifier)
+### Clawith Admin API (requires authentication)
 
 - **Base URL:** `https://agents.moiria.com/api/`
 - **Auth:** JWT Token (via login)
 - **Endpoints:**
-  - `POST /agents/` — Créer un agent
-  - `GET /agents/` — Lister les agents
-  - `GET /agents/templates` — Lister les templates
+  - `POST /agents/` — Create an agent
+  - `GET /agents/` — List agents
+  - `GET /agents/templates` — List templates
 
 ---
 
-## ✅ Checklist de Validation
+## ✅ Validation Checklist
 
-### Création de l'agent
+### Agent creation
 
-- [ ] Agent Clawith Maintainer créé dans Clawith
-- [ ] Rôle bien défini: "Infrastructure & Maintenance Guardian"
-- [ ] API key générée et stockée dans Infisical
-- [ ] Agent visible dans la liste des agents
+- [ ] Clawith Maintainer agent created in Clawith
+- [ ] Role well defined: "Infrastructure & Maintenance Guardian"
+- [ ] API key generated and stored in Infisical
+- [ ] Agent visible in the agent list
 
-### Configuration des accès
+### Access configuration
 
-- [ ] Infisical: Accès aux vaults configuré
-- [ ] MCP: Accès aux servers configuré
-- [ ] Tools: Core + Custom + MCP assignés
+- [ ] Infisical: Vault access configured
+- [ ] MCP: Server access configured
+- [ ] Tools: Core + Custom + MCP assigned
 
 ### Registry files
 
-- [ ] `AGENTS_REGISTRY.md` créé et à jour
-- [ ] `TOOLS_REGISTRY.md` créé et à jour
-- [ ] `MCP_REGISTRY.md` créé et à jour
-- [ ] `INFISICAL_VAULTS.md` créé et à jour
+- [ ] `AGENTS_REGISTRY.md` created and up to date
+- [ ] `TOOLS_REGISTRY.md` created and up to date
+- [ ] `MCP_REGISTRY.md` created and up to date
+- [ ] `INFISICAL_VAULTS.md` created and up to date
 
 ### Handoff
 
-- [ ] Ce document complété
-- [ ] Knowledge transfer validé
-- [ ] Premier test de l'agent réussi
-- [ ] Guillaume notifié
+- [ ] This document completed
+- [ ] Knowledge transfer validated
+- [ ] First agent test successful
+- [ ] Guillaume notified
 
 ---
 
 ## 🎉 Welcome Aboard, Clawith Maintainer!
 
-Tu es maintenant le gardien de l'infrastructure Clawith. Tes missions principales:
+You are now the guardian of the Clawith infrastructure. Your main missions:
 
-1. **Garder le fork à jour** avec upstream
-2. **Préserver les features custom** (AgentMail, Infisical, Gateway, MCP)
-3. **Gérer les accès et secrets** (Infisical, MCP)
-4. **Documenter tout changement** dans les registries
-5. **Recommander les upgrades** (Go/No Go)
+1. **Keep the fork up to date** with upstream
+2. **Preserve custom features** (AgentMail, Infisical, Gateway, MCP)
+3. **Manage access and secrets** (Infisical, MCP)
+4. **Document all changes** in the registries
+5. **Recommend upgrades** (Go/No Go)
 
-**Bon courage!** 🚀
+**Good luck!** 🚀
 
 ---
 
-*Document créé par: Claw (subagent)*  
+*Document created by: Claw (subagent)*  
 *Date: 2026-03-24 11:40 UTC*  
-*Pour: Guillaume + Clawith Maintainer*
+*For: Guillaume + Clawith Maintainer*

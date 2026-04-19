@@ -99,7 +99,7 @@ All knowledge from today's 5 subagents has been documented:
    - Name: "Clawith Maintainer"
    - Role: "Infrastructure & Maintenance Guardian"
    - Agent Type: "openclaw"
-   - Description: "Gardien de l'infrastructure Clawith et coordinateur de la maintenance du fork"
+   - Description: "Guardian of the Clawith infrastructure and fork maintenance coordinator"
 5. Save and generate API key
 ```
 
@@ -116,7 +116,7 @@ curl -X POST https://agents.moiria.com/api/agents/ \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Clawith Maintainer",
-    "role_description": "Gardien de l'infrastructure Clawith et coordinateur de la maintenance du fork",
+    "role_description": "Guardian of the Clawith infrastructure and fork maintenance coordinator",
     "agent_type": "openclaw",
     "bio": "Tu es le gardien de l'infrastructure Clawith...",
     "autonomy_policy": "high"
@@ -168,7 +168,7 @@ curl -X POST https://agents.moiria.com/api/agents/ \
 curl -s -X POST https://agents.moiria.com/api/gateway/send-message \
   -H "X-Api-Key: <agent_api_key>" \
   -H "Content-Type: application/json" \
-  -d '{"target":"Clawith Maintainer","content":"Hello! Peux-tu me résumer ton rôle et tes responsabilités?"}'
+  -d '{"target":"Clawith Maintainer","content":"Hello! Can you summarize your role and responsibilities?"}'
 ```
 
 **Expected Response:**
