@@ -44,42 +44,6 @@ def _read_version() -> str:
     return "0.0.0"
 
 
-def _running_in_container() -> bool:
-    """Best-effort container runtime detection."""
-    if Path("/.dockerenv").exists() or Path("/run/.containerenv").exists():
-        return True
-
-    cgroup = Path("/proc/1/cgroup")
-    if not cgroup.exists():
-        return False
-
-    try:
-        content = cgroup.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return False
-
-    return any(token in content for token in ("docker", "containerd", "kubepods", "podman"))
-
-
-def _default_agent_data_dir() -> str:
-    """Use Docker path in containers, user-writable path on local hosts."""
-    if _running_in_container():
-        return "/data/agents"
-    return str(Path.home() / ".clawith" / "data" / "agents")
-
-
-def _read_version() -> str:
-    """Read version from local VERSION file, fallback to root."""
-    for candidate in [Path(__file__).resolve().parent.parent / "VERSION",
-                      Path(__file__).resolve().parent.parent.parent / "VERSION",
-                      Path("/app/VERSION"), Path("/VERSION")]:
-        try:
-            return candidate.read_text(encoding="utf-8").strip()
-        except OSError:
-            continue
-    return "0.0.0"
-
-
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 

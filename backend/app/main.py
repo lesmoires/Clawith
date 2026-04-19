@@ -348,8 +348,6 @@ app.include_router(agentbay_control_router, prefix=settings.API_PREFIX)
 # Agent Credentials API
 from app.api.agent_credentials import router as credentials_router
 app.include_router(credentials_router, prefix=settings.API_PREFIX)
-app.include_router(credentials_router, prefix=settings.API_PREFIX)
-app.include_router(agentbay_control_router, prefix=settings.API_PREFIX)
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["health"])

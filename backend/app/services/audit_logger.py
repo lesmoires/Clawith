@@ -8,8 +8,6 @@ from typing import Any
 
 from loguru import logger
 
-from loguru import logger
-
 from sqlalchemy import text
 
 from app.database import async_session
