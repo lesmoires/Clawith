@@ -118,7 +118,7 @@ curl -X POST https://agents.moiria.com/api/agents/ \
     "name": "Clawith Maintainer",
     "role_description": "Guardian of the Clawith infrastructure and fork maintenance coordinator",
     "agent_type": "openclaw",
-    "bio": "Tu es le gardien de l'infrastructure Clawith...",
+    "bio": "You are the guardian of the Clawith infrastructure...",
     "autonomy_policy": "high"
   }'
 ```

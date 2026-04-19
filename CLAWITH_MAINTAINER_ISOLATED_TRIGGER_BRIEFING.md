@@ -85,7 +85,7 @@ triggers:
 
 ## 📊 BEST PRACTICES — QUICK REFERENCE
 
-| Type de Trigger | `isolated` | `session_cleanup` | Pourquoi |
+| Type de Trigger | `isolated` | `session_cleanup` | Why |
 |-----------------|------------|-------------------|----------|
 | **Monitoring** (inbox, API, RSS) | ✅ `true` | `after_run` | Fréquent, technique, pas besoin dans conversation |
 | **Rapports auto** (quotidien, hebdo) | ✅ `true` | `after_run` | Longs, détaillés, utilisateur lit quand il veut |
@@ -218,7 +218,7 @@ Si tu as des questions sur:
 |------|---------|
 | **Triggers récurrents** | `isolated: true` ✅ |
 | **Triggers conversationnels** | `isolated: false` ❌ |
-| **Pourquoi** | Conversations restent propres |
+| **Why** | Conversations stay clean |
 | **Statut** | ✅ Testé et validé (27+ exécutions) |
 | **Test en cours** | 10 heures (18:57 → 04:57 UTC) |
 
