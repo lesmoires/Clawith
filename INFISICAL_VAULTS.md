@@ -69,7 +69,7 @@
 ### Secrets
 | Secret Key | Description | Usage |
 |------------|-------------|-------|
-| `HETZNER_API_KEY` | API key Hetzner Cloud | `REDACTED - use Infisical` |
+| `HETZNER_API_KEY` | API key Hetzner Cloud | `[REDACTED - use Infisical]` |
 
 ### MCP Server Config
 - **Server Name:** `hetzner_cloud`

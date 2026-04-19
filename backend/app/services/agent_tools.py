@@ -5979,7 +5979,7 @@ async def _litellm_mcp_call(agent_id: uuid.UUID, mcp_server: str, mcp_method: st
     import json
     
     litellm_url = os.getenv('LITELLM_URL', 'https://litellm.moiria.com')
-    litellm_key = os.getenv('LITELLM_API_KEY', 'REDACTED - use Infisical')
+    litellm_key = os.getenv('LITELLM_API_KEY')
     
     # Map server name to server_id
     server_ids = {

@@ -21,7 +21,7 @@
 **Status:** ✅ Production
 
 #### Configuration
-- **API Key:** `REDACTED - use Infisical` (dans Infisical: `/clawith/mcp/hetzner`)
+- **API Key:** `[REDACTED - use Infisical]` (dans Infisical: `/clawith/mcp/hetzner`)
 - **Tools:** 19 outils Hetzner enregistrés
 - **Assigned Agents:** DevOps Moiria, Clawith Maintainer
 
@@ -49,7 +49,7 @@
 #### Usage Example
 ```bash
 curl -X POST https://litellm.moiria.com/mcp \
-  -H "Authorization: Bearer REDACTED - use Infisical" \
+  -H "Authorization: Bearer [REDACTED - use Infisical]" \
   -H "Content-Type: application/json" \
   -d '{
     "tool": "hetzner_list_servers",
@@ -120,7 +120,7 @@ model_list:
     litellm_params:
       model: mcp/hetzner_cloud
       api_base: https://litellm.moiria.com/mcp
-      api_key: REDACTED - use Infisical
+      api_key: [REDACTED - use Infisical]
 
   - model_name: infisical
     litellm_params:

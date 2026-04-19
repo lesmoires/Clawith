@@ -113,7 +113,7 @@ Ces tools sont disponibles pour tous les agents Clawith:
 | `hetzner_create_domain` | Créer un domaine | DevOps Moiria, Clawith Maintainer |
 
 **Infisical Vault:** `/clawith/mcp/hetzner`  
-**API Key:** `REDACTED - use Infisical` (dans Infisical)
+**API Key:** `[REDACTED - use Infisical]` (dans Infisical)
 
 ---
 

@@ -82,7 +82,7 @@ Tes responsabilités principales:
 |----------|-------|
 | **MCP Server** | `hetzner_cloud` |
 | **MCP URL** | `https://litellm.moiria.com/mcp` |
-| **API Key** | `REDACTED - use Infisical` (dans Infisical: `/clawith/mcp/hetzner`) |
+| **API Key** | `[REDACTED - use Infisical]` (dans Infisical: `/clawith/mcp/hetzner`) |
 | **Tools** | 19 outils Hetzner enregistrés |
 | **Assigned Agents** | DevOps Moiria, Clawith Maintainer |
 | **Status** | ✅ Production |
