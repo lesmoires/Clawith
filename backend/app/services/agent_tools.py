@@ -17,6 +17,7 @@ The agent reads/writes these files directly. No per-concept tools needed.
 #   - Fork-specific tool wrappers (hetzner_*, agentbay_*, etc.)
 """
 
+import asyncio
 import httpx
 import json
 import os
@@ -1181,6 +1182,53 @@ AGENT_TOOLS = [
             }
         }
     },
+    # ── upstream v1.8.2: AgentBay File Transfer ──
+    {
+        "name": "agentbay_file_transfer",
+        "display_name": "AgentBay: File Transfer",
+        "description": (
+            "Transfer a file between any two endpoints: the agent workspace, "
+            "the AgentBay browser environment, the cloud desktop (computer), or the code sandbox.\n\n"
+            "VERIFIED PATH CONVENTIONS (all Linux environments run as user 'wuying', HOME=/home/wuying/):\n"
+            "- code env:     use /home/wuying/<filename>  (working directory, e.g. /home/wuying/data.csv)\n"
+            "- browser env:  use /home/wuying/下载/<filename>  (download folder, e.g. /home/wuying/下载/file.pdf)\n"
+            "- computer env: use /home/wuying/桌面/<filename>  (Desktop, e.g. /home/wuying/桌面/report.xlsx)\n"
+            "- workspace:    use relative path, e.g. 'workspace/data.csv'\n\n"
+            "Transfer directions:\n"
+            "- workspace -> env: upload a workspace file into a cloud environment\n"
+            "- env -> workspace: download a file from a cloud environment into the workspace\n"
+            "- env A -> env B:   transfer between environments (transparent backend temp, no workspace involvement)"
+        ),
+        "category": "agentbay",
+        "icon": "🔄",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "from_type": {
+                    "type": "string",
+                    "enum": ["workspace", "browser", "computer", "code"],
+                    "description": "Source endpoint: 'workspace' for agent workspace, or the AgentBay environment name.",
+                },
+                "from_path": {
+                    "type": "string",
+                    "description": "Source path. Relative if workspace (e.g. 'workspace/data.csv'), absolute if env (e.g. '/root/data.csv').",
+                },
+                "to_type": {
+                    "type": "string",
+                    "enum": ["workspace", "browser", "computer", "code"],
+                    "description": "Destination endpoint: 'workspace' for agent workspace, or the AgentBay environment name.",
+                },
+                "to_path": {
+                    "type": "string",
+                    "description": "Destination path. Relative if workspace (e.g. 'workspace/output.csv'), absolute if env (e.g. '/root/output.csv').",
+                },
+            },
+            "required": ["from_type", "from_path", "to_type", "to_path"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
 ]
 
 
@@ -1704,6 +1752,10 @@ async def execute_tool(
             result = await _hetzner_power_off(agent_id, arguments)
         elif tool_name == "hetzner_shutdown":
             result = await _hetzner_shutdown(agent_id, arguments)
+
+        # ── AgentBay File Transfer (upstream v1.8.2) ──
+        elif tool_name == "agentbay_file_transfer":
+            result = await _agentbay_file_transfer(agent_id, ws, arguments)
 
         # ── Infisical Tools ──
         elif tool_name == "infisical_get_secret":
@@ -6302,3 +6354,144 @@ async def edit_file(
         return f"Successfully edited {path}"
     except Exception as e:
         return f"Error editing file: {str(e)[:200]}"
+
+
+# ── AgentBay File Transfer (upstream v1.8.2) ──
+async def _agentbay_file_transfer(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
+    """Transfer a file between workspace and an AgentBay environment, or between two environments.
+
+    Supported transfer directions:
+      - workspace  → env:      upload_file(local_workspace_path, remote_path)   [single SDK call]
+      - env        → workspace: download_file(remote_path, local_workspace_path) [single SDK call]
+      - env A      → env B:    download to /tmp/<uuid>, upload to env B, cleanup /tmp [transparent]
+
+    The 'local' side of the SDK calls is always the Clawith backend server,
+    which has access to the agent workspace directory.
+    """
+    if not agent_id:
+        return "AgentBay tools require agent context"
+
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+
+    from_type = arguments.get("from_type", "")
+    from_path = arguments.get("from_path", "")
+    to_type   = arguments.get("to_type", "")
+    to_path   = arguments.get("to_path", "")
+    session_id = arguments.pop("_session_id", "")
+
+    if not all([from_type, from_path, to_type, to_path]):
+        return "Missing required parameters: from_type, from_path, to_type, to_path"
+
+    # Reject no-op transfers
+    if from_type == "workspace" and to_type == "workspace":
+        return "Cannot transfer workspace → workspace. Use write_file or workspace tools instead."
+    if from_type == to_type and from_type != "workspace":
+        return f"Same environment ({from_type}) transfer: use agentbay_command_exec with 'cp' to copy files within the same environment."
+
+    env_types = {"browser", "computer", "code"}
+
+    # ── Helper: resolve and validate a workspace-relative path ──────────────
+    def resolve_workspace(rel_path: str) -> tuple[str | None, str]:
+        """Return (absolute_local_path_str, error_message). error_message is '' on success."""
+        local = (ws / rel_path).resolve()
+        if not str(local).startswith(str(ws.resolve())):
+            return None, "Permission denied: path must be inside the agent workspace"
+        return str(local), ""
+
+    try:
+        # ── Case 1: workspace → env ──────────────────────────────────────────
+        if from_type == "workspace" and to_type in env_types:
+            local_path, err = resolve_workspace(from_path)
+            if err:
+                return err
+            import os
+            if not os.path.exists(local_path):
+                return f"File not found in workspace: {from_path}"
+            client = await get_agentbay_client_for_agent(agent_id, to_type, session_id=session_id)
+            result = await asyncio.to_thread(
+                client._session.file_system.upload_file,
+                local_path, to_path
+            )
+            if result.success:
+                msg = (
+                    f"Transferred workspace/{from_path} → [{to_type}]{to_path} "
+                    f"({result.bytes_sent} bytes)"
+                )
+                # After uploading to the computer desktop directory, notify the GNOME
+                # file manager so the file icon appears immediately without manual refresh.
+                desktop_dir = "/home/wuying/桌面"
+                if to_type == "computer" and to_path.startswith(desktop_dir):
+                    try:
+                        await asyncio.to_thread(
+                            client._session.command.exec,
+                            f"DISPLAY=:0 gio info '{to_path}' 2>/dev/null || true"
+                        )
+                    except Exception:
+                        pass  # Non-critical: desktop refresh failure doesn't affect transfer result
+                return msg
+            return f"Upload failed: {result.error_message}"
+
+        # ── Case 2: env → workspace ──────────────────────────────────────────
+        elif from_type in env_types and to_type == "workspace":
+            local_path, err = resolve_workspace(to_path)
+            if err:
+                return err
+            import os
+            os.makedirs(os.path.dirname(local_path) or ".", exist_ok=True)
+            client = await get_agentbay_client_for_agent(agent_id, from_type, session_id=session_id)
+            result = await asyncio.to_thread(
+                client._session.file_system.download_file,
+                from_path, local_path
+            )
+            if result.success:
+                return (
+                    f"Transferred [{from_type}]{from_path} → workspace/{to_path} "
+                    f"({result.bytes_received} bytes). "
+                    f"File available in workspace at: {to_path}"
+                )
+            return f"Download failed: {result.error_message}"
+
+        # ── Case 3: env A → env B (transparent /tmp/ intermediary) ──────────
+        elif from_type in env_types and to_type in env_types:
+            import uuid as _uuid
+            import os
+            tmp_path = f"/tmp/agentbay_transfer_{_uuid.uuid4().hex}"
+            try:
+                # Step 1: download from source env to backend /tmp/
+                src_client = await get_agentbay_client_for_agent(agent_id, from_type, session_id=session_id)
+                dl_result = await asyncio.to_thread(
+                    src_client._session.file_system.download_file,
+                    from_path, tmp_path
+                )
+                if not dl_result.success:
+                    return f"Transfer failed (download from {from_type}): {dl_result.error_message}"
+
+                # Step 2: upload from backend /tmp/ to destination env
+                dst_client = await get_agentbay_client_for_agent(agent_id, to_type, session_id=session_id)
+                ul_result = await asyncio.to_thread(
+                    dst_client._session.file_system.upload_file,
+                    tmp_path, to_path
+                )
+                if not ul_result.success:
+                    return f"Transfer failed (upload to {to_type}): {ul_result.error_message}"
+
+                return (
+                    f"Transferred [{from_type}]{from_path} → [{to_type}]{to_path} "
+                    f"({dl_result.bytes_received} bytes)"
+                )
+            finally:
+                # Always clean up the temporary file regardless of success or failure
+                try:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                except Exception:
+                    pass  # Non-critical: ignore cleanup errors
+
+        else:
+            return f"Unsupported transfer: {from_type} → {to_type}"
+
+    except RuntimeError as e:
+        return f"{str(e)}"
+    except Exception as e:
+        logger.exception(f"[AgentBay] File transfer failed for agent {agent_id}")
+        return f"File transfer failed: {str(e)[:200]}"

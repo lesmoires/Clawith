@@ -39,6 +39,7 @@ dependencies = [
     "pypinyin>=0.52.0",
     "Pillow>=10.0.0",
     "asyncssh>=2.15.0",  # MOIRIA: SSH exec tools for DevOps agent operations
+    "anyascii>=0.3.2",  # upstream v1.8.2: universal script transliteration
 ]
 
 [project.optional-dependencies]

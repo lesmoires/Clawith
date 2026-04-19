@@ -254,24 +254,9 @@ BUILTIN_TOOLS = [
         "config": {},
         "config_schema": {},
     },
-    {
-        "name": "send_feishu_message",
-        "display_name": "Feishu Message",
-        "description": "Send a message to a human colleague via Feishu. Can only message people in your relationships.",
-        "category": "communication",
-        "icon": "💬",
-        "is_default": True,
-        "parameters_schema": {
-            "type": "object",
-            "properties": {
-                "member_name": {"type": "string", "description": "Recipient name"},
-                "message": {"type": "string", "description": "Message content"},
-            },
-            "required": ["member_name", "message"],
-        },
-        "config": {},
-        "config_schema": {},
-    },
+    # NOTE: send_feishu_message is defined in the 'feishu' category section below.
+    # It was previously duplicated here under 'communication', which could cause
+    # 'Tool names must be unique' errors when the DB lacked a UNIQUE constraint.
     {
         "name": "send_web_message",
         "display_name": "Web Message",
@@ -1465,7 +1450,11 @@ AGENTBAY_TOOLS = [
             "properties": {
                 "url": {"type": "string", "description": "要访问的网址"},
                 "wait_for": {"type": "string", "description": "等待元素选择器（可选）"},
-                "screenshot": {"type": "boolean", "description": "是否截图", "default": False},
+                "save_to_workspace": {
+                    "type": "boolean",
+                    "description": "CRITICAL: Set to True IF AND ONLY IF the user explicitly asked you to SHOW them a screenshot or save it (e.g. \"截图给我看\", \"保存截图\"). If True, the screenshot is saved to their workspace and you get a Markdown link. Default is False (internal in-memory analysis only, completely invisible to the user).",
+                    "default": False,
+                },
             },
             "required": ["url"],
         },
@@ -1500,7 +1489,16 @@ AGENTBAY_TOOLS = [
         "category": "agentbay",
         "icon": "📸",
         "is_default": False,
-        "parameters_schema": {"type": "object", "properties": {}},
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "save_to_workspace": {
+                    "type": "boolean",
+                    "description": "CRITICAL: Set to True IF AND ONLY IF the user explicitly asked you to SHOW them a screenshot or save it (e.g. \"截图给我看\", \"保存截图\"). If True, the screenshot is saved to their workspace and you get a Markdown link. Default is False (internal in-memory analysis only, completely invisible to the user).",
+                    "default": False,
+                },
+            },
+        },
         "config": {},
         "config_schema": {},
     },
@@ -1834,6 +1832,46 @@ AGENTBAY_TOOLS = [
         "icon": "📋",
         "is_default": False,
         "parameters_schema": {"type": "object", "properties": {}},
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "agentbay_file_transfer",
+        "display_name": "AgentBay: File Transfer",
+        "description": (
+            "Transfer a file between any two endpoints: the agent workspace, "
+            "the AgentBay browser environment, the cloud desktop, or the code sandbox. "
+            "Workspace -> env: upload a workspace file into a cloud environment. "
+            "Env -> workspace: download a file from a cloud environment into the workspace. "
+            "Env -> env: transfer between environments transparently (no workspace involvement)."
+        ),
+        "category": "agentbay",
+        "icon": "🔄",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "from_type": {
+                    "type": "string",
+                    "enum": ["workspace", "browser", "computer", "code"],
+                    "description": "Source endpoint: 'workspace' for agent workspace, or the AgentBay environment name.",
+                },
+                "from_path": {
+                    "type": "string",
+                    "description": "Source path. Relative if workspace (e.g. 'workspace/data.csv'), absolute if env (e.g. '/root/data.csv').",
+                },
+                "to_type": {
+                    "type": "string",
+                    "enum": ["workspace", "browser", "computer", "code"],
+                    "description": "Destination endpoint: 'workspace' for agent workspace, or the AgentBay environment name.",
+                },
+                "to_path": {
+                    "type": "string",
+                    "description": "Destination path. Relative if workspace (e.g. 'workspace/output.csv'), absolute if env (e.g. '/root/output.csv').",
+                },
+            },
+            "required": ["from_type", "from_path", "to_type", "to_path"],
+        },
         "config": {},
         "config_schema": {},
     },
