@@ -10,6 +10,11 @@ The agent's workspace uses well-known paths:
   - workspace/          → general working files, reports, etc.
 
 The agent reads/writes these files directly. No per-concept tools needed.
+
+# MOIRIA: Diverges from upstream v1.8.1 — key additions:
+#   - _litellm_mcp_call() (line ~5976): LiteLLM MCP REST executor for AgentMail/Hetzner
+#   - Multi-region AgentBay navigation with configurable timeouts
+#   - Fork-specific tool wrappers (hetzner_*, agentbay_*, etc.)
 """
 
 import httpx

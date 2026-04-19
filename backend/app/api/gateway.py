@@ -2,6 +2,9 @@
 
 OpenClaw agents authenticate via X-Api-Key header and use these endpoints
 to poll for messages, report results, send messages, and send heartbeat pings.
+
+# MOIRIA: Diverges from upstream v1.8.1 — scalar_one_or_none() tuple guard:
+#   Wraps results with isinstance(result, tuple) check for SQLAlchemy compatibility.
 """
 
 import asyncio

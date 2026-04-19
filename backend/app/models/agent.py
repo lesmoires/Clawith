@@ -1,4 +1,8 @@
-"""Digital Employee (Agent) models."""
+"""Digital Employee (Agent) models.
+
+# MOIRIA: AgentInfisicalProject model (line ~169) is a fork-specific addition
+#   for per-agent Infisical secret access. Not present in upstream v1.8.1.
+"""
 
 import uuid
 from datetime import datetime

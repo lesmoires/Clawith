@@ -2,6 +2,11 @@
 
 Public endpoints for self-service company creation and joining.
 Admin endpoints for platform-level company management.
+
+# MOIRIA: Diverges from upstream v1.8.1 — SSO relaxation:
+#   - Upstream: raises 404 if tenant.sso_enabled is False
+#   - Moiria: returns None, allowing fallback to standard login
+#   - Enables multi-tenant deployment where not all tenants use SSO
 """
 
 import re

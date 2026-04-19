@@ -1,4 +1,10 @@
-"""Application configuration."""
+"""Application configuration.
+
+# MOIRIA: Diverges from upstream v1.8.1 — added:
+#   - _running_in_container(): container detection utility
+#   - _default_agent_data_dir(): resolves to /data/agents in container
+#   - _read_version(): reads VERSION file for dynamic version string
+"""
 
 from functools import lru_cache
 from pathlib import Path

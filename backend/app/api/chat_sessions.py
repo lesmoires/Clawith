@@ -1,4 +1,8 @@
-"""Chat session management API endpoints."""
+"""Chat session management API endpoints.
+
+# MOIRIA: Diverges from upstream v1.8.1 — added A2A session visibility
+#   with peer agent metadata (displays which agent is on the other end).
+"""
 
 import uuid
 from datetime import datetime, timezone as tz

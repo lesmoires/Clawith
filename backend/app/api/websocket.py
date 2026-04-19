@@ -1,4 +1,8 @@
-"""WebSocket chat endpoint for real-time agent conversations."""
+"""WebSocket chat endpoint for real-time agent conversations.
+
+# MOIRIA: Diverges from upstream v1.8.1 — removed session_id parameter
+#   from call_llm invocation. Parameter was causing NameError in scope.
+"""
 
 import json
 import uuid

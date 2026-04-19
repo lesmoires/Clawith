@@ -3,6 +3,11 @@
 Revision ID: user_refactor_v1
 Revises: a1b2c3d4e5f6
 Create Date: 2026-03-27
+
+# MOIRIA: Diverges from upstream v1.8.1 — added IF EXISTS guard before
+#   CREATE UNIQUE INDEX ix_users_tenant_email_unique on users(email).
+#   Prevents failure when email column has been moved to identities table.
+#   PR candidate for upstream.
 """
 from typing import Sequence, Union
 

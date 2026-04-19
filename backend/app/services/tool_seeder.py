@@ -1,4 +1,10 @@
-"""Seed builtin tools into the database on startup."""
+"""Seed builtin tools into the database on startup.
+
+# MOIRIA: Diverges from upstream v1.8.1 — added ~100 Hetzner Cloud tools
+#   (hetzner_list_servers, hetzner_get_server, hetzner_power_on/off, etc.)
+#   + ssh_exec tool via asyncssh. These are fork-specific features for
+#   Moiria's DevOps use case.
+"""
 
 from loguru import logger
 from sqlalchemy import select

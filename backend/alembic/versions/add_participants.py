@@ -1,4 +1,11 @@
-"""Add participants table, extend chat_sessions and chat_messages, migrate messages data, drop messages table."""
+"""Add participants table, extend chat_sessions and chat_messages, migrate messages data, drop messages table.
+
+# MOIRIA: Diverges from upstream v1.8.1 — backfill query uses identities table:
+#   - COALESCE(u.display_name, i.email, ...) instead of COALESCE(display_name, username)
+#   - LEFT JOIN identities i ON u.identity_id = i.id
+#   - Required because upstream's identity refactor removes username from users table
+#   - PR candidate for upstream (upstream should need this too)
+"""
 
 import uuid
 import sqlalchemy as sa

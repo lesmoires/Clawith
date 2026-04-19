@@ -3,10 +3,16 @@
 Revision ID: 440261f5594f
 Revises: add_agent_credentials
 Create Date: 2026-03-30
+
+# MOIRIA: Diverges from upstream v1.8.1 — added idempotency guards:
+#   - has_legacy_columns check before data migration (lines ~30-40)
+#   - All DROP COLUMN operations guarded by column existence check
+#   - Makes migration safe to re-run (upstream runs unconditionally)
+#   - PR candidate for upstream (universal improvement)
 """
 import uuid
 from typing import Sequence, Union
- 
+
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql

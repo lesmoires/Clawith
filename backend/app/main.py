@@ -1,4 +1,10 @@
-"""Clawith Backend — FastAPI Application Entry Point."""
+"""Clawith Backend — FastAPI Application Entry Point.
+
+# MOIRIA: Diverges from upstream v1.8.1 — added routers:
+#   - agent_credentials_router (per-agent secret management)
+#   - agentbay_control_router (CDP take control)
+#   Also added SS config hardening + extensions loader.
+"""
 
 from contextlib import asynccontextmanager
 

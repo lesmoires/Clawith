@@ -3,6 +3,9 @@
 This module provides a client wrapper around the official AgentBay SDK
 for browser and code execution operations.
 
+# MOIRIA: Fork-specific — multi-region AgentBay support with custom timeout handling.
+#   Not present in upstream v1.8.1.
+
 Supports multiple regions:
 - china: https://agentbay.wuying.aliyuncs.com/v2 (default)
 - intl/singapore: https://agentbay-intl.wuying.aliyuncs.com/v2

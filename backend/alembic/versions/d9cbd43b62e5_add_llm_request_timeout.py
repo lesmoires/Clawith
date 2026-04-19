@@ -3,6 +3,10 @@
 Revision ID: d9cbd43b62e5
 Revises: 440261f5594f
 Create Date: 2026-04-01 18:18:53.009382
+
+# MOIRIA: Diverges from upstream v1.8.1 — added IF NOT EXISTS guard before
+#   op.add_column('llm_models', 'request_timeout', ...). Makes migration idempotent.
+#   PR candidate for upstream (universal improvement).
 """
 from typing import Sequence, Union
 

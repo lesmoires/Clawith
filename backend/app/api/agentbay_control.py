@@ -1,5 +1,8 @@
 """AgentBay Take Control API — human-agent collaborative login.
 
+# MOIRIA: Fork-specific — CDP-based control with custom page selection,
+#   browser cleanup, and graceful disconnect. Not present in upstream v1.8.1.
+
 Provides REST endpoints for forwarding mouse/keyboard events to an
 AgentBay session and managing the Take Control lock. When locked,
 the agent's automatic browser/computer tool execution is paused to

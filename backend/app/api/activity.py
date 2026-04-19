@@ -1,4 +1,8 @@
-"""Activity log API — view agent work history."""
+"""Activity log API — view agent work history.
+
+# MOIRIA: Diverges from upstream v1.8.1 — scalar_one_or_none() tuple guard
+#   for SQLAlchemy version compatibility (same pattern as gateway.py).
+"""
 
 import uuid
 from fastapi import APIRouter, Depends, Query
