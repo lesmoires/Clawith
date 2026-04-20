@@ -1818,6 +1818,56 @@ async def execute_tool(
         elif tool_name == "agentbay_file_transfer":
             result = await _agentbay_file_transfer(agent_id, ws, arguments)
 
+        # ── AgentBay Browser Tools ──
+        elif tool_name == "agentbay_browser_navigate":
+            result = await _agentbay_browser_navigate(agent_id, arguments)
+        elif tool_name == "agentbay_browser_screenshot":
+            result = await _agentbay_browser_screenshot(agent_id, arguments)
+        elif tool_name == "agentbay_browser_click":
+            result = await _agentbay_browser_click(agent_id, arguments)
+        elif tool_name == "agentbay_browser_type":
+            result = await _agentbay_browser_type(agent_id, arguments)
+        elif tool_name == "agentbay_browser_extract":
+            result = await _agentbay_browser_extract(agent_id, arguments)
+        elif tool_name == "agentbay_browser_observe":
+            result = await _agentbay_browser_observe(agent_id, arguments)
+        elif tool_name == "agentbay_browser_login":
+            result = await _agentbay_browser_login(agent_id, arguments)
+
+        # ── AgentBay Code Tools ──
+        elif tool_name == "agentbay_code_execute":
+            result = await _agentbay_code_execute(agent_id, arguments)
+        elif tool_name == "agentbay_command_exec":
+            result = await _agentbay_command_exec(agent_id, arguments)
+
+        # ── AgentBay Computer Tools ──
+        elif tool_name == "agentbay_computer_screenshot":
+            result = await _agentbay_computer_screenshot(agent_id, arguments)
+        elif tool_name == "agentbay_computer_click":
+            result = await _agentbay_computer_click(agent_id, arguments)
+        elif tool_name == "agentbay_computer_input_text":
+            result = await _agentbay_computer_input_text(agent_id, arguments)
+        elif tool_name == "agentbay_computer_press_keys":
+            result = await _agentbay_computer_press_keys(agent_id, arguments)
+        elif tool_name == "agentbay_computer_scroll":
+            result = await _agentbay_computer_scroll(agent_id, arguments)
+        elif tool_name == "agentbay_computer_move_mouse":
+            result = await _agentbay_computer_move_mouse(agent_id, arguments)
+        elif tool_name == "agentbay_computer_drag_mouse":
+            result = await _agentbay_computer_drag_mouse(agent_id, arguments)
+        elif tool_name == "agentbay_computer_get_screen_size":
+            result = await _agentbay_computer_get_screen_size(agent_id, arguments)
+        elif tool_name == "agentbay_computer_start_app":
+            result = await _agentbay_computer_start_app(agent_id, arguments)
+        elif tool_name == "agentbay_computer_get_cursor_position":
+            result = await _agentbay_computer_get_cursor_position(agent_id, arguments)
+        elif tool_name == "agentbay_computer_get_active_window":
+            result = await _agentbay_computer_get_active_window(agent_id, arguments)
+        elif tool_name == "agentbay_computer_activate_window":
+            result = await _agentbay_computer_activate_window(agent_id, arguments)
+        elif tool_name == "agentbay_computer_list_visible_apps":
+            result = await _agentbay_computer_list_visible_apps(agent_id, arguments)
+
         # ── Infisical Tools ──
         elif tool_name == "infisical_get_secret":
             result = await _infisical_get_secret(agent_id, arguments)
@@ -6693,3 +6743,330 @@ async def _agentbay_file_transfer(agent_id: Optional[uuid.UUID], ws: Path, argum
     except Exception as e:
         logger.exception(f"[AgentBay] File transfer failed for agent {agent_id}")
         return f"File transfer failed: {str(e)[:200]}"
+
+
+# ─── AgentBay Browser Tools ───────────────────────────────
+
+async def _agentbay_browser_navigate(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Navigate to URL in AgentBay headless browser."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    url = arguments.get("url", "")
+    if not url:
+        return "Missing required argument: url"
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "browser")
+        result = await client.browser_navigate(
+            url,
+            wait_for=arguments.get("wait_for", ""),
+            screenshot=arguments.get("screenshot", False),
+        )
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_browser_screenshot(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Take a screenshot of the current browser page."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "browser")
+        result = await client.browser_screenshot()
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_browser_click(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Click an element in the browser by CSS selector."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    selector = arguments.get("selector", "")
+    if not selector:
+        return "Missing required argument: selector"
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "browser")
+        result = await client.browser_click(selector)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_browser_type(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Type text into an element in the browser."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    selector = arguments.get("selector", "")
+    text = arguments.get("text", "")
+    if not selector:
+        return "Missing required argument: selector"
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "browser")
+        result = await client.browser_type(selector, text)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_browser_extract(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Extract structured data from the current browser page using natural language."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    instruction = arguments.get("instruction", "")
+    if not instruction:
+        return "Missing required argument: instruction"
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "browser")
+        result = await client.browser_extract(
+            instruction,
+            selector=arguments.get("selector", ""),
+        )
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_browser_observe(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Observe the current browser page state and return interactive elements."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    instruction = arguments.get("instruction", "")
+    if not instruction:
+        return "Missing required argument: instruction"
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "browser")
+        result = await client.browser_observe(
+            instruction,
+            selector=arguments.get("selector", ""),
+        )
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_browser_login(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Perform an automated login using AgentBay's built-in login skill."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    url = arguments.get("url", "")
+    login_config = arguments.get("login_config", "")
+    if not url:
+        return "Missing required argument: url"
+    if not login_config:
+        return "Missing required argument: login_config"
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "browser")
+        result = await client.browser_login(url, login_config)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+# ─── AgentBay Code Tools ───────────────────────────────
+
+async def _agentbay_code_execute(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Execute code in an AgentBay code environment."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    language = arguments.get("language", "python")
+    code = arguments.get("code", "")
+    if not code:
+        return "Missing required argument: code"
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "code")
+        result = await client.code_execute(
+            language,
+            code,
+            timeout=arguments.get("timeout", 30),
+        )
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_command_exec(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Execute a shell command in an AgentBay environment."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    command = arguments.get("command", "")
+    if not command:
+        return "Missing required argument: command"
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "code")
+        result = await client.command_exec(
+            command,
+            timeout_ms=arguments.get("timeout_ms", 50000),
+            cwd=arguments.get("cwd", ""),
+        )
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+# ─── AgentBay Computer Tools ───────────────────────────────
+
+async def _agentbay_computer_screenshot(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Take a screenshot of the desktop."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_screenshot()
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_computer_click(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Click the mouse at coordinates (x, y)."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    x = arguments.get("x", 0)
+    y = arguments.get("y", 0)
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_click(x, y, button=arguments.get("button", "left"))
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_computer_input_text(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Input text at the current cursor position."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    text = arguments.get("text", "")
+    if not text:
+        return "Missing required argument: text"
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_input_text(text)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_computer_press_keys(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Press keyboard keys (e.g. ['ctrl', 'c'] for Ctrl+C)."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    keys = arguments.get("keys", [])
+    if not keys:
+        return "Missing required argument: keys"
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_press_keys(keys, hold=arguments.get("hold", False))
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_computer_scroll(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Scroll the screen at position (x, y)."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    x = arguments.get("x", 0)
+    y = arguments.get("y", 0)
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_scroll(
+            x, y,
+            direction=arguments.get("direction", "down"),
+            amount=arguments.get("amount", 1),
+        )
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_computer_move_mouse(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Move mouse to coordinates (x, y) without clicking."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    x = arguments.get("x", 0)
+    y = arguments.get("y", 0)
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_move_mouse(x, y)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_computer_drag_mouse(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Drag mouse from (from_x, from_y) to (to_x, to_y)."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    from_x = arguments.get("from_x", 0)
+    from_y = arguments.get("from_y", 0)
+    to_x = arguments.get("to_x", 0)
+    to_y = arguments.get("to_y", 0)
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_drag_mouse(
+            from_x, from_y, to_x, to_y,
+            button=arguments.get("button", "left"),
+        )
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_computer_get_screen_size(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Get the screen resolution."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_get_screen_size()
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_computer_start_app(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Start an application by its command."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    cmd = arguments.get("cmd", "")
+    if not cmd:
+        return "Missing required argument: cmd"
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_start_app(
+            cmd,
+            work_dir=arguments.get("work_dir", ""),
+        )
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_computer_get_cursor_position(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Get current cursor position."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_get_cursor_position()
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_computer_get_active_window(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Get info about the currently active window."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_get_active_window()
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_computer_activate_window(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """Activate (bring to front) a window by its ID."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    window_id = arguments.get("window_id")
+    if window_id is None:
+        return "Missing required argument: window_id"
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_activate_window(window_id)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
+
+
+async def _agentbay_computer_list_visible_apps(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
+    """List currently visible/running applications."""
+    from app.services.agentbay_client import get_agentbay_client_for_agent
+    try:
+        client = await get_agentbay_client_for_agent(agent_id, "computer")
+        result = await client.computer_list_visible_apps()
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"AgentBay error: {str(e)[:300]}"
