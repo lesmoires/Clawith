@@ -62,6 +62,7 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       # Password reset token lifetime in minutes (upstream v1.8.1)
       PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: ${PASSWORD_RESET_TOKEN_EXPIRE_MINUTES:-30}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
     volumes:
       - agent_data:/data/agents
       - /var/run/docker.sock:/var/run/docker.sock
