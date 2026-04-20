@@ -293,7 +293,7 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "send_message_to_agent",
-            "description": "Send a message to a digital employee colleague and receive a reply. The recipient is another AI agent, not a human. This triggers the recipient's LLM reasoning and returns their response. Suitable for asking questions, delegating tasks, or collaboration. Your relationships.md lists available digital employees under 'Digital Employee Colleagues'.",
+            "description": "Send a message to a digital employee colleague. The recipient is another AI agent, not a human. Your relationships.md lists available digital employees under 'Digital Employee Colleagues'.\n\nDECISION GUIDE for msg_type:\nAsk yourself: does the target agent need to DO WORK (analyze, research, summarize, write, compare, plan, etc.) and RETURN RESULTS to you or the user?\n\n- If YES, the target needs to do work → use task_delegate. Examples: 'summarize X', 'analyze Y', 'check Z', 'prepare a report', 'review and give feedback', 'find out X', 'confirm with X and report back'. The target works asynchronously and you will be woken when they finish.\n\n- If the target just needs to KNOW something → use notify. Examples: 'meeting cancelled', 'I updated the doc', 'heads up about X', 'FYI'. No reply expected.\n\n- If you need a quick factual answer right now → use consult. Examples: 'what is X?', 'do you know Y?'. Synchronous, blocks until reply.\n\nWhen in doubt between notify and task_delegate, prefer task_delegate — it is safer because it guarantees the user gets a result.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -308,10 +308,10 @@ AGENT_TOOLS = [
                     "msg_type": {
                         "type": "string",
                         "enum": ["notify", "consult", "task_delegate"],
-                        "description": "Message type: notify (notification), consult (ask a question), task_delegate (delegate a task). Defaults to notify.",
+                        "description": "Decision guide: (1) Will the target need to DO WORK and return results? → task_delegate. (2) Is this just a one-way FYI? → notify. (3) Quick factual question needing immediate answer? → consult. When unsure, prefer task_delegate.",
                     },
                 },
-                "required": ["agent_name", "message"],
+                "required": ["agent_name", "message", "msg_type"],
             },
         },
     },
@@ -1274,12 +1274,46 @@ async def _agent_has_feishu(agent_id: uuid.UUID) -> bool:
 
 # ─── Dynamic Tool Loading from DB ──────────────────────────────
 
+def _strip_a2a_msg_type(tools: list[dict]) -> list[dict]:
+    """Remove the msg_type parameter from send_message_to_agent when async A2A is disabled.
+
+    This prevents the LLM from seeing and selecting notify/task_delegate modes
+    that would be silently overridden to consult anyway, which confuses users
+    who see the tool call arguments in the chat UI.
+    """
+    import copy
+    result = []
+    for t in tools:
+        fn = t.get("function", {})
+        if fn.get("name") == "send_message_to_agent":
+            t = copy.deepcopy(t)
+            fn = t["function"]
+            # Simplify description to only mention consult
+            fn["description"] = (
+                "Send a message to a digital employee colleague and receive their reply synchronously."
+            )
+            params = fn.get("parameters", {})
+            props = params.get("properties", {})
+            # Remove msg_type parameter entirely
+            props.pop("msg_type", None)
+            # Remove msg_type from required list
+            req = params.get("required", [])
+            if "msg_type" in req:
+                params["required"] = [r for r in req if r != "msg_type"]
+        result.append(t)
+    return result
+
+
 async def get_agent_tools_for_llm(agent_id: uuid.UUID) -> list[dict]:
     """Load enabled tools for an agent from DB (OpenAI function-calling format).
-    
+
     Falls back to hardcoded AGENT_TOOLS if DB not ready.
     Always includes core system tools (send_channel_file, write_file).
     Feishu tools are only included when the agent has a configured Feishu channel.
+
+    When the tenant's a2a_async_enabled flag is False, the msg_type parameter is
+    removed from the send_message_to_agent tool so the LLM only sees the
+    synchronous consult behaviour.
     """
     has_feishu = await _agent_has_feishu(agent_id)
     _always_tools = _always_core_tools + (_feishu_tools if has_feishu else [])
@@ -1331,7 +1365,27 @@ async def get_agent_tools_for_llm(agent_id: uuid.UUID) -> list[dict]:
         logger.error(f"[Tools] DB load failed, using fallback: {e}")
 
     # Fallback to hardcoded tools
-    return AGENT_TOOLS
+    result = AGENT_TOOLS
+
+    # Check tenant-level a2a_async_enabled flag
+    _a2a_async = False
+    try:
+        from app.models.tenant import Tenant
+        async with async_session() as _db:
+            _ar = await _db.execute(select(AgentModel).where(AgentModel.id == agent_id))
+            _agent = _ar.scalar_one_or_none()
+            if _agent and _agent.tenant_id:
+                _tr = await _db.execute(select(Tenant).where(Tenant.id == _agent.tenant_id))
+                _tenant = _tr.scalar_one_or_none()
+                if _tenant:
+                    _a2a_async = getattr(_tenant, "a2a_async_enabled", False)
+    except Exception:
+        pass
+
+    if not _a2a_async:
+        result = _strip_a2a_msg_type(result)
+
+    return result
 
 
 # ─── Workspace initialization ──────────────────────────────────
@@ -1660,6 +1714,14 @@ async def execute_tool(
             result = await _jina_search(arguments)
         elif tool_name == "bing_search":
             result = await _jina_search(arguments)  # redirect legacy to jina
+        elif tool_name == "exa_search":
+            result = await _exa_search(arguments, agent_id=agent_id)
+        elif tool_name == "duckduckgo_search":
+            result = await _duckduckgo_search_tool(arguments)
+        elif tool_name == "tavily_search":
+            result = await _tavily_search_tool(arguments)
+        elif tool_name == "google_search":
+            result = await _google_search_tool(arguments)
         elif tool_name == "jina_read":
             result = await _jina_read(arguments)
         elif tool_name == "read_webpage":
@@ -1808,6 +1870,135 @@ async def execute_tool(
         return f"Tool execution error ({tool_name}): {type(e).__name__}: {str(e)[:200]}"
 
 
+
+# ── Standalone search engine tool wrappers ───────────────────────────────────
+# Each function reads its own tool config (agent > company > defaults) and
+# delegates to the existing private search implementations above.
+
+
+async def _exa_search(arguments: dict, agent_id: uuid.UUID | None = None) -> str:
+    """Full-featured Exa AI search with category filtering, domain filtering, and content modes."""
+    import httpx
+
+    query = arguments.get("query", "").strip()
+    if not query:
+        return "❌ Please provide search keywords"
+
+    config = await _get_tool_config(agent_id, "exa_search") or {}
+    api_key = config.get("api_key", "") or get_settings().EXA_API_KEY
+    if not api_key:
+        return "❌ Exa API key is required. Set it in tool settings or the EXA_API_KEY environment variable."
+
+    max_results = min(arguments.get("max_results", 5), 10)
+    search_type = arguments.get("search_type", "auto")
+    category = arguments.get("category") or None
+    content_mode = arguments.get("content_mode", "text")
+    include_domains = arguments.get("include_domains")
+    exclude_domains = arguments.get("exclude_domains")
+
+    body: dict = {
+        "query": query,
+        "type": search_type,
+        "numResults": max_results,
+        "contents": {},
+    }
+
+    if category:
+        body["category"] = category
+    if include_domains:
+        body["includeDomains"] = [d.strip() for d in include_domains.split(",") if d.strip()]
+    if exclude_domains:
+        body["excludeDomains"] = [d.strip() for d in exclude_domains.split(",") if d.strip()]
+
+    if content_mode == "highlights":
+        body["contents"]["highlights"] = {"numSentences": 3}
+    elif content_mode == "summary":
+        body["contents"]["summary"] = {}
+    else:
+        body["contents"]["text"] = {"maxCharacters": 1000}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.exa.ai/search",
+                json=body,
+                headers={
+                    "x-api-key": api_key,
+                    "Content-Type": "application/json",
+                    "x-exa-integration": "clawith",
+                },
+                timeout=15,
+            )
+            data = resp.json()
+
+        if resp.status_code != 200:
+            return f"❌ Exa search failed: {data.get('error', data.get('message', str(data)[:200]))}"
+
+        items = data.get("results", [])[:max_results]
+        if not items:
+            return f'🔍 No results found for "{query}"'
+
+        parts = []
+        for i, r in enumerate(items, 1):
+            title = r.get("title", "Untitled")
+            url = r.get("url", "")
+            content = ""
+            if content_mode == "highlights" and r.get("highlights"):
+                content = " ... ".join(r["highlights"])
+            elif content_mode == "summary" and r.get("summary"):
+                content = r["summary"]
+            elif r.get("text"):
+                content = r["text"][:500]
+            parts.append(f"**{i}. {title}**\n{url}\n{content}")
+
+        return f'🔍 Exa search for "{query}" ({len(items)} items):\n\n' + "\n\n---\n\n".join(parts)
+
+    except Exception as e:
+        return f"❌ Exa search error: {str(e)[:300]}"
+
+
+async def _duckduckgo_search_tool(arguments: dict) -> str:
+    """Standalone DuckDuckGo search tool (no API key required)."""
+    query = arguments.get("query", "").strip()
+    if not query:
+        return "Please provide search keywords"
+    max_results = min(arguments.get("max_results", 5), 10)
+    return await _search_duckduckgo(query, max_results)
+
+
+async def _tavily_search_tool(arguments: dict, agent_id: uuid.UUID | None = None) -> str:
+    """Standalone Tavily search tool (API key read from per-tool config)."""
+    query = arguments.get("query", "").strip()
+    if not query:
+        return "Please provide search keywords"
+    config = await _get_tool_config(agent_id, "tavily_search") or {}
+    api_key = config.get("api_key", "").strip()
+    if not api_key:
+        return "Tavily API key is required. Set it in the tool settings."
+    max_results = min(arguments.get("max_results", 5), 10)
+    try:
+        return await _search_tavily(query, api_key, max_results)
+    except Exception as e:
+        return f"Tavily search error: {str(e)[:200]}"
+
+
+async def _google_search_tool(arguments: dict, agent_id: uuid.UUID | None = None) -> str:
+    """Standalone Google Custom Search tool (API key read from per-tool config)."""
+    query = arguments.get("query", "").strip()
+    if not query:
+        return "Please provide search keywords"
+    config = await _get_tool_config(agent_id, "google_search") or {}
+    api_key = config.get("api_key", "").strip()
+    if not api_key:
+        return "Google Search API key is required (format: API_KEY:SEARCH_ENGINE_ID). Set it in the tool settings."
+    language = arguments.get("language") or config.get("language", "en")
+    max_results = min(arguments.get("max_results", 5), 10)
+    try:
+        return await _search_google(query, api_key, max_results, language)
+    except Exception as e:
+        return f"Google search error: {str(e)[:200]}"
+
+
 async def _web_search(arguments: dict) -> str:
     """Search the web using a configurable search engine (reads config from DB)."""
     import httpx
@@ -1835,7 +2026,9 @@ async def _web_search(arguments: dict) -> str:
     language = config.get("language", "zh-CN")
 
     try:
-        if engine == "tavily" and api_key:
+        if engine == "exa" and api_key:
+            return await _exa_search({**arguments, "max_results": max_results}, agent_id=None)
+        elif engine == "tavily" and api_key:
             return await _search_tavily(query, api_key, max_results)
         elif engine == "google" and api_key:
             return await _search_google(query, api_key, max_results, language)

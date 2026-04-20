@@ -80,6 +80,13 @@ async def lifespan(app: FastAPI):
     intercept_standard_logging()
     logger.info("[startup] Logging configured")
 
+    # Warn about default JWT secrets in production
+    if "change-me" in settings.SECRET_KEY.lower() or "change-me" in settings.JWT_SECRET_KEY.lower():
+        logger.warning(
+            "[startup] WARNING: SECRET_KEY or JWT_SECRET_KEY contains default 'change-me' value. "
+            "This is insecure for production. Set unique secrets in your .env file."
+        )
+
     # Load Clawith Custom Extensions (isolated triggers, etc.) — Fork custom
     try:
         from app.extensions import load_extensions
