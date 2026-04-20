@@ -125,13 +125,24 @@ class AgentBayClient:
         if not self._session:
             raise RuntimeError("No active browser session")
         if not getattr(self, "_browser_initialized", False):
-            from agentbay import BrowserOption
+            from agentbay import BrowserOption, BrowserFingerprint
             from agentbay._common.models.browser import BrowserViewport, BrowserScreen
             
-            # Use high-res viewport for clearer screenshots and better layout
+            # Force English locale + Windows fingerprint to avoid Chinese censorship
+            # and ensure sites (ChatGPT, Google, etc.) serve English content.
             options = BrowserOption(
                 viewport=BrowserViewport(width=1920, height=1080),
-                screen=BrowserScreen(width=1920, height=1080)
+                screen=BrowserScreen(width=1920, height=1080),
+                use_stealth=True,
+                fingerprint=BrowserFingerprint(
+                    devices=["desktop"],
+                    operating_systems=["windows"],
+                    locales=["en-US", "en"],
+                ),
+                cmd_args=[
+                    "--lang=en-US",
+                    "--accept-lang=en-US,en",
+                ],
             )
             success = await asyncio.to_thread(self._session.browser.initialize, options)
             if success is False:
