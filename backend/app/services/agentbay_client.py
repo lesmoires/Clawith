@@ -730,6 +730,8 @@ async def test_agentbay_channel(agent_id: uuid.UUID, current_user, db) -> dict:
     try:
         from agentbay import AgentBay, CreateSessionParams
         sdk = AgentBay(api_key=key)
+        # Override SDK endpoint to use intl API (SDK defaults to cn-shanghai)
+        sdk.client._endpoint = 'wuyingai.ap-southeast-1.aliyuncs.com'
         # Using linux_latest instead of browser_latest. AgentBay tokens may be
         # scoped/bound to specific instance types, and requesting browser_latest
         # might trigger an 'InvalidParameter.Authorization' error for this key.
