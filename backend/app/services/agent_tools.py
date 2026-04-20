@@ -1184,50 +1184,47 @@ AGENT_TOOLS = [
     },
     # ── upstream v1.8.2: AgentBay File Transfer ──
     {
-        "name": "agentbay_file_transfer",
-        "display_name": "AgentBay: File Transfer",
-        "description": (
-            "Transfer a file between any two endpoints: the agent workspace, "
-            "the AgentBay browser environment, the cloud desktop (computer), or the code sandbox.\n\n"
-            "VERIFIED PATH CONVENTIONS (all Linux environments run as user 'wuying', HOME=/home/wuying/):\n"
-            "- code env:     use /home/wuying/<filename>  (working directory, e.g. /home/wuying/data.csv)\n"
-            "- browser env:  use /home/wuying/下载/<filename>  (download folder, e.g. /home/wuying/下载/file.pdf)\n"
-            "- computer env: use /home/wuying/桌面/<filename>  (Desktop, e.g. /home/wuying/桌面/report.xlsx)\n"
-            "- workspace:    use relative path, e.g. 'workspace/data.csv'\n\n"
-            "Transfer directions:\n"
-            "- workspace -> env: upload a workspace file into a cloud environment\n"
-            "- env -> workspace: download a file from a cloud environment into the workspace\n"
-            "- env A -> env B:   transfer between environments (transparent backend temp, no workspace involvement)"
-        ),
-        "category": "agentbay",
-        "icon": "🔄",
-        "is_default": False,
-        "parameters_schema": {
-            "type": "object",
-            "properties": {
-                "from_type": {
-                    "type": "string",
-                    "enum": ["workspace", "browser", "computer", "code"],
-                    "description": "Source endpoint: 'workspace' for agent workspace, or the AgentBay environment name.",
+        "type": "function",
+        "function": {
+            "name": "agentbay_file_transfer",
+            "description": (
+                "Transfer a file between any two endpoints: the agent workspace, "
+                "the AgentBay browser environment, the cloud desktop (computer), or the code sandbox.\n\n"
+                "VERIFIED PATH CONVENTIONS (all Linux environments run as user 'wuying', HOME=/home/wuying/):\n"
+                "- code env:     use /home/wuying/<filename>  (working directory, e.g. /home/wuying/data.csv)\n"
+                "- browser env:  use /home/wuying/下载/<filename>  (download folder, e.g. /home/wuying/下载/file.pdf)\n"
+                "- computer env: use /home/wuying/桌面/<filename>  (Desktop, e.g. /home/wuying/桌面/report.xlsx)\n"
+                "- workspace:    use relative path, e.g. 'workspace/data.csv'\n\n"
+                "Transfer directions:\n"
+                "- workspace -> env: upload a workspace file into a cloud environment\n"
+                "- env -> workspace: download a file from a cloud environment into the workspace\n"
+                "- env A -> env B:   transfer between environments (transparent backend temp, no workspace involvement)"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "from_type": {
+                        "type": "string",
+                        "enum": ["workspace", "browser", "computer", "code"],
+                        "description": "Source endpoint: 'workspace' for agent workspace, or the AgentBay environment name.",
+                    },
+                    "from_path": {
+                        "type": "string",
+                        "description": "Source path. Relative if workspace (e.g. 'workspace/data.csv'), absolute if env (e.g. '/root/data.csv').",
+                    },
+                    "to_type": {
+                        "type": "string",
+                        "enum": ["workspace", "browser", "computer", "code"],
+                        "description": "Destination endpoint: 'workspace' for agent workspace, or the AgentBay environment name.",
+                    },
+                    "to_path": {
+                        "type": "string",
+                        "description": "Destination path. Relative if workspace (e.g. 'workspace/output.csv'), absolute if env (e.g. '/root/output.csv').",
+                    },
                 },
-                "from_path": {
-                    "type": "string",
-                    "description": "Source path. Relative if workspace (e.g. 'workspace/data.csv'), absolute if env (e.g. '/root/data.csv').",
-                },
-                "to_type": {
-                    "type": "string",
-                    "enum": ["workspace", "browser", "computer", "code"],
-                    "description": "Destination endpoint: 'workspace' for agent workspace, or the AgentBay environment name.",
-                },
-                "to_path": {
-                    "type": "string",
-                    "description": "Destination path. Relative if workspace (e.g. 'workspace/output.csv'), absolute if env (e.g. '/root/output.csv').",
-                },
+                "required": ["from_type", "from_path", "to_type", "to_path"],
             },
-            "required": ["from_type", "from_path", "to_type", "to_path"],
         },
-        "config": {},
-        "config_schema": {},
     },
 ]
 
