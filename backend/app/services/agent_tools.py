@@ -23,7 +23,7 @@ import json
 import os
 import uuid
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -37,6 +37,91 @@ from app.config import get_settings
 
 _settings = get_settings()
 WORKSPACE_ROOT = Path(_settings.AGENT_DATA_DIR)
+
+# ── Tool Config Cache ──────────────────────────────────────────
+_TOOL_CONFIG_CACHE_TTL_SECONDS = 60
+_tool_config_cache: dict = {}
+
+
+def _get_cached_tool_config(agent_id: Optional[uuid.UUID], tool_name: str) -> Optional[dict]:
+    """Get cached tool config, return None if expired."""
+    cache_key = (str(agent_id) if agent_id else None, tool_name)
+    if cache_key in _tool_config_cache:
+        config, expiry = _tool_config_cache[cache_key]
+        if datetime.now() < expiry:
+            return config
+        del _tool_config_cache[cache_key]
+    return None
+
+
+def _set_cached_tool_config(agent_id: Optional[uuid.UUID], tool_name: str, config: dict):
+    """Set tool config cache."""
+    cache_key = (str(agent_id) if agent_id else None, tool_name)
+    expiry = datetime.now() + timedelta(seconds=_TOOL_CONFIG_CACHE_TTL_SECONDS)
+    _tool_config_cache[cache_key] = (config, expiry)
+
+
+async def _get_tool_config(agent_id: Optional[uuid.UUID], tool_name: str) -> Optional[dict]:
+    """Get merged tool config (with caching).
+
+    Priority:
+    1. agent_tools.config (per-agent override)
+    2. tools.config (company/global config)
+    """
+    cached = _get_cached_tool_config(agent_id, tool_name)
+    if cached is not None:
+        logger.debug(f"[ToolConfig] Cache hit for {tool_name}, agent_id={agent_id}: {cached}")
+        return cached
+
+    from app.models.tool import Tool, AgentTool
+
+    async with async_session() as db:
+        if agent_id:
+            result = await db.execute(
+                select(AgentTool.config, Tool.config, Tool.config_schema)
+                .join(Tool, AgentTool.tool_id == Tool.id)
+                .where(AgentTool.agent_id == agent_id, Tool.name == tool_name)
+            )
+            row = result.first()
+            if row:
+                agent_config, global_config, config_schema = row
+                merged = {**(global_config or {}), **(agent_config or {})}
+                if merged:
+                    from app.core.security import decrypt_data
+                    from app.config import get_settings as _gs
+                    settings = _gs()
+                    for key, value in merged.items():
+                        if isinstance(value, str) and value:
+                            try:
+                                merged[key] = decrypt_data(value, settings.SECRET_KEY)
+                            except Exception:
+                                pass
+                    logger.info(f"[ToolConfig] DB merged config for {tool_name}, agent_id={agent_id}")
+                    _set_cached_tool_config(agent_id, tool_name, merged)
+                    return merged
+
+        result = await db.execute(select(Tool).where(Tool.name == tool_name))
+        tool = result.scalar_one_or_none()
+        if tool and tool.config:
+            from app.core.security import decrypt_data
+            from app.config import get_settings as _gs
+            settings = _gs()
+            decrypted = {}
+            for key, value in tool.config.items():
+                if isinstance(value, str) and value:
+                    try:
+                        decrypted[key] = decrypt_data(value, settings.SECRET_KEY)
+                    except Exception:
+                        decrypted[key] = value
+                else:
+                    decrypted[key] = value
+            logger.info(f"[ToolConfig] DB global config for {tool_name}")
+            _set_cached_tool_config(agent_id, tool_name, decrypted)
+            return decrypted
+
+    logger.error(f"[ToolConfig] No DB config found for {tool_name}, agent_id={agent_id}")
+    return None
+
 
 # ContextVar set by each channel handler so send_channel_file knows where to send
 # Value: async callable(file_path: Path) -> None  |  None for web chat (returns URL)
@@ -3066,7 +3151,7 @@ async def _manage_tasks(
 ) -> str:
     """Create / update / delete tasks in DB and sync to workspace."""
     from app.models.task import TaskLog
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
 
     action = args["action"]
     title = args["title"]
@@ -3663,7 +3748,7 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
         from app.models.audit import ChatMessage
         from app.models.chat_session import ChatSession
         from app.models.participant import Participant
-        from datetime import datetime, timezone
+        from datetime import datetime, timezone, timedelta
 
         async with async_session() as db:
             # Look up source agent
