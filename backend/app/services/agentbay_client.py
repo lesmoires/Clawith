@@ -23,12 +23,15 @@ from agentbay import AgentBay, BrowserOption, CreateSessionParams
 
 
 # Region endpoint configuration
+# These are Alibaba Cloud RPC endpoints used by the AgentBay SDK for session creation.
+# The SSE streaming endpoint (agentbay-intl.wuying.aliyuncs.com/v2/sse) is separate
+# and handled internally by the SDK.
 AGENTBAY_ENDPOINTS = {
-    'china': 'https://agentbay.wuying.aliyuncs.com/v2',
-    'cn': 'https://agentbay.wuying.aliyuncs.com/v2',
-    'intl': 'https://agentbay-intl.wuying.aliyuncs.com/v2',
-    'singapore': 'https://agentbay-intl.wuying.aliyuncs.com/v2',
-    'sg': 'https://agentbay-intl.wuying.aliyuncs.com/v2',
+    'china': 'wuyingai.cn-shanghai.aliyuncs.com',
+    'cn': 'wuyingai.cn-shanghai.aliyuncs.com',
+    'intl': 'wuyingai.ap-southeast-1.aliyuncs.com',
+    'singapore': 'wuyingai.ap-southeast-1.aliyuncs.com',
+    'sg': 'wuyingai.ap-southeast-1.aliyuncs.com',
 }
 
 
@@ -56,13 +59,15 @@ class AgentBayClient:
         self.region = region.lower()
         self.endpoint = AGENTBAY_ENDPOINTS.get(self.region, AGENTBAY_ENDPOINTS['intl'])
         
-        # Set environment variable for SDK to use (if SDK respects it)
-        os.environ['AGENTBAY_ENDPOINT'] = self.endpoint
-        os.environ['AGENTBAY_REGION'] = self.region
-        
         logger.info(f"[AgentBay] Initializing client with region={self.region}, endpoint={self.endpoint}")
         
         self._sdk = AgentBay(api_key=api_key)
+        
+        # Override SDK endpoint: the SDK defaults to cn-shanghai (China) but intl keys
+        # require ap-southeast-1. We must set the endpoint on the internal client directly.
+        self._sdk.client._endpoint = self.endpoint
+        logger.info(f"[AgentBay] SDK endpoint overridden to: {self.endpoint}")
+        
         self._session = None
         self._image_type = None
 
