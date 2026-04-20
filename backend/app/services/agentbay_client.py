@@ -14,12 +14,14 @@ Supports multiple regions:
 import asyncio
 import os
 import uuid
+import base64
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 from loguru import logger
 
 from agentbay import AgentBay, BrowserOption, CreateSessionParams
+from playwright.async_api import async_playwright, Page as PWPage, Browser as PWBrowser, BrowserContext as PWBrowserContext
 
 
 # Region endpoint configuration
@@ -70,6 +72,12 @@ class AgentBayClient:
         
         self._session = None
         self._image_type = None
+        
+        # Playwright CDP connection (for fast browser operations)
+        self._cdp_browser: Optional[PWBrowser] = None
+        self._cdp_context: Optional[PWBrowserContext] = None
+        self._cdp_page: Optional[PWPage] = None
+        self._playwright = None
 
     async def create_session(self, image: str = "linux_latest") -> AgentBaySession:
         """Create a new session using SDK.
@@ -106,7 +114,8 @@ class AgentBayClient:
         )
 
     async def close_session(self):
-        """Release the current session."""
+        """Release the current session + CDP connection."""
+        await self.close_cdp_connection()
         if not self._session:
             return
         try:
@@ -117,6 +126,55 @@ class AgentBayClient:
         finally:
             self._session = None
             self._browser_initialized = False
+
+    # ─── CDP / Playwright Connection ─────────────────────────
+
+    async def _ensure_cdp_connection(self):
+        """Connect Playwright to the AgentBay browser via CDP."""
+        if self._cdp_browser and self._cdp_browser.is_connected():
+            return  # Already connected
+
+        endpoint_url = self._session.browser.get_endpoint_url()
+        logger.info(f"[AgentBay] CDP endpoint: {endpoint_url[:60]}...")
+
+        self._playwright = await async_playwright().start()
+        self._cdp_browser = await self._playwright.chromium.connect_over_cdp(endpoint_url)
+        contexts = self._cdp_browser.contexts
+        self._cdp_context = contexts[0] if contexts else await self._cdp_browser.new_context()
+        self._cdp_page = await self._cdp_context.new_page()
+
+        logger.info(f"[AgentBay] CDP connected successfully")
+
+    async def get_cdp_page(self) -> PWPage:
+        """Return a Playwright page ready for use."""
+        if not self._session or self._image_type not in ("browser", "browser_latest"):
+            await self.create_session("browser_latest")
+
+        await self._ensure_browser_initialized()
+        await self._ensure_cdp_connection()
+        return self._cdp_page
+
+    async def close_cdp_connection(self):
+        """Close the CDP connection cleanly."""
+        if self._cdp_page:
+            try:
+                await self._cdp_page.close()
+            except Exception:
+                pass
+        if self._cdp_browser:
+            try:
+                await self._cdp_browser.close()
+            except Exception:
+                pass
+        if self._playwright:
+            try:
+                await self._playwright.stop()
+            except Exception:
+                pass
+        self._cdp_browser = None
+        self._cdp_context = None
+        self._cdp_page = None
+        self._playwright = None
 
     # ─── Browser Operations ──────────────────────────
 
@@ -150,104 +208,72 @@ class AgentBayClient:
             self._browser_initialized = True
 
     async def browser_navigate(self, url: str, wait_for: str = "", screenshot: bool = False) -> dict:
-        """Navigate browser to URL using SDK.
+        """Navigate via Playwright CDP (instant, no LLM call)."""
+        page = await self.get_cdp_page()
 
-        The AgentBay SDK default navigation timeout is ~60 s. We wrap the call
-        with a 40-second asyncio soft-timeout so callers receive an actionable
-        error quickly rather than hanging the whole agent loop. The underlying
-        SDK thread may continue briefly in the background but its result is
-        discarded — the browser will eventually settle on its own.
-        """
-        if not self._session or self._image_type not in ("browser", "browser_latest"):
-            await self.create_session("browser_latest")
-
-        await self._ensure_browser_initialized()
-
-        # Navigate to URL with a 40-second soft timeout.
-        # asyncio.wait_for cancels the coroutine wrapper; the blocking thread
-        # inside asyncio.to_thread keeps running until SDK returns, but we
-        # no longer block the agent loop waiting for it.
         try:
-            await asyncio.wait_for(
-                asyncio.to_thread(self._session.browser.operator.navigate, url),
-                timeout=40.0,
-            )
-        except asyncio.TimeoutError:
-            logger.warning(f"[AgentBay] navigate to {url!r} timed out after 40 s")
-            raise RuntimeError(
-                f"Navigation to '{url}' timed out (>40 s). "
-                "The browser may be busy or the page is unreachable. "
-                "Try calling agentbay_browser_screenshot to check the current "
-                "state, or retry the navigation."
-            )
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
-        result = {"url": url, "success": True, "title": url}
+            # If wait_for specified, wait for the selector
+            if wait_for:
+                await page.wait_for_selector(wait_for, timeout=10000)
 
-        if screenshot:
-            # Wait for dynamic content and SPA rendering (React/Vue) before screenshotting
-            await asyncio.sleep(3)
+            result = {"url": url, "success": True, "title": await page.title()}
+
+            if screenshot:
+                await asyncio.sleep(1)  # Short delay for SPA rendering
+                img_bytes = await page.screenshot(full_page=False)
+                result["screenshot"] = f"data:image/png;base64,{base64.b64encode(img_bytes).decode()}"
+
+            return result
+        except Exception as e:
+            raise RuntimeError(f"Navigation to '{url}' failed: {str(e)[:200]}")
+
+    async def browser_screenshot(self) -> dict:
+        """Screenshot via Playwright CDP (~0.5s)."""
+        page = await self.get_cdp_page()
+
+        try:
+            await asyncio.sleep(0.5)  # Short delay for rendering
+            img_bytes = await page.screenshot(full_page=False)
+            return {"success": True, "screenshot": f"data:image/png;base64,{base64.b64encode(img_bytes).decode()}"}
+        except Exception:
+            # Fallback to operator
             screenshot_data = await asyncio.to_thread(
                 self._session.browser.operator.screenshot, full_page=False
             )
-            result["screenshot"] = screenshot_data
-
-        return result
-
-    async def browser_screenshot(self) -> dict:
-        """Take a screenshot of the current browser page without navigating.
-
-        Use this after actions (click, type, form submit) to verify results
-        without refreshing the page. Never call browser_navigate just to screenshot.
-        """
-        await self._ensure_browser_initialized()
-        
-        # Wait for dynamic content and SPA rendering before screenshotting
-        await asyncio.sleep(3)
-        
-        screenshot_data = await asyncio.to_thread(
-            self._session.browser.operator.screenshot, full_page=False
-        )
-        return {"success": True, "screenshot": screenshot_data}
+            return {"success": True, "screenshot": screenshot_data, "fallback": "operator"}
 
 
     async def browser_click(self, selector: str) -> dict:
-        """Click element by CSS selector using SDK."""
-        await self._ensure_browser_initialized()
+        """Click via Playwright CDP (~0.1s)."""
+        page = await self.get_cdp_page()
 
-        from agentbay import ActOptions
-        await asyncio.to_thread(self._session.browser.operator.act, ActOptions(action=f"click on {selector}"))
-        return {"success": True, "selector": selector}
+        try:
+            await page.click(selector, timeout=10000)
+            return {"success": True, "selector": selector}
+        except Exception:
+            # Fallback to operator
+            from agentbay import ActOptions
+            await asyncio.to_thread(
+                self._session.browser.operator.act,
+                ActOptions(action=f"click on {selector}")
+            )
+            return {"success": True, "selector": selector, "fallback": "operator"}
 
     async def browser_type(self, selector: str, text: str) -> dict:
-        """Type text into element using SDK."""
-        await self._ensure_browser_initialized()
+        """Type via Playwright CDP (~0.1s)."""
+        page = await self.get_cdp_page()
 
-        from agentbay import ActOptions
-
-        # Detect OTP/PIN-style inputs: short digit-only strings (4-8 chars)
-        # These use segmented input boxes that auto-advance focus per digit,
-        # so character-by-character typing often fails. Use paste strategy instead.
-        is_otp = text.isdigit() and 4 <= len(text) <= 8
-
-        if is_otp:
-            action_msg = (
-                f"The text '{text}' appears to be a verification/OTP code. "
-                f"Find the verification code input area near '{selector}'. "
-                f"Click on the first input box, then paste or type the full code '{text}'. "
-                f"If the input is split into individual digit boxes, click the first box "
-                f"and type each digit one at a time: {', '.join(text)}. "
-                f"Each box should auto-advance to the next after entering a digit."
-            )
-        else:
-            # Standard input: click to focus, then type character by character
-            # to correctly trigger React/Vue input events.
-            action_msg = (
-                f"Click on the element matching '{selector}' to focus it, "
-                f"then use the keyboard to type the text '{text}' character by character. "
-                f"This ensures modern web frameworks like React register the input."
-            )
-
-        await asyncio.to_thread(self._session.browser.operator.act, ActOptions(action=action_msg))
+        try:
+            await page.fill(selector, text, timeout=10000)
+            return {"success": True, "selector": selector, "text": text}
+        except Exception:
+            # Fallback to operator
+            from agentbay import ActOptions
+            action_msg = f"Click on '{selector}' and type '{text}'"
+            await asyncio.to_thread(self._session.browser.operator.act, ActOptions(action=action_msg))
+            return {"success": True, "selector": selector, "text": text, "fallback": "operator"}
         return {"success": True, "selector": selector, "text": text}
 
     async def browser_login(self, url: str, login_config: str) -> dict:

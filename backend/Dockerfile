@@ -33,6 +33,9 @@ COPY --from=deps /usr/local/bin/ /usr/local/bin/
 # Copy application code
 COPY . .
 
+# Install Playwright Chromium browser for CDP automation
+RUN playwright install --with-deps chromium
+
 RUN useradd --create-home clawith && \
     mkdir -p /data/agents && \
     chmod +x /app/entrypoint.sh && \
