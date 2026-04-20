@@ -1811,6 +1811,8 @@ async def execute_tool(
             result = await _hetzner_power_off(agent_id, arguments)
         elif tool_name == "hetzner_shutdown":
             result = await _hetzner_shutdown(agent_id, arguments)
+        elif tool_name == "ssh_exec":
+            result = await _ssh_exec(agent_id, arguments)
 
         # ── AgentBay File Transfer (upstream v1.8.2) ──
         elif tool_name == "agentbay_file_transfer":
@@ -6231,7 +6233,8 @@ async def _litellm_mcp_call(agent_id: uuid.UUID, mcp_server: str, mcp_method: st
     # Map server name to server_id
     server_ids = {
         'agentmail': 'bd449f3a3bc174b60a8bed88488e525f',
-        'hetzner_cloud': '41691dfc7ebb2a7fc9e6b533a6417807'
+        'hetzner_cloud': '41691dfc7ebb2a7fc9e6b533a6417807',
+        'ssh_remote': '3c5ce7b561c16922662d1fa05060ed95',
     }
     server_id = server_ids.get(mcp_server, mcp_server)
     
@@ -6443,6 +6446,11 @@ async def _hetzner_power_off(agent_id: uuid.UUID, arguments: dict) -> str:
 async def _hetzner_shutdown(agent_id: uuid.UUID, arguments: dict) -> str:
     """Shutdown server via LiteLLM Hetzner MCP."""
     return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_shutdown', arguments)
+
+
+async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Execute SSH command via LiteLLM ssh_remote MCP."""
+    return await _litellm_mcp_call(agent_id, 'ssh_remote', 'ssh_exec', arguments)
 
 
 # ── v1.8.1 File Management Tools ──
