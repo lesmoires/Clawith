@@ -508,10 +508,18 @@ class AgentBayClient:
         await asyncio.sleep(3)
 
         from agentbay._common.models.browser_operator import ExtractOptions
-        # Use a generic dict schema since we cannot define a Pydantic model at runtime
+        from pydantic import BaseModel
+        from typing import Any, Optional as Opt
+
+        # Define a flexible Pydantic model for arbitrary structured extraction
+        class ExtractResult(BaseModel):
+            """Flexible container for extracted data."""
+            data: Any
+            notes: Opt[str] = None
+
         options = ExtractOptions(
             instruction=instruction,
-            schema=dict,
+            schema=ExtractResult,
             selector=selector or None,
         )
         success, data = await asyncio.to_thread(
