@@ -2060,6 +2060,21 @@ AGENTBAY_TOOLS = [
         "config": {},
         "config_schema": {},
     },
+    {
+        "name": "agentbay_close_session",
+        "display_name": "AgentBay: Close Session",
+        "description": "Close the current AgentBay browser or computer session and release cloud resources. Use this when you're done with browser automation to return to normal mode.",
+        "category": "agentbay",
+        "icon": "🚪",
+        "is_default": False,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        },
+        "config": {},
+        "config_schema": {}
+    },
 ]
 
 # ── Hetzner Cloud MCP Tools ─────────────────────────────────────────

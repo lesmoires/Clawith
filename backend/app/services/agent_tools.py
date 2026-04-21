@@ -1902,6 +1902,8 @@ async def execute_tool(
         # ── AgentBay File Transfer (upstream v1.8.2) ──
         elif tool_name == "agentbay_file_transfer":
             result = await _agentbay_file_transfer(agent_id, ws, arguments)
+        elif tool_name == "agentbay_close_session":
+            result = await _agentbay_close_session(agent_id, arguments)
 
         # ── AgentBay Browser Tools ──
         elif tool_name == "agentbay_browser_navigate":
@@ -6828,6 +6830,24 @@ async def _agentbay_file_transfer(agent_id: Optional[uuid.UUID], ws: Path, argum
     except Exception as e:
         logger.exception(f"[AgentBay] File transfer failed for agent {agent_id}")
         return f"File transfer failed: {str(e)[:200]}"
+
+
+async def _agentbay_close_session(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Close the current AgentBay session and release cloud resources."""
+    from app.services.agentbay_client import _agentbay_sessions
+
+    cache_keys_to_remove = []
+    for cache_key, (client, _last_used) in _agentbay_sessions.items():
+        if str(cache_key[0]) == str(agent_id):
+            await client.close_session()
+            cache_keys_to_remove.append(cache_key)
+
+    for key in cache_keys_to_remove:
+        del _agentbay_sessions[key]
+
+    if cache_keys_to_remove:
+        return "AgentBay session closed successfully. Cloud resources released."
+    return "No active AgentBay session found for this agent."
 
 
 # ─── AgentBay Browser Tools ───────────────────────────────

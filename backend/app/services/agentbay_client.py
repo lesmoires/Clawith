@@ -194,7 +194,7 @@ class AgentBayClient:
                 use_stealth=True,
                 fingerprint=BrowserFingerprint(
                     devices=["desktop"],
-                    operating_systems=["windows"],
+                    operating_systems=["linux"],
                     locales=["en-US", "en"],
                 ),
                 cmd_args=[
@@ -676,7 +676,7 @@ class AgentBayClient:
 # of the same Agent shared one browser/desktop — causing conflicts.
 
 _agentbay_sessions: dict[tuple[uuid.UUID, str, str], tuple[AgentBayClient, datetime]] = {}
-_AGENTBAY_SESSION_TIMEOUT = timedelta(minutes=5)
+_AGENTBAY_SESSION_TIMEOUT = timedelta(minutes=1)
 
 
 AGENTBAY_API_URL = "https://api.agentbay.ai/v1"
