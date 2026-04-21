@@ -731,7 +731,7 @@ class AgentBayClient:
 # of the same Agent shared one browser/desktop — causing conflicts.
 
 _agentbay_sessions: dict[tuple[uuid.UUID, str, str], tuple[AgentBayClient, datetime]] = {}
-_AGENTBAY_SESSION_TIMEOUT = timedelta(minutes=1)
+_AGENTBAY_SESSION_TIMEOUT = timedelta(minutes=5)
 
 
 AGENTBAY_API_URL = "https://api.agentbay.ai/v1"
