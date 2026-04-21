@@ -183,14 +183,58 @@ class AgentBayClient:
 
         logger.info(f"[AgentBay] CDP connected successfully (fr-CA locale, America/Toronto TZ)")
 
+    async def _find_or_create_page(self):
+        """Find an existing non-blank page in the context, or create one.
+
+        The AgentBay SDK may have already created pages (the ones the agent
+        navigated to). We need to find and reuse those, not always create a
+        blank new page — otherwise screenshots are always white.
+        """
+        existing_pages = self._cdp_context.pages
+        if existing_pages:
+            # Look for a page with a non-trivial URL (not about:blank)
+            for p in existing_pages:
+                try:
+                    url = p.url
+                    if url and url != "about:blank":
+                        logger.info(
+                            f"[AgentBay] Found existing page: {url[:80]}"
+                        )
+                        self._cdp_page = p
+                        # Add init scripts to this page too (layered on top)
+                        await self._cdp_page.add_init_script("""
+                            Object.defineProperty(navigator, 'language', { get: () => 'fr-CA' });
+                            Object.defineProperty(navigator, 'languages', {
+                                get: () => ['fr-CA', 'fr', 'en-CA', 'en'],
+                            });
+                        """)
+                        return p
+                except Exception:
+                    continue
+            # All pages are blank — use the last one (it may load content later)
+            self._cdp_page = existing_pages[-1]
+            logger.info(f"[AgentBay] Using last existing page (blank, may load later)")
+            return self._cdp_page
+
+        # No pages at all — create a new one
+        self._cdp_page = await self._cdp_context.new_page()
+        await self._cdp_page.add_init_script("""
+            Object.defineProperty(navigator, 'language', { get: () => 'fr-CA' });
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['fr-CA', 'fr', 'en-CA', 'en'],
+            });
+        """)
+        logger.info(f"[AgentBay] Created new page (no existing pages)")
+        return self._cdp_page
+
     async def get_cdp_page(self) -> PWPage:
-        """Return a Playwright page ready for use."""
+        """Return a Playwright page — prefers existing pages with content."""
         if not self._session or self._image_type not in ("browser", "browser_latest"):
             await self.create_session("browser_latest")
 
         await self._ensure_browser_initialized()
         await self._ensure_cdp_connection()
-        return self._cdp_page
+        return await self._find_or_create_page()
 
     async def close_cdp_connection(self):
         """Close the CDP connection cleanly."""
