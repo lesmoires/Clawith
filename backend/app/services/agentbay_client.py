@@ -155,16 +155,9 @@ class AgentBayClient:
             )
             logger.info(f"[AgentBay] Created fresh context (fr-CA, America/Toronto)")
 
-        self._cdp_page = await self._cdp_context.new_page()
-
-        # Also add init script to this page directly (in case the context already
-        # existed and has its own scripts — our script layers on top).
-        await self._cdp_page.add_init_script("""
-            Object.defineProperty(navigator, 'language', { get: () => 'fr-CA' });
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['fr-CA', 'fr', 'en-CA', 'en'],
-            });
-        """)
+        # Use _find_or_create_page to find existing pages with content,
+        # not create a new blank page. This function also adds init scripts.
+        await self._find_or_create_page()
 
         # Inject Accept-Language header on every request — sites that ignore
         # navigator.language often still respect this header.
@@ -314,24 +307,46 @@ class AgentBayClient:
             self._browser_initialized = True
 
     async def browser_navigate(self, url: str, wait_for: str = "", screenshot: bool = False) -> dict:
-        """Navigate via Playwright CDP (instant, no LLM call)."""
-        page = await self.get_cdp_page()
+        """Navigate via SDK operator so it tracks the active page for screenshots.
 
+        IMPORTANT: We MUST navigate via the operator (not raw CDP) because the
+        operator manages its own internal page list. When browser_screenshot()
+        calls operator.screenshot(), it screenshots the page the operator knows
+        about. If we navigate via CDP instead, the operator's page stays blank
+        and screenshots are always white.
+        """
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            # Navigate via the operator so it tracks this as the active page
+            result = await asyncio.to_thread(
+                self._session.browser.operator.navigate, url
+            )
+            if not result or not result.get("success"):
+                raise RuntimeError(f"Operator navigate failed: {result}")
 
-            # If wait_for specified, wait for the selector
+            # Wait for additional selector if specified
             if wait_for:
-                await page.wait_for_selector(wait_for, timeout=10000)
+                page = await self.get_cdp_page()
+                try:
+                    await page.wait_for_selector(wait_for, timeout=10000)
+                except Exception:
+                    pass  # Non-critical — page may still have loaded
 
-            result = {"url": url, "success": True, "title": await page.title()}
+            nav_result = {
+                "url": result.get("url", url),
+                "success": True,
+                "title": result.get("title", ""),
+            }
 
+            # If screenshot requested, use operator to capture the active page
             if screenshot:
-                await asyncio.sleep(1)  # Short delay for SPA rendering
-                img_bytes = await page.screenshot(full_page=False)
-                result["screenshot"] = f"data:image/png;base64,{base64.b64encode(img_bytes).decode()}"
+                await asyncio.sleep(1)
+                ss = await asyncio.to_thread(
+                    self._session.browser.operator.screenshot, full_page=False
+                )
+                if ss:
+                    nav_result["screenshot"] = ss
 
-            return result
+            return nav_result
         except Exception as e:
             raise RuntimeError(f"Navigation to '{url}' failed: {str(e)[:200]}")
 
