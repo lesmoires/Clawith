@@ -307,46 +307,32 @@ class AgentBayClient:
             self._browser_initialized = True
 
     async def browser_navigate(self, url: str, wait_for: str = "", screenshot: bool = False) -> dict:
-        """Navigate via SDK operator so it tracks the active page for screenshots.
+        """Navigate via CDP Playwright.
 
-        IMPORTANT: We MUST navigate via the operator (not raw CDP) because the
-        operator manages its own internal page list. When browser_screenshot()
-        calls operator.screenshot(), it screenshots the page the operator knows
-        about. If we navigate via CDP instead, the operator's page stays blank
-        and screenshots are always white.
+        The _ensure_cdp_connection (called via get_cdp_page) now scans ALL
+        browser contexts to find existing pages with content (from SDK
+        operator navigation), so CDP can see the same pages the agent uses.
         """
         try:
-            # Navigate via the operator so it tracks this as the active page
-            result = await asyncio.to_thread(
-                self._session.browser.operator.navigate, url
-            )
-            if not result or not result.get("success"):
-                raise RuntimeError(f"Operator navigate failed: {result}")
+            page = await self.get_cdp_page()
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
-            # Wait for additional selector if specified
+            # If wait_for specified, wait for the selector
             if wait_for:
-                page = await self.get_cdp_page()
                 try:
                     await page.wait_for_selector(wait_for, timeout=10000)
                 except Exception:
                     pass  # Non-critical — page may still have loaded
 
-            nav_result = {
-                "url": result.get("url", url),
-                "success": True,
-                "title": result.get("title", ""),
-            }
+            result = {"url": url, "success": True, "title": await page.title()}
 
-            # If screenshot requested, use operator to capture the active page
+            # If screenshot requested, capture via CDP
             if screenshot:
-                await asyncio.sleep(1)
-                ss = await asyncio.to_thread(
-                    self._session.browser.operator.screenshot, full_page=False
-                )
-                if ss:
-                    nav_result["screenshot"] = ss
+                await asyncio.sleep(1)  # Short delay for SPA rendering
+                img_bytes = await page.screenshot(full_page=False)
+                result["screenshot"] = f"data:image/png;base64,{base64.b64encode(img_bytes).decode()}"
 
-            return nav_result
+            return result
         except Exception as e:
             raise RuntimeError(f"Navigation to '{url}' failed: {str(e)[:200]}")
 
