@@ -808,9 +808,12 @@ async def control_screenshot(
     env_t = _get_session_env_type(str(agent_id), data.session_id)
     client = await _get_client(agent_id, data.session_id, env_t)
     try:
-        # Try browser snapshot first, then desktop
-        screenshot_b64 = await client.get_browser_snapshot_base64()
-        if not screenshot_b64:
+        # Use CDP (Playwright) for browser screenshots — SDK's get_browser_snapshot_base64()
+        # returns blank pages. CDP is already used by browser_navigate and works reliably.
+        if env_t in ("browser", "browser_latest") and hasattr(client, "browser_screenshot"):
+            ss_result = await client.browser_screenshot()
+            screenshot_b64 = ss_result.get("screenshot") if ss_result.get("success") else None
+        else:
             screenshot_b64 = await client.get_desktop_snapshot_base64()
         if not screenshot_b64:
             logger.warning(f"[TakeControl] Screenshot returned None for agent={agent_id}")
