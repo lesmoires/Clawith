@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from loguru import logger
 
-from agentbay import AgentBay, BrowserOption, CreateSessionParams
+from agentbay import AgentBay, BrowserOption, BrowserProxy, CreateSessionParams
 from playwright.async_api import async_playwright, Page as PWPage, Browser as PWBrowser, BrowserContext as PWBrowserContext
 
 
@@ -232,8 +232,10 @@ class AgentBayClient:
             from agentbay._common.models.browser import BrowserViewport, BrowserScreen
             
             # Force Canadian locale to avoid Chinese content.
-            # Browser fingerprint + Chrome args + Playwright context all work together
+            # Browser fingerprint + Chrome args + SOCKS5 proxy all work together
             # to signal "this browser is in Canada" to every website it visits.
+            # The SOCKS5 proxy on moiria-coolify (Hetzner Germany) routes all
+            # browser traffic through a European IP, bypassing Singapore/China.
             options = BrowserOption(
                 viewport=BrowserViewport(width=1920, height=1080),
                 screen=BrowserScreen(width=1920, height=1080),
@@ -247,6 +249,12 @@ class AgentBayClient:
                     "--lang=fr-CA",
                     "--accept-lang=fr-CA,en-CA,fr,en",
                     "--timezone=America/Toronto",
+                ],
+                proxies=[
+                    BrowserProxy(
+                        proxy_type="custom",
+                        server="socks5://116.203.234.253:1080",
+                    )
                 ],
             )
             success = await asyncio.to_thread(self._session.browser.initialize, options)
