@@ -140,10 +140,48 @@ class AgentBayClient:
         self._playwright = await async_playwright().start()
         self._cdp_browser = await self._playwright.chromium.connect_over_cdp(endpoint_url)
         contexts = self._cdp_browser.contexts
-        self._cdp_context = contexts[0] if contexts else await self._cdp_browser.new_context()
+
+        # Create or reuse context. If creating fresh, set locale/timezone at the
+        # browser-engine level — this is the strongest geo signal. If reusing an
+        # existing SDK-created context, we can't change locale but we still inject
+        # headers + navigator overrides to push sites toward Canadian content.
+        if contexts:
+            self._cdp_context = contexts[0]
+            logger.info(f"[AgentBay] Reusing existing SDK context")
+        else:
+            self._cdp_context = await self._cdp_browser.new_context(
+                locale="fr-CA",
+                timezone_id="America/Toronto",
+            )
+            logger.info(f"[AgentBay] Created fresh context (fr-CA, America/Toronto)")
+
         self._cdp_page = await self._cdp_context.new_page()
 
-        logger.info(f"[AgentBay] CDP connected successfully")
+        # Also add init script to this page directly (in case the context already
+        # existed and has its own scripts — our script layers on top).
+        await self._cdp_page.add_init_script("""
+            Object.defineProperty(navigator, 'language', { get: () => 'fr-CA' });
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['fr-CA', 'fr', 'en-CA', 'en'],
+            });
+        """)
+
+        # Inject Accept-Language header on every request — sites that ignore
+        # navigator.language often still respect this header.
+        await self._cdp_context.set_extra_http_headers({
+            "Accept-Language": "fr-CA,fr;q=0.9,en-CA;q=0.8,en;q=0.7",
+        })
+
+        # Spoof navigator.language / navigator.languages for JS-based detection.
+        # Init scripts on the context apply to ALL future pages (not just this one).
+        await self._cdp_context.add_init_script("""
+            Object.defineProperty(navigator, 'language', { get: () => 'fr-CA' });
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['fr-CA', 'fr', 'en-CA', 'en'],
+            });
+        """)
+
+        logger.info(f"[AgentBay] CDP connected successfully (fr-CA locale, America/Toronto TZ)")
 
     async def get_cdp_page(self) -> PWPage:
         """Return a Playwright page ready for use."""
@@ -156,9 +194,16 @@ class AgentBayClient:
 
     async def close_cdp_connection(self):
         """Close the CDP connection cleanly."""
+        # Reset init scripts (they persist across page reloads but not across
+        # context recreation — good to clear explicitly)
         if self._cdp_page:
             try:
                 await self._cdp_page.close()
+            except Exception:
+                pass
+        if self._cdp_context:
+            try:
+                await self._cdp_context.close()
             except Exception:
                 pass
         if self._cdp_browser:
@@ -186,8 +231,9 @@ class AgentBayClient:
             from agentbay import BrowserOption, BrowserFingerprint
             from agentbay._common.models.browser import BrowserViewport, BrowserScreen
             
-            # Force English locale + Windows fingerprint to avoid Chinese censorship
-            # and ensure sites (ChatGPT, Google, etc.) serve English content.
+            # Force Canadian locale to avoid Chinese content.
+            # Browser fingerprint + Chrome args + Playwright context all work together
+            # to signal "this browser is in Canada" to every website it visits.
             options = BrowserOption(
                 viewport=BrowserViewport(width=1920, height=1080),
                 screen=BrowserScreen(width=1920, height=1080),
@@ -195,11 +241,12 @@ class AgentBayClient:
                 fingerprint=BrowserFingerprint(
                     devices=["desktop"],
                     operating_systems=["linux"],
-                    locales=["en-US", "en"],
+                    locales=["fr-CA", "en-CA", "fr", "en"],
                 ),
                 cmd_args=[
-                    "--lang=en-US",
-                    "--accept-lang=en-US,en",
+                    "--lang=fr-CA",
+                    "--accept-lang=fr-CA,en-CA,fr,en",
+                    "--timezone=America/Toronto",
                 ],
             )
             success = await asyncio.to_thread(self._session.browser.initialize, options)
