@@ -184,39 +184,46 @@ class AgentBayClient:
         logger.info(f"[AgentBay] CDP connected successfully (fr-CA locale, America/Toronto TZ)")
 
     async def _find_or_create_page(self):
-        """Find an existing non-blank page in the context, or create one.
+        """Find an existing non-blank page in ANY context, or create one.
 
         The AgentBay SDK may have already created pages (the ones the agent
-        navigated to). We need to find and reuse those, not always create a
-        blank new page — otherwise screenshots are always white.
+        navigated to) in a context we didn't create. We must scan ALL browser
+        contexts to find them, otherwise we always get a blank new page and
+        screenshots are always white.
         """
-        existing_pages = self._cdp_context.pages
-        if existing_pages:
-            # Look for a page with a non-trivial URL (not about:blank)
-            for p in existing_pages:
-                try:
-                    url = p.url
-                    if url and url != "about:blank":
-                        logger.info(
-                            f"[AgentBay] Found existing page: {url[:80]}"
-                        )
-                        self._cdp_page = p
-                        # Add init scripts to this page too (layered on top)
-                        await self._cdp_page.add_init_script("""
-                            Object.defineProperty(navigator, 'language', { get: () => 'fr-CA' });
-                            Object.defineProperty(navigator, 'languages', {
-                                get: () => ['fr-CA', 'fr', 'en-CA', 'en'],
-                            });
-                        """)
-                        return p
-                except Exception:
-                    continue
-            # All pages are blank — use the last one (it may load content later)
-            self._cdp_page = existing_pages[-1]
-            logger.info(f"[AgentBay] Using last existing page (blank, may load later)")
-            return self._cdp_page
+        if self._cdp_browser:
+            # Scan ALL contexts, not just our own
+            for ctx in self._cdp_browser.contexts:
+                existing_pages = ctx.pages
+                for p in existing_pages:
+                    try:
+                        url = p.url
+                        if url and url != "about:blank":
+                            logger.info(
+                                f"[AgentBay] Found existing page across contexts: {url[:80]}"
+                            )
+                            self._cdp_context = ctx
+                            self._cdp_page = p
+                            # Layer our locale overrides on top
+                            await self._cdp_page.add_init_script("""
+                                Object.defineProperty(navigator, 'language', { get: () => 'fr-CA' });
+                                Object.defineProperty(navigator, 'languages', {
+                                    get: () => ['fr-CA', 'fr', 'en-CA', 'en'],
+                                });
+                            """)
+                            return p
+                    except Exception:
+                        continue
 
-        # No pages at all — create a new one
+            # No non-blank pages found anywhere — use the last page in any context
+            for ctx in self._cdp_browser.contexts:
+                if ctx.pages:
+                    self._cdp_context = ctx
+                    self._cdp_page = ctx.pages[-1]
+                    logger.info(f"[AgentBay] Using last page in context (blank, may load later)")
+                    return self._cdp_page
+
+        # Absolutely no pages anywhere — create a new one in our context
         self._cdp_page = await self._cdp_context.new_page()
         await self._cdp_page.add_init_script("""
             Object.defineProperty(navigator, 'language', { get: () => 'fr-CA' });
@@ -224,7 +231,7 @@ class AgentBayClient:
                 get: () => ['fr-CA', 'fr', 'en-CA', 'en'],
             });
         """)
-        logger.info(f"[AgentBay] Created new page (no existing pages)")
+        logger.info(f"[AgentBay] Created new page (no existing pages anywhere)")
         return self._cdp_page
 
     async def get_cdp_page(self) -> PWPage:
@@ -329,19 +336,80 @@ class AgentBayClient:
             raise RuntimeError(f"Navigation to '{url}' failed: {str(e)[:200]}")
 
     async def browser_screenshot(self) -> dict:
-        """Screenshot via Playwright CDP (~0.5s)."""
-        page = await self.get_cdp_page()
+        """Screenshot — tries operator (SDK native) first, then CDP as fallback.
 
+        The SDK's browser operator runs in the same context as the browser
+        rendering, so it captures the actual visible content. CDP connects
+        to a separate Playwright context that may not see the same pages,
+        which is why CDP screenshots have been returning blank images.
+        """
+        # Strategy 1: SDK operator.screenshot — runs in the browser's own context
         try:
-            await asyncio.sleep(0.5)  # Short delay for rendering
-            img_bytes = await page.screenshot(full_page=False)
-            return {"success": True, "screenshot": f"data:image/png;base64,{base64.b64encode(img_bytes).decode()}"}
-        except Exception:
-            # Fallback to operator
-            screenshot_data = await asyncio.to_thread(
-                self._session.browser.operator.screenshot, full_page=False
+            if self._session and self._session.browser.is_initialized():
+                logger.info("[AgentBay] Trying operator.screenshot (SDK native)")
+                screenshot_data = await asyncio.to_thread(
+                    self._session.browser.operator.screenshot, full_page=False
+                )
+                if screenshot_data and len(screenshot_data) > 500:
+                    return {
+                        "success": True,
+                        "screenshot": screenshot_data,
+                        "method": "operator",
+                    }
+                logger.info(
+                    f"[AgentBay] Operator screenshot too small ({len(screenshot_data) if screenshot_data else 0} bytes)"
+                )
+        except Exception as e:
+            logger.debug(f"[AgentBay] Operator screenshot failed: {e}")
+
+        # Strategy 2: CDP — scan ALL contexts for a non-blank page
+        try:
+            if not self._cdp_browser or not self._cdp_browser.is_connected():
+                await self._ensure_cdp_connection()
+
+            # Log all contexts and pages for debugging
+            ctx_count = len(self._cdp_browser.contexts)
+            logger.info(
+                f"[AgentBay] CDP screenshot: {ctx_count} context(s) available"
             )
-            return {"success": True, "screenshot": screenshot_data, "fallback": "operator"}
+            for i, ctx in enumerate(self._cdp_browser.contexts):
+                page_count = len(ctx.pages)
+                urls = []
+                for pg in ctx.pages:
+                    try:
+                        urls.append(pg.url or "(none)")
+                    except Exception:
+                        urls.append("(error)")
+                logger.info(
+                    f"[AgentBay]   Context {i}: {page_count} page(s) — {', '.join(urls)}"
+                )
+
+            for ctx in self._cdp_browser.contexts:
+                for pg in ctx.pages:
+                    try:
+                        url = pg.url
+                        if url and url != "about:blank":
+                            logger.info(
+                                f"[AgentBay] CDP screenshot: using page {url[:100]}"
+                            )
+                            await asyncio.sleep(1)
+                            img_bytes = await pg.screenshot(full_page=False)
+                            if img_bytes and len(img_bytes) > 500:
+                                return {
+                                    "success": True,
+                                    "screenshot": f"data:image/png;base64,{base64.b64encode(img_bytes).decode()}",
+                                    "method": "cdp-existing-page",
+                                }
+                            logger.info(
+                                f"[AgentBay] CDP screenshot too small: {len(img_bytes) if img_bytes else 0} bytes"
+                            )
+                    except Exception as e:
+                        logger.debug(f"[AgentBay] CDP page screenshot failed: {e}")
+                        continue
+        except Exception as e:
+            logger.debug(f"[AgentBay] CDP screenshot strategy failed: {e}")
+
+        return {"success": False, "error": "All screenshot strategies failed"}
 
 
     async def browser_click(self, selector: str) -> dict:
