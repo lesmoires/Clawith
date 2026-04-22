@@ -2455,62 +2455,17 @@ async def _send_file_via_slack(agent_id, config, file_path: Path, member_name: s
 
 
 async def _execute_mcp_tool(tool_name: str, arguments: dict, agent_id=None) -> str:
-    """Execute a tool via MCP if it exists in the DB as an MCP tool."""
-    try:
-        from app.models.tool import Tool, AgentTool
-        from app.services.mcp_client import MCPClient
-
-        async with async_session() as db:
-            result = await db.execute(select(Tool).where(Tool.name == tool_name, Tool.type == "mcp"))
-            tool = result.scalar_one_or_none()
-            # Load per-agent config override
-            agent_config = {}
-            if tool and agent_id:
-                at_r = await db.execute(
-                    select(AgentTool).where(
-                        AgentTool.agent_id == agent_id,
-                        AgentTool.tool_id == tool.id,
-                    )
-                )
-                at = at_r.scalar_one_or_none()
-                agent_config = (at.config or {}) if at else {}
-
-        if not tool:
-            return f"Unknown tool: {tool_name}"
-
-        if not tool.mcp_server_url:
-            return f"❌ MCP tool {tool_name} has no server URL configured"
-
-        # Merge global config + agent override
-        merged_config = {**(tool.config or {}), **agent_config}
-
-        mcp_url = tool.mcp_server_url
-        mcp_name = tool.mcp_tool_name or tool_name
-
-        # Detect Smithery-hosted MCP servers (*.run.tools URLs)
-        # These need Smithery Connect to route tool calls
-        if ".run.tools" in mcp_url and merged_config:
-            return await _execute_via_smithery_connect(mcp_url, mcp_name, arguments, merged_config, agent_id=agent_id)
-
-        # Direct MCP call for non-Smithery servers
-        # Priority for API key:
-        # 1. Per-agent tool config (api_key / atlassian_api_key)
-        # 2. Agent's Atlassian channel config (for atlassian_* tools)
-        direct_api_key = merged_config.get("api_key") or merged_config.get("atlassian_api_key")
-        if not direct_api_key and tool.mcp_server_name == "Atlassian Rovo":
-            try:
-                from app.api.atlassian import get_atlassian_api_key_for_agent
-                direct_api_key = await get_atlassian_api_key_for_agent(agent_id)
-            except Exception:
-                pass
-        # Fallback: use LITELLM_API_KEY for LiteLLM-hosted MCP servers
-        if not direct_api_key and "litellm" in mcp_url.lower():
-            direct_api_key = os.getenv("LITELLM_API_KEY")
-        client = MCPClient(mcp_url, api_key=direct_api_key)
-        return await client.call_tool(mcp_name, arguments)
-
-    except Exception as e:
-        return f"❌ MCP tool execution error: {str(e)[:200]}"
+    """Execute a tool via MCP — delegates to multi-tenant credential proxy.
+    
+    The credential proxy resolves vault credentials from Infisical based on:
+    1. Explicit vault_id in arguments
+    2. tool.vault_id (tool dedicated to a client vault)
+    3. agent.default_vault_id (agent's default vault)
+    
+    Falls back to legacy behavior if no vault is configured.
+    """
+    from app.services.mcp_vault_proxy import _execute_mcp_with_vault_credentials
+    return await _execute_mcp_with_vault_credentials(tool_name, arguments, agent_id=agent_id)
 
 
 async def _execute_via_smithery_connect(mcp_url: str, tool_name: str, arguments: dict, config: dict, agent_id=None) -> str:
