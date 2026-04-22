@@ -1526,6 +1526,259 @@ async def _list_infisical_secrets(agent_id: uuid.UUID, arguments: dict) -> str:
         return f'Error: {str(e)[:100]}'
 
 
+
+async def _infisical_god(agent_id: uuid.UUID, arguments: dict) -> str:
+    """Full Infisical management — 17 commands via native REST API."""
+    command = arguments.get('command', '').strip()
+    if not command:
+        return 'Error: Missing required argument "command". Available: list-secrets, get-secret, create-secret, update-secret, delete-secret, list-projects, create-project, delete-project, create-env, delete-env, create-folder, delete-folder, list-identities, create-identity, add-to-project, audit-logs'
+
+    infisical_host = os.getenv('INFISICAL_HOST_URL', 'https://secrets.moiria.com').rstrip('/')
+    client_id = os.getenv('INFISICAL_UNIVERSAL_AUTH_CLIENT_ID')
+    client_secret = os.getenv('INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET')
+    if not client_id or not client_secret:
+        return 'Error: Infisical Universal Auth not configured'
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            auth_resp = await client.post(
+                f'{infisical_host}/api/v1/auth/universal-auth/login',
+                headers={'Content-Type': 'application/json'},
+                json={'clientId': client_id, 'clientSecret': client_secret}
+            )
+            auth_resp.raise_for_status()
+            access_token = auth_resp.json().get('accessToken')
+            if not access_token:
+                return 'Error: Failed to get Infisical access token'
+            headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
+
+            def _get_project():
+                return arguments.get('project') or os.getenv('INFISICAL_PROJECT_ID', '')
+
+            if command == 'list-secrets':
+                env = arguments.get('env', arguments.get('environment', 'prod'))
+                proj = _get_project()
+                secret_path = arguments.get('path', '/')
+                resp = await client.get(f'{infisical_host}/api/v4/secrets/{proj}', headers={'Authorization': headers['Authorization']}, params={'environment': env, 'secretPath': secret_path})
+                resp.raise_for_status()
+                secrets = resp.json().get('secrets', [])
+                if not secrets:
+                    return f'No secrets in {env} (path={secret_path})'
+                lines = [f'{len(secrets)} secrets in {env} (path={secret_path}):']
+                for s in secrets:
+                    lines.append(f"  - {s.get('secretKey', s.get('key', '?'))} (v{s.get('version', 1)}, type={s.get('type', 'shared')})")
+                return '\n'.join(lines)
+
+            elif command == 'get-secret':
+                name = arguments.get('name')
+                env = arguments.get('env', arguments.get('environment', 'prod'))
+                secret_path = arguments.get('path', '/')
+                show_value = arguments.get('show_value', arguments.get('show-value', False))
+                if not name:
+                    return 'Error: Missing "name" argument'
+                proj = _get_project()
+                resp = await client.get(f'{infisical_host}/api/v4/secrets/{name}', params={'projectId': proj, 'environment': env, 'secretPath': secret_path}, headers={'Authorization': headers['Authorization']})
+                resp.raise_for_status()
+                data = resp.json()
+                secret = data.get('secret', {})
+                val = secret.get('secretValue', secret.get('value', ''))
+                masked = val[:4] + '*' * (min(len(val) - 4, 12)) if len(val) > 4 and not show_value else val
+                return f"Secret: {name}\n  Version: {secret.get('version', 1)}\n  Type: {secret.get('type', 'shared')}\n  Created: {secret.get('createdAt', '')}\n  Updated: {secret.get('updatedAt', '')}\n  Value: {masked}"
+
+            elif command in ('create-secret', 'update-secret'):
+                name = arguments.get('name')
+                value = arguments.get('value')
+                env = arguments.get('env', arguments.get('environment', 'prod'))
+                secret_path = arguments.get('path', '/')
+                if not name or value is None:
+                    return 'Error: Missing "name" or "value" argument'
+                proj = _get_project()
+                if command == 'create-secret':
+                    resp = await client.post(f'{infisical_host}/api/v3/secrets/raw/{name}', json={'workspaceId': proj, 'environment': env, 'secretPath': secret_path, 'secretValue': value, 'type': 'shared'}, headers=headers)
+                    if resp.status_code == 200:
+                        return f'Secret "{name}" created in {env}'
+                    if resp.status_code == 400:
+                        patch_resp = await client.patch(f'{infisical_host}/api/v3/secrets/raw/{name}', json={'workspaceId': proj, 'environment': env, 'secretPath': secret_path, 'secretValue': value, 'type': 'shared'}, headers=headers)
+                        if patch_resp.status_code == 200:
+                            return f'Secret "{name}" updated in {env}'
+                        return f'Error updating: {patch_resp.status_code} {patch_resp.text[:200]}'
+                    return f'Error creating: {resp.status_code} {resp.text[:200]}'
+                else:
+                    resp = await client.patch(f'{infisical_host}/api/v3/secrets/raw/{name}', json={'workspaceId': proj, 'environment': env, 'secretPath': secret_path, 'secretValue': value, 'type': 'shared'}, headers=headers)
+                    if resp.status_code == 200:
+                        return f'Secret "{name}" updated in {env}'
+                    return f'Error: {resp.status_code} {resp.text[:200]}'
+
+            elif command == 'delete-secret':
+                name = arguments.get('name')
+                env = arguments.get('env', arguments.get('environment', 'prod'))
+                dry_run = arguments.get('dry_run', arguments.get('dry-run', False))
+                if not name:
+                    return 'Error: Missing "name" argument'
+                if dry_run:
+                    return f'DRY RUN: Would delete secret "{name}" in {env}'
+                proj = _get_project()
+                resp = await client.delete(f'{infisical_host}/api/v3/secrets/raw/{name}', json={'workspaceId': proj, 'environment': env}, headers=headers)
+                if resp.status_code == 200:
+                    return f'Secret "{name}" deleted from {env}'
+                return f'Error: {resp.status_code} {resp.text[:200]}'
+
+            elif command == 'list-projects':
+                resp = await client.get(f'{infisical_host}/api/v1/workspace', headers={'Authorization': headers['Authorization']})
+                resp.raise_for_status()
+                projects = resp.json()
+                lines = [f'{len(projects)} projects:']
+                for p in projects:
+                    envs = [e.get('slug', e.get('name', '?')) for e in p.get('environments', [])]
+                    lines.append(f"  - {p.get('name', '?')} (id={p.get('id', '?')[:8]}..., envs: {', '.join(envs)})")
+                return '\n'.join(lines)
+
+            elif command == 'create-project':
+                name = arguments.get('name')
+                if not name:
+                    return 'Error: Missing "name" argument'
+                resp = await client.post(f'{infisical_host}/api/v1/workspaces', json={'name': name, 'projectType': 'generic'}, headers=headers)
+                if resp.status_code in (200, 201):
+                    data = resp.json()
+                    proj_id = data.get('project', data.get('workspace', {})).get('id', 'unknown')
+                    return f'Project "{name}" created (id={proj_id})'
+                return f'Error: {resp.status_code} {resp.text[:200]}'
+
+            elif command == 'delete-project':
+                proj = arguments.get('project')
+                dry_run = arguments.get('dry_run', arguments.get('dry-run', False))
+                if not proj:
+                    return 'Error: Missing "project" argument'
+                if dry_run:
+                    return f'DRY RUN: Would delete project {proj}'
+                resp = await client.delete(f'{infisical_host}/api/v1/workspaces/{proj}', headers=headers)
+                if resp.status_code in (200, 204):
+                    return f'Project {proj} deleted'
+                return f'Error: {resp.status_code} {resp.text[:200]}'
+
+            elif command == 'create-env':
+                name = arguments.get('name')
+                slug = arguments.get('slug', name.lower().replace(' ', '-'))
+                proj = arguments.get('project')
+                if not name or not proj:
+                    return 'Error: Missing "name" or "project" argument'
+                resp = await client.post(f'{infisical_host}/api/v1/workspace/{proj}/environments', json={'name': name, 'slug': slug}, headers=headers)
+                if resp.status_code in (200, 201):
+                    return f'Environment "{name}" (slug: {slug}) created in project {proj}'
+                return f'Error: {resp.status_code} {resp.text[:200]}'
+
+            elif command == 'delete-env':
+                env_slug = arguments.get('env', arguments.get('slug', ''))
+                proj = arguments.get('project')
+                dry_run = arguments.get('dry_run', arguments.get('dry-run', False))
+                if not env_slug or not proj:
+                    return 'Error: Missing "env/slug" or "project" argument'
+                if dry_run:
+                    return f'DRY RUN: Would delete environment "{env_slug}" from project {proj}'
+                resp = await client.delete(f'{infisical_host}/api/v1/workspace/{proj}/environments/{env_slug}', headers=headers)
+                if resp.status_code in (200, 204):
+                    return f'Environment "{env_slug}" deleted from project {proj}'
+                return f'Error: {resp.status_code} {resp.text[:200]}'
+
+            elif command == 'create-folder':
+                name = arguments.get('name')
+                env = arguments.get('env', arguments.get('environment', 'prod'))
+                secret_path = arguments.get('path', '/')
+                if not name:
+                    return 'Error: Missing "name" argument'
+                proj = _get_project()
+                resp = await client.post(f'{infisical_host}/api/v1/folders', json={'workspaceId': proj, 'environment': env, 'path': secret_path, 'name': name}, headers=headers)
+                if resp.status_code in (200, 201):
+                    return f'Folder "{name}" created in {env} (path={secret_path})'
+                return f'Error: {resp.status_code} {resp.text[:200]}'
+
+            elif command == 'delete-folder':
+                name = arguments.get('name')
+                folder_id = arguments.get('folder_id', arguments.get('folder-id'))
+                env = arguments.get('env', arguments.get('environment', 'prod'))
+                dry_run = arguments.get('dry_run', arguments.get('dry-run', False))
+                if not name and not folder_id:
+                    return 'Error: Missing "name" or "folder-id" argument'
+                proj = _get_project()
+                if dry_run:
+                    return f'DRY RUN: Would delete folder "{name or folder_id}" in {env}'
+                if folder_id:
+                    resp = await client.delete(f'{infisical_host}/api/v1/folders/{folder_id}', json={'workspaceId': proj}, headers=headers)
+                else:
+                    resp = await client.delete(f'{infisical_host}/api/v1/folders/name/{name}', json={'workspaceId': proj, 'environment': env}, headers=headers)
+                if resp.status_code in (200, 204):
+                    return 'Folder deleted'
+                return f'Error: {resp.status_code} {resp.text[:200]}'
+
+            elif command == 'list-identities':
+                resp = await client.get(f'{infisical_host}/api/v1/machine-identities', headers={'Authorization': headers['Authorization']})
+                resp.raise_for_status()
+                identities = resp.json()
+                if isinstance(identities, dict):
+                    identities = identities.get('machineIdentities', identities.get('identities', []))
+                if not identities:
+                    return 'No machine identities found'
+                lines = [f'{len(identities)} machine identities:']
+                for ident in identities:
+                    lines.append(f"  - {ident.get('name', '?')} (id={ident.get('id', '?')[:8]}...)")
+                return '\n'.join(lines)
+
+            elif command == 'create-identity':
+                name = arguments.get('name')
+                if not name:
+                    return 'Error: Missing "name" argument'
+                resp = await client.post(f'{infisical_host}/api/v1/machine-identities', json={'name': name}, headers=headers)
+                if resp.status_code in (200, 201):
+                    data = resp.json()
+                    ident_id = data.get('machineIdentity', data).get('id', 'unknown')
+                    return f'Machine identity "{name}" created (id={ident_id})'
+                return f'Error: {resp.status_code} {resp.text[:200]}'
+
+            elif command == 'add-to-project':
+                identity = arguments.get('identity')
+                proj = arguments.get('project')
+                role = arguments.get('role', 'contributor')
+                if not identity or not proj:
+                    return 'Error: Missing "identity" or "project" argument'
+                resp = await client.post(f'{infisical_host}/api/v1/role-assignments/machine-identity', json={'identityId': identity, 'workspaceId': proj, 'role': role}, headers=headers)
+                if resp.status_code in (200, 201):
+                    return f'Identity {identity} granted "{role}" role on project {proj}'
+                return f'Error: {resp.status_code} {resp.text[:200]}'
+
+            elif command == 'audit-logs':
+                from datetime import datetime, timedelta
+                days = int(arguments.get('days', 7))
+                limit = int(arguments.get('limit', 50))
+                action = arguments.get('action')
+                proj = _get_project()
+                start_date = (datetime.utcnow() - timedelta(days=days)).isoformat() + 'Z'
+                params = {'projectId': proj, 'startDate': start_date, 'limit': limit}
+                if action:
+                    params['action'] = action
+                resp = await client.get(f'{infisical_host}/api/v1/audit-logs', headers={'Authorization': headers['Authorization']}, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+                logs = data.get('auditLogs', []) if isinstance(data, dict) else data
+                if not logs:
+                    return f'No audit logs in the last {days} days'
+                lines = [f'Audit logs (last {days} days, {len(logs)} entries):']
+                for log in logs[:limit]:
+                    actor = log.get('actor', {})
+                    meta = log.get('metadata', {})
+                    detail = meta.get('secretKey', meta.get('path', log.get('action', '')))
+                    lines.append(f"  [{log.get('timestamp', '')}] {actor.get('name', '?')}: {log.get('action', '')} - {detail}")
+                return '\n'.join(lines)
+
+            else:
+                return f'Error: Unknown command "{command}". Available: list-secrets, get-secret, create-secret, update-secret, delete-secret, list-projects, create-project, delete-project, create-env, delete-env, create-folder, delete-folder, list-identities, create-identity, add-to-project, audit-logs'
+
+    except httpx.HTTPError as e:
+        return f'Error: Infisical API failed - {str(e)[:200]}'
+    except Exception as e:
+        return f'Error: {str(e)[:200]}'
+
+
+
 async def execute_tool(
     tool_name: str,
     arguments: dict,
@@ -1684,6 +1937,8 @@ async def execute_tool(
             result = await _infisical_get_secret(agent_id, arguments)
         elif tool_name == "list_infisical_secrets":
             result = await _list_infisical_secrets(agent_id, arguments)
+        elif tool_name in ("infisical_god", "infisical-god"):
+            result = await _infisical_god(agent_id, arguments)
         # ── Feishu Document Tools ──
         elif tool_name == "feishu_wiki_list":
             result = await _feishu_wiki_list(agent_id, arguments)
