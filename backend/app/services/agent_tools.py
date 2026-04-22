@@ -2503,6 +2503,9 @@ async def _execute_mcp_tool(tool_name: str, arguments: dict, agent_id=None) -> s
                 direct_api_key = await get_atlassian_api_key_for_agent(agent_id)
             except Exception:
                 pass
+        # Fallback: use LITELLM_API_KEY for LiteLLM-hosted MCP servers
+        if not direct_api_key and "litellm" in mcp_url.lower():
+            direct_api_key = os.getenv("LITELLM_API_KEY")
         client = MCPClient(mcp_url, api_key=direct_api_key)
         return await client.call_tool(mcp_name, arguments)
 
