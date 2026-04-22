@@ -614,6 +614,7 @@
       "search": "Search",
       "custom": "Custom",
       "general": "General",
+        "hetzner": "Hetzner Cloud",
       "email": "Email",
       "aware": "Aware & Triggers",
       "social": "Social",

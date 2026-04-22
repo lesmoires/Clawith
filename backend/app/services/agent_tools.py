@@ -10,20 +10,14 @@ The agent's workspace uses well-known paths:
   - workspace/          → general working files, reports, etc.
 
 The agent reads/writes these files directly. No per-concept tools needed.
-
-# MOIRIA: Diverges from upstream v1.8.1 — key additions:
-#   - _litellm_mcp_call() (line ~5976): LiteLLM MCP REST executor for AgentMail/Hetzner
-#   - Multi-region AgentBay navigation with configurable timeouts
-#   - Fork-specific tool wrappers (hetzner_*, agentbay_*, etc.)
 """
 
-import asyncio
 import httpx
 import json
 import os
 import uuid
 from contextvars import ContextVar
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -37,91 +31,6 @@ from app.config import get_settings
 
 _settings = get_settings()
 WORKSPACE_ROOT = Path(_settings.AGENT_DATA_DIR)
-
-# ── Tool Config Cache ──────────────────────────────────────────
-_TOOL_CONFIG_CACHE_TTL_SECONDS = 60
-_tool_config_cache: dict = {}
-
-
-def _get_cached_tool_config(agent_id: Optional[uuid.UUID], tool_name: str) -> Optional[dict]:
-    """Get cached tool config, return None if expired."""
-    cache_key = (str(agent_id) if agent_id else None, tool_name)
-    if cache_key in _tool_config_cache:
-        config, expiry = _tool_config_cache[cache_key]
-        if datetime.now() < expiry:
-            return config
-        del _tool_config_cache[cache_key]
-    return None
-
-
-def _set_cached_tool_config(agent_id: Optional[uuid.UUID], tool_name: str, config: dict):
-    """Set tool config cache."""
-    cache_key = (str(agent_id) if agent_id else None, tool_name)
-    expiry = datetime.now() + timedelta(seconds=_TOOL_CONFIG_CACHE_TTL_SECONDS)
-    _tool_config_cache[cache_key] = (config, expiry)
-
-
-async def _get_tool_config(agent_id: Optional[uuid.UUID], tool_name: str) -> Optional[dict]:
-    """Get merged tool config (with caching).
-
-    Priority:
-    1. agent_tools.config (per-agent override)
-    2. tools.config (company/global config)
-    """
-    cached = _get_cached_tool_config(agent_id, tool_name)
-    if cached is not None:
-        logger.debug(f"[ToolConfig] Cache hit for {tool_name}, agent_id={agent_id}: {cached}")
-        return cached
-
-    from app.models.tool import Tool, AgentTool
-
-    async with async_session() as db:
-        if agent_id:
-            result = await db.execute(
-                select(AgentTool.config, Tool.config, Tool.config_schema)
-                .join(Tool, AgentTool.tool_id == Tool.id)
-                .where(AgentTool.agent_id == agent_id, Tool.name == tool_name)
-            )
-            row = result.first()
-            if row:
-                agent_config, global_config, config_schema = row
-                merged = {**(global_config or {}), **(agent_config or {})}
-                if merged:
-                    from app.core.security import decrypt_data
-                    from app.config import get_settings as _gs
-                    settings = _gs()
-                    for key, value in merged.items():
-                        if isinstance(value, str) and value:
-                            try:
-                                merged[key] = decrypt_data(value, settings.SECRET_KEY)
-                            except Exception:
-                                pass
-                    logger.info(f"[ToolConfig] DB merged config for {tool_name}, agent_id={agent_id}")
-                    _set_cached_tool_config(agent_id, tool_name, merged)
-                    return merged
-
-        result = await db.execute(select(Tool).where(Tool.name == tool_name))
-        tool = result.scalar_one_or_none()
-        if tool and tool.config:
-            from app.core.security import decrypt_data
-            from app.config import get_settings as _gs
-            settings = _gs()
-            decrypted = {}
-            for key, value in tool.config.items():
-                if isinstance(value, str) and value:
-                    try:
-                        decrypted[key] = decrypt_data(value, settings.SECRET_KEY)
-                    except Exception:
-                        decrypted[key] = value
-                else:
-                    decrypted[key] = value
-            logger.info(f"[ToolConfig] DB global config for {tool_name}")
-            _set_cached_tool_config(agent_id, tool_name, decrypted)
-            return decrypted
-
-    logger.error(f"[ToolConfig] No DB config found for {tool_name}, agent_id={agent_id}")
-    return None
-
 
 # ContextVar set by each channel handler so send_channel_file knows where to send
 # Value: async callable(file_path: Path) -> None  |  None for web chat (returns URL)
@@ -378,7 +287,7 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "send_message_to_agent",
-            "description": "Send a message to a digital employee colleague. The recipient is another AI agent, not a human. Your relationships.md lists available digital employees under 'Digital Employee Colleagues'.\n\nDECISION GUIDE for msg_type:\nAsk yourself: does the target agent need to DO WORK (analyze, research, summarize, write, compare, plan, etc.) and RETURN RESULTS to you or the user?\n\n- If YES, the target needs to do work → use task_delegate. Examples: 'summarize X', 'analyze Y', 'check Z', 'prepare a report', 'review and give feedback', 'find out X', 'confirm with X and report back'. The target works asynchronously and you will be woken when they finish.\n\n- If the target just needs to KNOW something → use notify. Examples: 'meeting cancelled', 'I updated the doc', 'heads up about X', 'FYI'. No reply expected.\n\n- If you need a quick factual answer right now → use consult. Examples: 'what is X?', 'do you know Y?'. Synchronous, blocks until reply.\n\nWhen in doubt between notify and task_delegate, prefer task_delegate — it is safer because it guarantees the user gets a result.",
+            "description": "Send a message to a digital employee colleague and receive a reply. The recipient is another AI agent, not a human. This triggers the recipient's LLM reasoning and returns their response. Suitable for asking questions, delegating tasks, or collaboration. Your relationships.md lists available digital employees under 'Digital Employee Colleagues'.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -393,10 +302,10 @@ AGENT_TOOLS = [
                     "msg_type": {
                         "type": "string",
                         "enum": ["notify", "consult", "task_delegate"],
-                        "description": "Decision guide: (1) Will the target need to DO WORK and return results? → task_delegate. (2) Is this just a one-way FYI? → notify. (3) Quick factual question needing immediate answer? → consult. When unsure, prefer task_delegate.",
+                        "description": "Message type: notify (notification), consult (ask a question), task_delegate (delegate a task). Defaults to notify.",
                     },
                 },
-                "required": ["agent_name", "message", "msg_type"],
+                "required": ["agent_name", "message"],
             },
         },
     },
@@ -1267,50 +1176,6 @@ AGENT_TOOLS = [
             }
         }
     },
-    # ── upstream v1.8.2: AgentBay File Transfer ──
-    {
-        "type": "function",
-        "function": {
-            "name": "agentbay_file_transfer",
-            "description": (
-                "Transfer a file between any two endpoints: the agent workspace, "
-                "the AgentBay browser environment, the cloud desktop (computer), or the code sandbox.\n\n"
-                "VERIFIED PATH CONVENTIONS (all Linux environments run as user 'wuying', HOME=/home/wuying/):\n"
-                "- code env:     use /home/wuying/<filename>  (working directory, e.g. /home/wuying/data.csv)\n"
-                "- browser env:  use /home/wuying/下载/<filename>  (download folder, e.g. /home/wuying/下载/file.pdf)\n"
-                "- computer env: use /home/wuying/桌面/<filename>  (Desktop, e.g. /home/wuying/桌面/report.xlsx)\n"
-                "- workspace:    use relative path, e.g. 'workspace/data.csv'\n\n"
-                "Transfer directions:\n"
-                "- workspace -> env: upload a workspace file into a cloud environment\n"
-                "- env -> workspace: download a file from a cloud environment into the workspace\n"
-                "- env A -> env B:   transfer between environments (transparent backend temp, no workspace involvement)"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "from_type": {
-                        "type": "string",
-                        "enum": ["workspace", "browser", "computer", "code"],
-                        "description": "Source endpoint: 'workspace' for agent workspace, or the AgentBay environment name.",
-                    },
-                    "from_path": {
-                        "type": "string",
-                        "description": "Source path. Relative if workspace (e.g. 'workspace/data.csv'), absolute if env (e.g. '/root/data.csv').",
-                    },
-                    "to_type": {
-                        "type": "string",
-                        "enum": ["workspace", "browser", "computer", "code"],
-                        "description": "Destination endpoint: 'workspace' for agent workspace, or the AgentBay environment name.",
-                    },
-                    "to_path": {
-                        "type": "string",
-                        "description": "Destination path. Relative if workspace (e.g. 'workspace/output.csv'), absolute if env (e.g. '/root/output.csv').",
-                    },
-                },
-                "required": ["from_type", "from_path", "to_type", "to_path"],
-            },
-        },
-    },
 ]
 
 
@@ -1359,46 +1224,12 @@ async def _agent_has_feishu(agent_id: uuid.UUID) -> bool:
 
 # ─── Dynamic Tool Loading from DB ──────────────────────────────
 
-def _strip_a2a_msg_type(tools: list[dict]) -> list[dict]:
-    """Remove the msg_type parameter from send_message_to_agent when async A2A is disabled.
-
-    This prevents the LLM from seeing and selecting notify/task_delegate modes
-    that would be silently overridden to consult anyway, which confuses users
-    who see the tool call arguments in the chat UI.
-    """
-    import copy
-    result = []
-    for t in tools:
-        fn = t.get("function", {})
-        if fn.get("name") == "send_message_to_agent":
-            t = copy.deepcopy(t)
-            fn = t["function"]
-            # Simplify description to only mention consult
-            fn["description"] = (
-                "Send a message to a digital employee colleague and receive their reply synchronously."
-            )
-            params = fn.get("parameters", {})
-            props = params.get("properties", {})
-            # Remove msg_type parameter entirely
-            props.pop("msg_type", None)
-            # Remove msg_type from required list
-            req = params.get("required", [])
-            if "msg_type" in req:
-                params["required"] = [r for r in req if r != "msg_type"]
-        result.append(t)
-    return result
-
-
 async def get_agent_tools_for_llm(agent_id: uuid.UUID) -> list[dict]:
     """Load enabled tools for an agent from DB (OpenAI function-calling format).
-
+    
     Falls back to hardcoded AGENT_TOOLS if DB not ready.
     Always includes core system tools (send_channel_file, write_file).
     Feishu tools are only included when the agent has a configured Feishu channel.
-
-    When the tenant's a2a_async_enabled flag is False, the msg_type parameter is
-    removed from the send_message_to_agent tool so the LLM only sees the
-    synchronous consult behaviour.
     """
     has_feishu = await _agent_has_feishu(agent_id)
     _always_tools = _always_core_tools + (_feishu_tools if has_feishu else [])
@@ -1450,27 +1281,7 @@ async def get_agent_tools_for_llm(agent_id: uuid.UUID) -> list[dict]:
         logger.error(f"[Tools] DB load failed, using fallback: {e}")
 
     # Fallback to hardcoded tools
-    result = AGENT_TOOLS
-
-    # Check tenant-level a2a_async_enabled flag
-    _a2a_async = False
-    try:
-        from app.models.tenant import Tenant
-        async with async_session() as _db:
-            _ar = await _db.execute(select(AgentModel).where(AgentModel.id == agent_id))
-            _agent = _ar.scalar_one_or_none()
-            if _agent and _agent.tenant_id:
-                _tr = await _db.execute(select(Tenant).where(Tenant.id == _agent.tenant_id))
-                _tenant = _tr.scalar_one_or_none()
-                if _tenant:
-                    _a2a_async = getattr(_tenant, "a2a_async_enabled", False)
-    except Exception:
-        pass
-
-    if not _a2a_async:
-        result = _strip_a2a_msg_type(result)
-
-    return result
+    return AGENT_TOOLS
 
 
 # ─── Workspace initialization ──────────────────────────────────
@@ -1799,14 +1610,6 @@ async def execute_tool(
             result = await _jina_search(arguments)
         elif tool_name == "bing_search":
             result = await _jina_search(arguments)  # redirect legacy to jina
-        elif tool_name == "exa_search":
-            result = await _exa_search(arguments, agent_id=agent_id)
-        elif tool_name == "duckduckgo_search":
-            result = await _duckduckgo_search_tool(arguments)
-        elif tool_name == "tavily_search":
-            result = await _tavily_search_tool(arguments)
-        elif tool_name == "google_search":
-            result = await _google_search_tool(arguments)
         elif tool_name == "jina_read":
             result = await _jina_read(arguments)
         elif tool_name == "read_webpage":
@@ -1819,7 +1622,7 @@ async def execute_tool(
             result = await _plaza_add_comment(agent_id, arguments)
         elif tool_name == "execute_code":
             result = await _execute_code(ws, arguments)
-        # ── v1.8.1 File Management Tools ──
+        # --- v1.8.1 File Management Tools ---
         elif tool_name == "search_files":
             result = await search_files(
                 agent_id=agent_id,
@@ -1875,85 +1678,6 @@ async def execute_tool(
             result = await _agentmail_forward_message_lite(agent_id, arguments)
         elif tool_name == "agentmail_update_message_lite":
             result = await _agentmail_update_message_lite(agent_id, arguments)
-        # ── Hetzner Cloud Tools ──
-        elif tool_name == "hetzner_list_servers":
-            result = await _hetzner_list_servers(agent_id, arguments)
-        elif tool_name == "hetzner_get_server":
-            result = await _hetzner_get_server(agent_id, arguments)
-        elif tool_name == "hetzner_create_server":
-            result = await _hetzner_create_server(agent_id, arguments)
-        elif tool_name == "hetzner_reboot":
-            result = await _hetzner_reboot(agent_id, arguments)
-        elif tool_name == "hetzner_list_locations":
-            result = await _hetzner_list_locations(agent_id, arguments)
-        elif tool_name == "hetzner_get_server_metrics":
-            result = await _hetzner_get_server_metrics(agent_id, arguments)
-        elif tool_name == "hetzner_list_server_actions":
-            result = await _hetzner_list_server_actions(agent_id, arguments)
-        elif tool_name == "hetzner_power_on":
-            result = await _hetzner_power_on(agent_id, arguments)
-        elif tool_name == "hetzner_power_off":
-            result = await _hetzner_power_off(agent_id, arguments)
-        elif tool_name == "hetzner_shutdown":
-            result = await _hetzner_shutdown(agent_id, arguments)
-        elif tool_name == "ssh_exec":
-            result = await _ssh_exec(agent_id, arguments)
-
-        # ── AgentBay File Transfer (upstream v1.8.2) ──
-        elif tool_name == "agentbay_file_transfer":
-            result = await _agentbay_file_transfer(agent_id, ws, arguments)
-        elif tool_name == "agentbay_close_session":
-            result = await _agentbay_close_session(agent_id, arguments)
-
-        # ── AgentBay Browser Tools ──
-        elif tool_name == "agentbay_browser_navigate":
-            result = await _agentbay_browser_navigate(agent_id, arguments)
-        elif tool_name == "agentbay_browser_screenshot":
-            result = await _agentbay_browser_screenshot(agent_id, arguments)
-        elif tool_name == "agentbay_browser_click":
-            result = await _agentbay_browser_click(agent_id, arguments)
-        elif tool_name == "agentbay_browser_type":
-            result = await _agentbay_browser_type(agent_id, arguments)
-        elif tool_name == "agentbay_browser_extract":
-            result = await _agentbay_browser_extract(agent_id, arguments)
-        elif tool_name == "agentbay_browser_observe":
-            result = await _agentbay_browser_observe(agent_id, arguments)
-        elif tool_name == "agentbay_browser_login":
-            result = await _agentbay_browser_login(agent_id, arguments)
-
-        # ── AgentBay Code Tools ──
-        elif tool_name == "agentbay_code_execute":
-            result = await _agentbay_code_execute(agent_id, arguments)
-        elif tool_name == "agentbay_command_exec":
-            result = await _agentbay_command_exec(agent_id, arguments)
-
-        # ── AgentBay Computer Tools ──
-        elif tool_name == "agentbay_computer_screenshot":
-            result = await _agentbay_computer_screenshot(agent_id, arguments)
-        elif tool_name == "agentbay_computer_click":
-            result = await _agentbay_computer_click(agent_id, arguments)
-        elif tool_name == "agentbay_computer_input_text":
-            result = await _agentbay_computer_input_text(agent_id, arguments)
-        elif tool_name == "agentbay_computer_press_keys":
-            result = await _agentbay_computer_press_keys(agent_id, arguments)
-        elif tool_name == "agentbay_computer_scroll":
-            result = await _agentbay_computer_scroll(agent_id, arguments)
-        elif tool_name == "agentbay_computer_move_mouse":
-            result = await _agentbay_computer_move_mouse(agent_id, arguments)
-        elif tool_name == "agentbay_computer_drag_mouse":
-            result = await _agentbay_computer_drag_mouse(agent_id, arguments)
-        elif tool_name == "agentbay_computer_get_screen_size":
-            result = await _agentbay_computer_get_screen_size(agent_id, arguments)
-        elif tool_name == "agentbay_computer_start_app":
-            result = await _agentbay_computer_start_app(agent_id, arguments)
-        elif tool_name == "agentbay_computer_get_cursor_position":
-            result = await _agentbay_computer_get_cursor_position(agent_id, arguments)
-        elif tool_name == "agentbay_computer_get_active_window":
-            result = await _agentbay_computer_get_active_window(agent_id, arguments)
-        elif tool_name == "agentbay_computer_activate_window":
-            result = await _agentbay_computer_activate_window(agent_id, arguments)
-        elif tool_name == "agentbay_computer_list_visible_apps":
-            result = await _agentbay_computer_list_visible_apps(agent_id, arguments)
 
         # ── Infisical Tools ──
         elif tool_name == "infisical_get_secret":
@@ -2009,135 +1733,6 @@ async def execute_tool(
         return f"Tool execution error ({tool_name}): {type(e).__name__}: {str(e)[:200]}"
 
 
-
-# ── Standalone search engine tool wrappers ───────────────────────────────────
-# Each function reads its own tool config (agent > company > defaults) and
-# delegates to the existing private search implementations above.
-
-
-async def _exa_search(arguments: dict, agent_id: uuid.UUID | None = None) -> str:
-    """Full-featured Exa AI search with category filtering, domain filtering, and content modes."""
-    import httpx
-
-    query = arguments.get("query", "").strip()
-    if not query:
-        return "❌ Please provide search keywords"
-
-    config = await _get_tool_config(agent_id, "exa_search") or {}
-    api_key = config.get("api_key", "") or get_settings().EXA_API_KEY
-    if not api_key:
-        return "❌ Exa API key is required. Set it in tool settings or the EXA_API_KEY environment variable."
-
-    max_results = min(arguments.get("max_results", 5), 10)
-    search_type = arguments.get("search_type", "auto")
-    category = arguments.get("category") or None
-    content_mode = arguments.get("content_mode", "text")
-    include_domains = arguments.get("include_domains")
-    exclude_domains = arguments.get("exclude_domains")
-
-    body: dict = {
-        "query": query,
-        "type": search_type,
-        "numResults": max_results,
-        "contents": {},
-    }
-
-    if category:
-        body["category"] = category
-    if include_domains:
-        body["includeDomains"] = [d.strip() for d in include_domains.split(",") if d.strip()]
-    if exclude_domains:
-        body["excludeDomains"] = [d.strip() for d in exclude_domains.split(",") if d.strip()]
-
-    if content_mode == "highlights":
-        body["contents"]["highlights"] = {"numSentences": 3}
-    elif content_mode == "summary":
-        body["contents"]["summary"] = {}
-    else:
-        body["contents"]["text"] = {"maxCharacters": 1000}
-
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                "https://api.exa.ai/search",
-                json=body,
-                headers={
-                    "x-api-key": api_key,
-                    "Content-Type": "application/json",
-                    "x-exa-integration": "clawith",
-                },
-                timeout=15,
-            )
-            data = resp.json()
-
-        if resp.status_code != 200:
-            return f"❌ Exa search failed: {data.get('error', data.get('message', str(data)[:200]))}"
-
-        items = data.get("results", [])[:max_results]
-        if not items:
-            return f'🔍 No results found for "{query}"'
-
-        parts = []
-        for i, r in enumerate(items, 1):
-            title = r.get("title", "Untitled")
-            url = r.get("url", "")
-            content = ""
-            if content_mode == "highlights" and r.get("highlights"):
-                content = " ... ".join(r["highlights"])
-            elif content_mode == "summary" and r.get("summary"):
-                content = r["summary"]
-            elif r.get("text"):
-                content = r["text"][:500]
-            parts.append(f"**{i}. {title}**\n{url}\n{content}")
-
-        return f'🔍 Exa search for "{query}" ({len(items)} items):\n\n' + "\n\n---\n\n".join(parts)
-
-    except Exception as e:
-        return f"❌ Exa search error: {str(e)[:300]}"
-
-
-async def _duckduckgo_search_tool(arguments: dict) -> str:
-    """Standalone DuckDuckGo search tool (no API key required)."""
-    query = arguments.get("query", "").strip()
-    if not query:
-        return "Please provide search keywords"
-    max_results = min(arguments.get("max_results", 5), 10)
-    return await _search_duckduckgo(query, max_results)
-
-
-async def _tavily_search_tool(arguments: dict, agent_id: uuid.UUID | None = None) -> str:
-    """Standalone Tavily search tool (API key read from per-tool config)."""
-    query = arguments.get("query", "").strip()
-    if not query:
-        return "Please provide search keywords"
-    config = await _get_tool_config(agent_id, "tavily_search") or {}
-    api_key = config.get("api_key", "").strip()
-    if not api_key:
-        return "Tavily API key is required. Set it in the tool settings."
-    max_results = min(arguments.get("max_results", 5), 10)
-    try:
-        return await _search_tavily(query, api_key, max_results)
-    except Exception as e:
-        return f"Tavily search error: {str(e)[:200]}"
-
-
-async def _google_search_tool(arguments: dict, agent_id: uuid.UUID | None = None) -> str:
-    """Standalone Google Custom Search tool (API key read from per-tool config)."""
-    query = arguments.get("query", "").strip()
-    if not query:
-        return "Please provide search keywords"
-    config = await _get_tool_config(agent_id, "google_search") or {}
-    api_key = config.get("api_key", "").strip()
-    if not api_key:
-        return "Google Search API key is required (format: API_KEY:SEARCH_ENGINE_ID). Set it in the tool settings."
-    language = arguments.get("language") or config.get("language", "en")
-    max_results = min(arguments.get("max_results", 5), 10)
-    try:
-        return await _search_google(query, api_key, max_results, language)
-    except Exception as e:
-        return f"Google search error: {str(e)[:200]}"
-
-
 async def _web_search(arguments: dict) -> str:
     """Search the web using a configurable search engine (reads config from DB)."""
     import httpx
@@ -2165,9 +1760,7 @@ async def _web_search(arguments: dict) -> str:
     language = config.get("language", "zh-CN")
 
     try:
-        if engine == "exa" and api_key:
-            return await _exa_search({**arguments, "max_results": max_results}, agent_id=None)
-        elif engine == "tavily" and api_key:
+        if engine == "tavily" and api_key:
             return await _search_tavily(query, api_key, max_results)
         elif engine == "google" and api_key:
             return await _search_google(query, api_key, max_results, language)
@@ -3153,7 +2746,7 @@ async def _manage_tasks(
 ) -> str:
     """Create / update / delete tasks in DB and sync to workspace."""
     from app.models.task import TaskLog
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timezone
 
     action = args["action"]
     title = args["title"]
@@ -3750,7 +3343,7 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
         from app.models.audit import ChatMessage
         from app.models.chat_session import ChatSession
         from app.models.participant import Participant
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timezone
 
         async with async_session() as db:
             # Look up source agent
@@ -6365,13 +5958,11 @@ async def _litellm_mcp_call(agent_id: uuid.UUID, mcp_server: str, mcp_method: st
     import json
     
     litellm_url = os.getenv('LITELLM_URL', 'https://litellm.moiria.com')
-    litellm_key = os.getenv('LITELLM_API_KEY')
+    litellm_key = os.getenv('LITELLM_API_KEY', 'sk-drT2rTT5MKPeB8jNkTm41w')
     
     # Map server name to server_id
     server_ids = {
         'agentmail': 'bd449f3a3bc174b60a8bed88488e525f',
-        'hetzner_cloud': '41691dfc7ebb2a7fc9e6b533a6417807',
-        'ssh_remote': '3c5ce7b561c16922662d1fa05060ed95',
     }
     server_id = server_ids.get(mcp_server, mcp_server)
     
@@ -6534,62 +6125,6 @@ async def _agentmail_update_message_lite(agent_id: uuid.UUID, arguments: dict) -
     return await _litellm_mcp_call(agent_id, 'agentmail', 'update_message', arguments)
 
 
-# ── LiteLLM MCP Hetzner Cloud Tools ──
-async def _hetzner_list_servers(agent_id: uuid.UUID, arguments: dict) -> str:
-    """List servers via LiteLLM Hetzner MCP."""
-    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_servers', arguments)
-
-
-async def _hetzner_get_server(agent_id: uuid.UUID, arguments: dict) -> str:
-    """Get server details via LiteLLM Hetzner MCP."""
-    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_server', arguments)
-
-
-async def _hetzner_create_server(agent_id: uuid.UUID, arguments: dict) -> str:
-    """Create server via LiteLLM Hetzner MCP."""
-    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_create_server', arguments)
-
-
-async def _hetzner_reboot(agent_id: uuid.UUID, arguments: dict) -> str:
-    """Reboot server via LiteLLM Hetzner MCP."""
-    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_reboot', arguments)
-
-
-async def _hetzner_list_locations(agent_id: uuid.UUID, arguments: dict) -> str:
-    """List locations via LiteLLM Hetzner MCP."""
-    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_locations', arguments)
-
-
-async def _hetzner_get_server_metrics(agent_id: uuid.UUID, arguments: dict) -> str:
-    """Get server metrics via LiteLLM Hetzner MCP."""
-    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_get_server_metrics', arguments)
-
-
-async def _hetzner_list_server_actions(agent_id: uuid.UUID, arguments: dict) -> str:
-    """List server actions via LiteLLM Hetzner MCP."""
-    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_list_server_actions', arguments)
-
-
-async def _hetzner_power_on(agent_id: uuid.UUID, arguments: dict) -> str:
-    """Power on server via LiteLLM Hetzner MCP."""
-    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_power_on', arguments)
-
-
-async def _hetzner_power_off(agent_id: uuid.UUID, arguments: dict) -> str:
-    """Power off server via LiteLLM Hetzner MCP."""
-    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_power_off', arguments)
-
-
-async def _hetzner_shutdown(agent_id: uuid.UUID, arguments: dict) -> str:
-    """Shutdown server via LiteLLM Hetzner MCP."""
-    return await _litellm_mcp_call(agent_id, 'hetzner_cloud', 'hetzner_shutdown', arguments)
-
-
-async def _ssh_exec(agent_id: uuid.UUID, arguments: dict) -> str:
-    """Execute SSH command via LiteLLM ssh_remote MCP."""
-    return await _litellm_mcp_call(agent_id, 'ssh_remote', 'ssh_exec', arguments)
-
-
 # ── v1.8.1 File Management Tools ──
 async def search_files(
     agent_id: uuid.UUID,
@@ -6689,489 +6224,3 @@ async def edit_file(
         return f"Successfully edited {path}"
     except Exception as e:
         return f"Error editing file: {str(e)[:200]}"
-
-
-# ── AgentBay File Transfer (upstream v1.8.2) ──
-async def _agentbay_file_transfer(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict) -> str:
-    """Transfer a file between workspace and an AgentBay environment, or between two environments.
-
-    Supported transfer directions:
-      - workspace  → env:      upload_file(local_workspace_path, remote_path)   [single SDK call]
-      - env        → workspace: download_file(remote_path, local_workspace_path) [single SDK call]
-      - env A      → env B:    download to /tmp/<uuid>, upload to env B, cleanup /tmp [transparent]
-
-    The 'local' side of the SDK calls is always the Clawith backend server,
-    which has access to the agent workspace directory.
-    """
-    if not agent_id:
-        return "AgentBay tools require agent context"
-
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-
-    from_type = arguments.get("from_type", "")
-    from_path = arguments.get("from_path", "")
-    to_type   = arguments.get("to_type", "")
-    to_path   = arguments.get("to_path", "")
-    session_id = arguments.pop("_session_id", "")
-
-    if not all([from_type, from_path, to_type, to_path]):
-        return "Missing required parameters: from_type, from_path, to_type, to_path"
-
-    # Reject no-op transfers
-    if from_type == "workspace" and to_type == "workspace":
-        return "Cannot transfer workspace → workspace. Use write_file or workspace tools instead."
-    if from_type == to_type and from_type != "workspace":
-        return f"Same environment ({from_type}) transfer: use agentbay_command_exec with 'cp' to copy files within the same environment."
-
-    env_types = {"browser", "computer", "code"}
-
-    # ── Helper: resolve and validate a workspace-relative path ──────────────
-    def resolve_workspace(rel_path: str) -> tuple[str | None, str]:
-        """Return (absolute_local_path_str, error_message). error_message is '' on success."""
-        local = (ws / rel_path).resolve()
-        if not str(local).startswith(str(ws.resolve())):
-            return None, "Permission denied: path must be inside the agent workspace"
-        return str(local), ""
-
-    try:
-        # ── Case 1: workspace → env ──────────────────────────────────────────
-        if from_type == "workspace" and to_type in env_types:
-            local_path, err = resolve_workspace(from_path)
-            if err:
-                return err
-            import os
-            if not os.path.exists(local_path):
-                return f"File not found in workspace: {from_path}"
-            client = await get_agentbay_client_for_agent(agent_id, to_type, session_id=session_id)
-            result = await asyncio.to_thread(
-                client._session.file_system.upload_file,
-                local_path, to_path
-            )
-            if result.success:
-                msg = (
-                    f"Transferred workspace/{from_path} → [{to_type}]{to_path} "
-                    f"({result.bytes_sent} bytes)"
-                )
-                # After uploading to the computer desktop directory, notify the GNOME
-                # file manager so the file icon appears immediately without manual refresh.
-                desktop_dir = "/home/wuying/桌面"
-                if to_type == "computer" and to_path.startswith(desktop_dir):
-                    try:
-                        await asyncio.to_thread(
-                            client._session.command.exec,
-                            f"DISPLAY=:0 gio info '{to_path}' 2>/dev/null || true"
-                        )
-                    except Exception:
-                        pass  # Non-critical: desktop refresh failure doesn't affect transfer result
-                return msg
-            return f"Upload failed: {result.error_message}"
-
-        # ── Case 2: env → workspace ──────────────────────────────────────────
-        elif from_type in env_types and to_type == "workspace":
-            local_path, err = resolve_workspace(to_path)
-            if err:
-                return err
-            import os
-            os.makedirs(os.path.dirname(local_path) or ".", exist_ok=True)
-            client = await get_agentbay_client_for_agent(agent_id, from_type, session_id=session_id)
-            result = await asyncio.to_thread(
-                client._session.file_system.download_file,
-                from_path, local_path
-            )
-            if result.success:
-                return (
-                    f"Transferred [{from_type}]{from_path} → workspace/{to_path} "
-                    f"({result.bytes_received} bytes). "
-                    f"File available in workspace at: {to_path}"
-                )
-            return f"Download failed: {result.error_message}"
-
-        # ── Case 3: env A → env B (transparent /tmp/ intermediary) ──────────
-        elif from_type in env_types and to_type in env_types:
-            import uuid as _uuid
-            import os
-            tmp_path = f"/tmp/agentbay_transfer_{_uuid.uuid4().hex}"
-            try:
-                # Step 1: download from source env to backend /tmp/
-                src_client = await get_agentbay_client_for_agent(agent_id, from_type, session_id=session_id)
-                dl_result = await asyncio.to_thread(
-                    src_client._session.file_system.download_file,
-                    from_path, tmp_path
-                )
-                if not dl_result.success:
-                    return f"Transfer failed (download from {from_type}): {dl_result.error_message}"
-
-                # Step 2: upload from backend /tmp/ to destination env
-                dst_client = await get_agentbay_client_for_agent(agent_id, to_type, session_id=session_id)
-                ul_result = await asyncio.to_thread(
-                    dst_client._session.file_system.upload_file,
-                    tmp_path, to_path
-                )
-                if not ul_result.success:
-                    return f"Transfer failed (upload to {to_type}): {ul_result.error_message}"
-
-                return (
-                    f"Transferred [{from_type}]{from_path} → [{to_type}]{to_path} "
-                    f"({dl_result.bytes_received} bytes)"
-                )
-            finally:
-                # Always clean up the temporary file regardless of success or failure
-                try:
-                    if os.path.exists(tmp_path):
-                        os.remove(tmp_path)
-                except Exception:
-                    pass  # Non-critical: ignore cleanup errors
-
-        else:
-            return f"Unsupported transfer: {from_type} → {to_type}"
-
-    except RuntimeError as e:
-        return f"{str(e)}"
-    except Exception as e:
-        logger.exception(f"[AgentBay] File transfer failed for agent {agent_id}")
-        return f"File transfer failed: {str(e)[:200]}"
-
-
-async def _agentbay_close_session(agent_id: uuid.UUID, arguments: dict) -> str:
-    """Close the current AgentBay session and release cloud resources."""
-    from app.services.agentbay_client import _agentbay_sessions
-
-    cache_keys_to_remove = []
-    for cache_key, (client, _last_used) in _agentbay_sessions.items():
-        if str(cache_key[0]) == str(agent_id):
-            await client.close_session()
-            cache_keys_to_remove.append(cache_key)
-
-    for key in cache_keys_to_remove:
-        del _agentbay_sessions[key]
-
-    if cache_keys_to_remove:
-        return "AgentBay session closed successfully. Cloud resources released."
-    return "No active AgentBay session found for this agent."
-
-
-# ─── AgentBay Browser Tools ───────────────────────────────
-
-async def _agentbay_browser_navigate(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Navigate to URL in AgentBay headless browser."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    url = arguments.get("url", "")
-    if not url:
-        return "Missing required argument: url"
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "browser")
-        result = await client.browser_navigate(
-            url,
-            wait_for=arguments.get("wait_for", ""),
-            screenshot=arguments.get("screenshot", False),
-        )
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_browser_screenshot(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Take a screenshot of the current browser page."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "browser")
-        result = await client.browser_screenshot()
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_browser_click(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Click an element in the browser by CSS selector."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    selector = arguments.get("selector", "")
-    if not selector:
-        return "Missing required argument: selector"
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "browser")
-        result = await client.browser_click(selector)
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_browser_type(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Type text into an element in the browser."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    selector = arguments.get("selector", "")
-    text = arguments.get("text", "")
-    if not selector:
-        return "Missing required argument: selector"
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "browser")
-        result = await client.browser_type(selector, text)
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_browser_extract(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Extract structured data from the current browser page using natural language."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    instruction = arguments.get("instruction", "")
-    if not instruction:
-        return "Missing required argument: instruction"
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "browser")
-        result = await client.browser_extract(
-            instruction,
-            selector=arguments.get("selector", ""),
-        )
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_browser_observe(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Observe the current browser page state and return interactive elements."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    instruction = arguments.get("instruction", "")
-    if not instruction:
-        return "Missing required argument: instruction"
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "browser")
-        result = await client.browser_observe(
-            instruction,
-            selector=arguments.get("selector", ""),
-        )
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_browser_login(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Perform an automated login using AgentBay's built-in login skill."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    url = arguments.get("url", "")
-    login_config = arguments.get("login_config", "")
-    if not url:
-        return "Missing required argument: url"
-    if not login_config:
-        return "Missing required argument: login_config"
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "browser")
-        result = await client.browser_login(url, login_config)
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-# ─── AgentBay Code Tools ───────────────────────────────
-
-async def _agentbay_code_execute(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Execute code in an AgentBay code environment."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    language = arguments.get("language", "python")
-    code = arguments.get("code", "")
-    if not code:
-        return "Missing required argument: code"
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "code")
-        result = await client.code_execute(
-            language,
-            code,
-            timeout=arguments.get("timeout", 30),
-        )
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_command_exec(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Execute a shell command in an AgentBay environment."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    command = arguments.get("command", "")
-    if not command:
-        return "Missing required argument: command"
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "code")
-        result = await client.command_exec(
-            command,
-            timeout_ms=arguments.get("timeout_ms", 50000),
-            cwd=arguments.get("cwd", ""),
-        )
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-# ─── AgentBay Computer Tools ───────────────────────────────
-
-async def _agentbay_computer_screenshot(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Take a screenshot of the desktop."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "computer")
-        result = await client.computer_screenshot()
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_computer_click(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Click the mouse at coordinates (x, y)."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    x = arguments.get("x", 0)
-    y = arguments.get("y", 0)
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "computer")
-        result = await client.computer_click(x, y, button=arguments.get("button", "left"))
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_computer_input_text(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Input text at the current cursor position."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    text = arguments.get("text", "")
-    if not text:
-        return "Missing required argument: text"
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "computer")
-        result = await client.computer_input_text(text)
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_computer_press_keys(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Press keyboard keys (e.g. ['ctrl', 'c'] for Ctrl+C)."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    keys = arguments.get("keys", [])
-    if not keys:
-        return "Missing required argument: keys"
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "computer")
-        result = await client.computer_press_keys(keys, hold=arguments.get("hold", False))
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_computer_scroll(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Scroll the screen at position (x, y)."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    x = arguments.get("x", 0)
-    y = arguments.get("y", 0)
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "computer")
-        result = await client.computer_scroll(
-            x, y,
-            direction=arguments.get("direction", "down"),
-            amount=arguments.get("amount", 1),
-        )
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_computer_move_mouse(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Move mouse to coordinates (x, y) without clicking."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    x = arguments.get("x", 0)
-    y = arguments.get("y", 0)
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "computer")
-        result = await client.computer_move_mouse(x, y)
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_computer_drag_mouse(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Drag mouse from (from_x, from_y) to (to_x, to_y)."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    from_x = arguments.get("from_x", 0)
-    from_y = arguments.get("from_y", 0)
-    to_x = arguments.get("to_x", 0)
-    to_y = arguments.get("to_y", 0)
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "computer")
-        result = await client.computer_drag_mouse(
-            from_x, from_y, to_x, to_y,
-            button=arguments.get("button", "left"),
-        )
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_computer_get_screen_size(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Get the screen resolution."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "computer")
-        result = await client.computer_get_screen_size()
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_computer_start_app(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Start an application by its command."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    cmd = arguments.get("cmd", "")
-    if not cmd:
-        return "Missing required argument: cmd"
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "computer")
-        result = await client.computer_start_app(
-            cmd,
-            work_dir=arguments.get("work_dir", ""),
-        )
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_computer_get_cursor_position(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Get current cursor position."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "computer")
-        result = await client.computer_get_cursor_position()
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_computer_get_active_window(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Get info about the currently active window."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "computer")
-        result = await client.computer_get_active_window()
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_computer_activate_window(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """Activate (bring to front) a window by its ID."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    window_id = arguments.get("window_id")
-    if window_id is None:
-        return "Missing required argument: window_id"
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "computer")
-        result = await client.computer_activate_window(window_id)
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"
-
-
-async def _agentbay_computer_list_visible_apps(agent_id: Optional[uuid.UUID], arguments: dict) -> str:
-    """List currently visible/running applications."""
-    from app.services.agentbay_client import get_agentbay_client_for_agent
-    try:
-        client = await get_agentbay_client_for_agent(agent_id, "computer")
-        result = await client.computer_list_visible_apps()
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"AgentBay error: {str(e)[:300]}"

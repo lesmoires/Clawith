@@ -43,6 +43,7 @@ const getCategoryLabels = (t: any): Record<string, string> => ({
     feishu: t('agent.toolCategories.feishu', 'Feishu / Lark'),
     custom: t('agent.toolCategories.custom'),
     general: t('agent.toolCategories.general'),
+    hetzner: t('agent.toolCategories.hetzner', 'Hetzner Cloud'),
     agentbay: t('agent.toolCategories.agentbay', 'AgentBay'),
 });
 
