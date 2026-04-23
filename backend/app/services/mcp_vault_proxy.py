@@ -167,7 +167,10 @@ async def _execute_mcp_with_vault_credentials(tool_name: str, arguments: dict, a
             credentials = await _resolve_infisical_credentials(resolved_vault_id, mcp_server_name)
             
             if not credentials:
-                return f"❌ No credentials found in vault '{resolved_vault_id[:8]}...' for MCP server '{mcp_server_name}'"
+                # Vault doesn't have credentials for this MCP server.
+                # Fall back to legacy behavior (tool config / agent config / LITELLM_API_KEY).
+                # This allows tools without vault mapping to still work.
+                return await _execute_mcp_tool_legacy(tool_name, arguments, agent_id=agent_id)
             
             # ── Call MCP with resolved credentials ──
             api_key = credentials.get('api_key')
