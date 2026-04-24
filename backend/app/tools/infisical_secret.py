@@ -57,13 +57,14 @@ async def get_infisical_secret(secret_name: str, environment: str = "prod") -> s
         if not access_token:
             raise ValueError("Failed to get access token from Infisical")
         
-        # Step 2: Fetch secrets (using v3/raw endpoint)
+        # Step 2: Fetch secrets (using v4 endpoint)
         response = await client.get(
-            f"{host_url}/api/v3/secrets/raw",
+            f"{host_url}/api/v4/secrets",
             headers={"Authorization": f"Bearer {access_token}"},
             params={
-                "workspaceId": project_id,
-                "environment": environment
+                "projectId": project_id,
+                "environment": environment,
+                "secretPath": "/"
             }
         )
         response.raise_for_status()
