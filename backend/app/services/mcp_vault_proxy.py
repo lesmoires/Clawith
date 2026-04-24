@@ -199,6 +199,7 @@ async def _execute_mcp_tool_legacy(tool_name: str, arguments: dict, agent_id=Non
     Used as fallback when no vault_id is configured for the tool or agent.
     """
     try:
+        import httpx
         from app.models.tool import Tool, AgentTool
         from app.services.mcp_client import MCPClient
         from app.database import async_session
@@ -228,13 +229,51 @@ async def _execute_mcp_tool_legacy(tool_name: str, arguments: dict, agent_id=Non
             
             mcp_url = tool.mcp_server_url
             mcp_name = tool.mcp_tool_name or tool_name
+            mcp_server = tool.mcp_server_name or ""
             
             # Detect Smithery-hosted MCP servers
             if ".run.tools" in mcp_url and merged_config:
                 from app.services.agent_tools import _execute_via_smithery_connect
                 return await _execute_via_smithery_connect(mcp_url, mcp_name, arguments, merged_config, agent_id=agent_id)
             
-            # Direct MCP call
+            # ── LiteLLM-hosted MCP servers: use MCP REST endpoint ──
+            # stdio MCP servers in LiteLLM are NOT accessible via Streamable HTTP/SSE.
+            # They must be called via /mcp-rest/tools/call with server_id in the body.
+            litellm_url = os.getenv("LITELLM_URL", "https://litellm.moiria.com")
+            litellm_key = os.getenv("LITELLM_API_KEY", "")
+            
+            server_ids = {
+                'agentmail': 'bd449f3a3bc174b60a8bed88488e525f',
+                'hetzner_cloud': '41691dfc7ebb2a7fc9e6b533a6417807',
+                'mcp_ssh_bridge': '6ef3ac090978573e754df8751c900667',
+                'coolify': '59f02f58ab86873411c77c0c36a2f5e0',
+            }
+            
+            if "litellm" in mcp_url.lower() and mcp_server in server_ids and litellm_key:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(
+                        f"{litellm_url}/mcp-rest/tools/call",
+                        headers={
+                            "Authorization": f"Bearer {litellm_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "server_id": server_ids[mcp_server],
+                            "name": mcp_name,
+                            "arguments": arguments,
+                        },
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+                    
+                    # Extract text content from nested MCP response
+                    if "content" in result and isinstance(result["content"], list):
+                        for item in result["content"]:
+                            if isinstance(item, dict) and item.get("type") == "text":
+                                return item.get("text", "")
+                    return json.dumps(result) if result else ""
+            
+            # Direct MCP call (non-LiteLLM servers)
             direct_api_key = merged_config.get("api_key") or merged_config.get("atlassian_api_key")
             if not direct_api_key and tool.mcp_server_name == "Atlassian Rovo":
                 try:

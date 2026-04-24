@@ -6152,6 +6152,7 @@ async def _litellm_mcp_call(agent_id: uuid.UUID, mcp_server: str, mcp_method: st
         'agentmail': 'bd449f3a3bc174b60a8bed88488e525f',
         'hetzner_cloud': '41691dfc7ebb2a7fc9e6b533a6417807',
         'mcp_ssh_bridge': '6ef3ac090978573e754df8751c900667',
+        'coolify': '59f02f58ab86873411c77c0c36a2f5e0',
     }
     server_id = server_ids.get(mcp_server, mcp_server)
     
