@@ -1833,6 +1833,8 @@ async def execute_tool(
             result = await _send_channel_file(agent_id, ws, arguments)
         elif tool_name == "web_search":
             result = await _web_search(arguments)
+        elif tool_name == "duckduckgo_search":
+            result = await _web_search(arguments)  # duckduckgo is the default engine in _web_search
         elif tool_name == "jina_search":
             result = await _jina_search(arguments)
         elif tool_name == "bing_search":
