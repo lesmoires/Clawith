@@ -421,7 +421,7 @@ async def call_llm(
                 api_messages=api_messages,
                 agent_id=agent_id,
                 user_id=user_id,
-        
+                session_id=session_id,
                 supports_vision=supports_vision,
                 on_tool_call=on_tool_call,
                 full_reasoning_content=full_reasoning_content,

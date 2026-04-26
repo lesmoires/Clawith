@@ -293,16 +293,24 @@ async def report_result(
         except Exception:
             pass  # User may have disconnected
 
-    # If the original message was from another agent (OpenClaw-to-OpenClaw),
-    # write the reply back as a gateway_message for the sender agent to poll
+    # If the original message was from another agent,
+    # write the reply back as a gateway_message for the sender agent
     if body.result and msg.sender_agent_id:
         async with async_session() as reply_db:
+            # Check if sender is OpenClaw (polls) or native (needs on_message trigger)
+            from app.models.agent import Agent
+            src_check = await reply_db.execute(
+                select(Agent.agent_type).where(Agent.id == msg.sender_agent_id)
+            )
+            src_type = src_check.scalar_one_or_none()
+            reply_status = "pending" if src_type == "openclaw" else "delivered"
+
             conv_id = msg.conversation_id or f"gw_agent_{msg.sender_agent_id}_{agent.id}"
             gw_reply = GatewayMessage(
                 agent_id=msg.sender_agent_id,
                 sender_agent_id=agent.id,
                 content=body.result,
-                status="pending",
+                status=reply_status,
                 conversation_id=conv_id,
             )
             reply_db.add(gw_reply)
@@ -378,13 +386,34 @@ async def _send_to_agent_background(
             session_uuid = _uuid.uuid5(_ns, f"{session_agent_id}_{session_peer_id}")
             conv_id = str(session_uuid)
 
+            # Write the incoming message to gateway_messages with status='delivered'
+            # so the native agent can see it in its inbox and reference it
+            # Check if this message already exists (avoid duplicates on retries)
+            existing_gw = await db.execute(
+                select(GatewayMessage).where(
+                    GatewayMessage.agent_id == target_agent_id,
+                    GatewayMessage.sender_agent_id == source_agent_id,
+                    GatewayMessage.conversation_id == conv_id,
+                    GatewayMessage.content == content,
+                )
+            )
+            if not existing_gw.scalar_one_or_none():
+                db.add(GatewayMessage(
+                    agent_id=target_agent_id,
+                    sender_agent_id=source_agent_id,
+                    content=content,
+                    status="delivered",
+                    conversation_id=conv_id,
+                    delivered_at=datetime.now(timezone.utc),
+                ))
+                await db.commit()
+                logger.info(f"[Gateway] Wrote message to gateway_messages for {target_agent_name}")
             # Find or create the ChatSession
             existing = await db.execute(
                 select(ChatSession).where(ChatSession.id == session_uuid)
             )
             session = existing.scalar_one_or_none()
             if not session:
-                from datetime import datetime, timezone
                 session = ChatSession(
                     id=session_uuid,
                     agent_id=session_agent_id,
@@ -392,7 +421,7 @@ async def _send_to_agent_background(
                     title=f"{source_agent_name} ↔ {target_agent_name}",
                     source_channel="agent",
                     peer_agent_id=session_peer_id,
-                    created_at=datetime.now(timezone.utc),
+                    created_at=now,
                 )
                 db.add(session)
                 await db.commit()
@@ -409,7 +438,6 @@ async def _send_to_agent_background(
                 await db.commit()
 
             # Update last_message_at
-            from datetime import datetime, timezone
             session.last_message_at = datetime.now(timezone.utc)
 
 
@@ -491,12 +519,21 @@ async def _send_to_agent_background(
                 participant_id=tgt_participant.id if tgt_participant else None,
             ))
 
-            # Write reply to gateway_messages for source (OpenClaw) to poll
+            # Write reply to gateway_messages
+            # Check if source agent is OpenClaw (polls) or native (needs on_message trigger)
+            from app.models.agent import Agent
+            src_check = await db.execute(
+                select(Agent.agent_type).where(Agent.id == source_agent_id)
+            )
+            src_type = src_check.scalar_one_or_none()
+            # OpenClaw agents poll -> pending is fine; native agents need 'delivered' for trigger
+            reply_status = "pending" if src_type == "openclaw" else "delivered"
+
             gw_reply = GatewayMessage(
                 agent_id=source_agent_id,
                 sender_agent_id=target_agent_id,
                 content=final_reply,
-                status="pending",
+                status=reply_status,
                 conversation_id=conv_id,
             )
             db.add(gw_reply)
@@ -558,7 +595,18 @@ async def send_message(
                 "message": f"Message sent to {target_agent.name}. Reply will appear in your next poll.",
             }
         else:
-            # Native agent: async LLM processing
+            # Native agent: write message to gateway_messages with 'delivered' status
+            # so the agent's on_message trigger fires, then process via LLM
+            gw_msg = GatewayMessage(
+                agent_id=target_agent.id,
+                sender_agent_id=agent.id,
+                content=content,
+                status="delivered",
+                conversation_id=conv_id,
+            )
+            db.add(gw_msg)
+            await db.commit()
+
             # Extract plain values before session closes to avoid stale ORM references
             _src_id = str(agent.id)
             _src_name = agent.name
@@ -567,7 +615,6 @@ async def send_message(
             _tgt_model = str(target_agent.primary_model_id) if target_agent.primary_model_id else ""
             _tgt_role = target_agent.role_description or ""
             _tgt_creator = str(target_agent.creator_id) if target_agent.creator_id else ""
-            await db.commit()
             task = asyncio.create_task(_send_to_agent_background(
                 _src_id, _src_name, _tgt_id, _tgt_name,
                 _tgt_model, _tgt_role, _tgt_creator, content,
