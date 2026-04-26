@@ -1,0 +1,19 @@
+<mj-section padding="16px 0">
+  <mj-column width="100%">
+    <mj-text font-family="{{fonts.heading}}" color="{{colors.primary}}" font-size="14px" font-weight="bold" padding="0 0 8px 0" css-class="dark-text">{{section_title}}</mj-text>
+    <mj-table css-class="dark-text">
+      <tr style="background-color: {{colors.surface}};">
+        {{#headers}}
+        <th style="padding: 8px 12px; text-align: left; font-family: {{fonts.body}}; font-size: 12px; font-weight: bold; color: {{colors.text_muted}}; border-bottom: 2px solid {{colors.primary}};">{{.}}</th>
+        {{/headers}}
+      </tr>
+      {{#rows}}
+      <tr style="background-color: {{bg}};">
+        {{#cells}}
+        <td style="padding: 8px 12px; font-family: {{fonts.body}}; font-size: 13px; color: {{color}}; border-bottom: 1px solid {{colors.border}};">{{.}}</td>
+        {{/cells}}
+      </tr>
+      {{/rows}}
+    </mj-table>
+  </mj-column>
+</mj-section>

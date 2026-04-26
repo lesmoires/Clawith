@@ -1,0 +1,6 @@
+<mj-section padding="12px 0">
+  <mj-column width="100%">
+    <mj-text font-family="{{fonts.heading}}" color="{{colors.primary}}" font-size="14px" font-weight="bold" padding="0 0 6px 0" css-class="dark-text">{{card_title}}</mj-text>
+    <mj-text font-family="{{fonts.body}}" color="{{colors.text}}" font-size="13px" line-height="20px" css-class="dark-text">{{card_body}}</mj-text>
+  </mj-column>
+</mj-section>

@@ -1,0 +1,13 @@
+<mj-section padding="16px 0">
+  <mj-group>
+  {{#kpis}}
+    <mj-column background-color="{{color}}" padding="12px 8px">
+      <mj-text font-family="{{fonts.body}}" color="{{text_color}}" font-size="22px" font-weight="bold" align="center" padding="0 0 4px 0">{{value}}</mj-text>
+      <mj-text font-family="{{fonts.body}}" color="{{text_color_muted}}" font-size="11px" align="center" padding="0">{{label}}</mj-text>
+      {{#delta}}
+      <mj-text font-family="{{fonts.body}}" color="{{delta_color}}" font-size="13px" font-weight="bold" align="center" padding="4px 0 0 0">{{delta_icon}} {{delta}}</mj-text>
+      {{/delta}}
+    </mj-column>
+  {{/kpis}}
+  </mj-group>
+</mj-section>

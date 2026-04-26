@@ -1,0 +1,42 @@
+{
+  "name": "_template",
+  "display_name": "Brand Name",
+  "agency_tagline": "by {agency_name}",
+  "colors": {
+    "primary": "#YOUR_PRIMARY",
+    "secondary": "#YOUR_SECONDARY",
+    "bg": "#YOUR_BACKGROUND",
+    "surface": "#YOUR_SURFACE",
+    "text": "#YOUR_TEXT",
+    "text_muted": "#YOUR_MUTED_TEXT",
+    "border": "#YOUR_BORDER",
+    "up": "#4CAF50",
+    "down": "#E53935"
+  },
+  "dark_mode": {
+    "bg": "#DARK_BG",
+    "surface": "#DARK_SURFACE",
+    "text": "#DARK_TEXT",
+    "text_muted": "#DARK_MUTED"
+  },
+  "fonts": {
+    "heading": "Georgia, 'Times New Roman', serif",
+    "body": "'Segoe UI', Tahoma, sans-serif"
+  },
+  "logo": {
+    "url": "https://example.com/logo.png",
+    "width": 160,
+    "height": 40,
+    "alt": "Brand Name"
+  },
+  "quickchart_theme": {
+    "primary": "#YOUR_PRIMARY",
+    "bg": "transparent",
+    "grid": "rgba(255,255,255,0.1)"
+  },
+  "delivery": {
+    "inbox_id": "your.inbox@agentmail.to",
+    "from_name": "Brand Name",
+    "cc": ["admin@yourcompany.com"]
+  }
+}

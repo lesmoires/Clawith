@@ -1,0 +1,51 @@
+<mjml>
+  <mj-head>
+    <mj-title>{{subject}}</mj-title>
+    <mj-raw>
+      <style type="text/css">
+        @media (prefers-color-scheme: dark) {
+          body, .dark-bg { background-color: {{dark_mode.bg}} !important; }
+          .dark-surface { background-color: {{dark_mode.surface}} !important; }
+          .dark-text { color: {{dark_mode.text}} !important; }
+          .dark-text-muted { color: {{dark_mode.text_muted}} !important; }
+          table td, table th { color: {{dark_mode.text}} !important; }
+        }
+      </style>
+    </mj-raw>
+  </mj-head>
+  <mj-body background-color="{{colors.bg}}" css-class="dark-bg">
+    <!-- Header -->
+    {{#header_section}}
+    {{{header_section}}}
+    {{/header_section}}
+    {{^header_section}}
+    <mj-section background-color="{{colors.surface}}" css-class="dark-surface" padding="20px 0">
+      <mj-column width="100%">
+        <mj-image src="{{logo.url}}" alt="{{logo.alt}}" width="{{logo.width}}px" height="{{logo.height}}px" align="center" padding-bottom="8px" />
+        <mj-divider border-color="{{colors.primary}}" border-width="2px" width="60px" padding="8px 0" />
+        <mj-text font-family="{{fonts.heading}}" color="{{colors.primary}}" font-size="18px" font-weight="bold" align="center" padding="4px 0" css-class="dark-text">{{report_title}}</mj-text>
+        <mj-text font-family="{{fonts.body}}" color="{{colors.text_muted}}" font-size="12px" align="center" padding="0" css-class="dark-text-muted">{{period}}</mj-text>
+      </mj-column>
+    </mj-section>
+    {{/header_section}}
+
+    <!-- Dynamic sections injected here -->
+    {{#sections}}
+    {{{content}}}
+    {{/sections}}
+
+    <!-- Footer -->
+    {{#footer_section}}
+    {{{footer_section}}}
+    {{/footer_section}}
+    {{^footer_section}}
+    <mj-section background-color="{{colors.surface}}" css-class="dark-surface" padding="16px 0">
+      <mj-column width="100%">
+        <mj-divider border-color="{{colors.border}}" padding="8px 0" />
+        <mj-text font-family="{{fonts.body}}" color="{{colors.text_muted}}" font-size="11px" align="center" css-class="dark-text-muted">{{display_name}} {{agency_tagline}}</mj-text>
+        <mj-text font-family="{{fonts.body}}" color="{{colors.text_muted}}" font-size="10px" align="center" padding="4px 0 0 0" css-class="dark-text-muted">{{footer_note}}</mj-text>
+      </mj-column>
+    </mj-section>
+    {{/footer_section}}
+  </mj-body>
+</mjml>

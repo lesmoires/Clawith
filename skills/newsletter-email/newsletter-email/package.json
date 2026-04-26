@@ -1,0 +1,12 @@
+{
+  "name": "newsletter-email",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Newsletter email compiler — Mustache + MJML → HTML + text",
+  "dependencies": {
+    "mjml": "^4.18.0"
+  },
+  "scripts": {
+    "compile": "node scripts/compile.mjs"
+  }
+}

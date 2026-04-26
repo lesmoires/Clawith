@@ -1,0 +1,5 @@
+<mj-section padding="8px 0">
+  <mj-column width="100%">
+    <mj-divider border-color="{{colors.primary}}" border-width="2px" width="40px" />
+  </mj-column>
+</mj-section>
