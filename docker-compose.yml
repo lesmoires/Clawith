@@ -67,6 +67,7 @@ services:
       - agent_data:/data/agents
       - /var/run/docker.sock:/var/run/docker.sock
       - ./ss-nodes.json:/data/ss-nodes.json:ro
+      - /data/workspace/skills:/data/workspace/skills:ro
     depends_on:
       postgres:
         condition: service_healthy
