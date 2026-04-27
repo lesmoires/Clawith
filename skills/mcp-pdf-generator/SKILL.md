@@ -46,7 +46,7 @@ Convert HTML content to a formatted PDF document.
 | `margin_mm` | number | ❌ | `15` | Margin size in millimeters |
 | `landscape` | boolean | ❌ | `false` | Landscape orientation |
 | `filename` | string | ❌ | `"document.pdf"` | Output filename |
-| `save_path` | string | ❌ | — | **Direct filesystem save.** Bypasses base64 truncation. Use: `/var/lib/docker/volumes/twcgssk04ckw4kgw0gcwcw48_agent_data/_data/<agent_id>/workspace/<filename>.pdf` |
+| `save_path` | string | ❌ | — | **Direct filesystem save.** Bypasses base64 truncation. Use: `/agents/<agent_id>/workspace/output/<filename>.pdf` |
 | `return_base64` | boolean | ❌ | `true` | Set `false` when using `save_path` to avoid large responses. |
 
 **Default brand colors:**
@@ -198,7 +198,7 @@ Arguments: {
   "html": "<html>...complete HTML...</html>",
   "brand_colors": { "background": "#1A1A1A", "text": "#F5F0E8", "primary": "#D4A853" },
   "filename": "rapport-geo-001.pdf",
-  "save_path": "/var/lib/docker/volumes/twcgssk04ckw4kgw0gcwcw48_agent_data/_data/4be725d9-2673-4f5f-89ae-aa2d442c6322/workspace/output/rapport-geo-001.pdf",
+  "save_path": "/agents/4be725d9-2673-4f5f-89ae-aa2d442c6322/workspace/output/rapport-geo-001.pdf",
   "return_base64": false
 }
 ```

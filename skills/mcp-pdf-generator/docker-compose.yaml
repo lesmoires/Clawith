@@ -8,7 +8,7 @@ services:
     mem_limit: 1g
     volumes:
       # Shared volume — allows writing PDFs directly to agent workspaces
-      - /var/lib/docker/volumes:/var/lib/docker/volumes:rw
+      - /opt/agents:/agents:rw
     healthcheck:
       test: ["CMD", "node", "-e", "console.log('ok')"]
       interval: 30s
