@@ -247,6 +247,7 @@ async def _execute_mcp_tool_legacy(tool_name: str, arguments: dict, agent_id=Non
                 'hetzner_cloud': '41691dfc7ebb2a7fc9e6b533a6417807',
                 'mcp_ssh_bridge': '6ef3ac090978573e754df8751c900667',
                 'coolify': '59f02f58ab86873411c77c0c36a2f5e0',
+                'mcp_pdf_generator': '761d49036a159d214008b752594dfa5c',
             }
             
             if "litellm" in mcp_url.lower() and mcp_server in server_ids and litellm_key:
