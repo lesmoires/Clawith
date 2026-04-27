@@ -251,7 +251,16 @@ async def _execute_mcp_tool_legacy(tool_name: str, arguments: dict, agent_id=Non
             }
             
             if "litellm" in mcp_url.lower() and mcp_server in server_ids and litellm_key:
-                async with httpx.AsyncClient(timeout=30.0) as client:
+                # ── Special handling for mcp_pdf_generator save_path ──
+                # The PDF engine runs in its own Docker container. save_path
+                # writes to the container's filesystem, NOT the agent's workspace.
+                # Fix: force return_base64, then write to agent workspace ourselves.
+                pdf_save_path = None
+                if mcp_server == 'mcp_pdf_generator' and arguments.get('save_path'):
+                    pdf_save_path = arguments.pop('save_path')
+                    arguments['return_base64'] = True
+
+                async with httpx.AsyncClient(timeout=60.0) as client:
                     response = await client.post(
                         f"{litellm_url}/mcp-rest/tools/call",
                         headers={
@@ -266,7 +275,55 @@ async def _execute_mcp_tool_legacy(tool_name: str, arguments: dict, agent_id=Non
                     )
                     response.raise_for_status()
                     result = response.json()
-                    
+
+                    # ── Write PDF to agent workspace if save_path was requested ──
+                    if pdf_save_path and agent_id:
+                        try:
+                            import base64 as b64
+                            from pathlib import Path
+
+                            # Extract base64 from the MCP result
+                            base64_data = None
+                            if "content" in result and isinstance(result["content"], list):
+                                for item in result["content"]:
+                                    if isinstance(item, dict) and item.get("type") == "text":
+                                        try:
+                                            inner = json.loads(item["text"])
+                                            base64_data = inner.get("base64")
+                                        except (json.JSONDecodeError, AttributeError):
+                                            pass
+                            
+                            # Fallback: check result directly
+                            if not base64_data:
+                                base64_data = result.get("base64")
+                            
+                            if base64_data:
+                                # Resolve save_path to the actual host filesystem path
+                                # The agent passes paths like:
+                                #   /agents/<id>/workspace/output/file.pdf
+                                #   workspace/output/file.pdf (relative)
+                                # But the backend needs to write to:
+                                #   /data/agents/<id>/workspace/output/file.pdf
+                                if pdf_save_path.startswith('/'):
+                                    # Absolute path from agent — map to host filesystem
+                                    if pdf_save_path.startswith('/agents/'):
+                                        # /agents/<id>/workspace/... → /data/agents/<id>/workspace/...
+                                        host_path = Path('/data') / pdf_save_path.lstrip('/')
+                                    else:
+                                        host_path = Path(pdf_save_path)
+                                else:
+                                    # Relative path — resolve relative to agent workspace
+                                    host_path = Path("/data/agents") / str(agent_id) / "workspace" / pdf_save_path
+                                
+                                host_path.parent.mkdir(parents=True, exist_ok=True)
+                                host_path.write_bytes(b64.b64decode(base64_data))
+                                
+                                # Update the result to reflect the actual saved path
+                                result["saved_path"] = str(pdf_save_path)
+                        except Exception as e:
+                            # Don't fail the whole call if workspace write fails
+                            result["save_error"] = str(e)
+
                     # Extract text content from nested MCP response
                     if "content" in result and isinstance(result["content"], list):
                         for item in result["content"]:
