@@ -44,27 +44,15 @@ def _agent_base_dir(agent_id: uuid.UUID) -> Path:
     return Path(settings.AGENT_DATA_DIR) / str(agent_id)
 
 
-_FILE_KNOWN_PREFIXES = ("workspace/", "skills/", "memory/")
-
-
-def _normalize_file_path(rel_path: str) -> str:
-    """Strip known top-level directory prefixes that agents may duplicate."""
-    if not rel_path:
-        return rel_path
-    clean = rel_path.strip("/")
-    for prefix in _FILE_KNOWN_PREFIXES:
-        p = prefix.rstrip("/")
-        if clean == p:
-            return ""
-        if clean.startswith(prefix):
-            return clean[len(prefix):]
-    return rel_path
-
-
 def _safe_path(agent_id: uuid.UUID, rel_path: str) -> Path:
-    """Ensure the path is within the agent's directory (no path traversal)."""
+    """Ensure the path is within the agent's directory (no path traversal).
+    
+    Note: path normalization (stripping duplicate workspace/ etc.) is handled
+    in agent_tools.py via _normalize_agent_path(). This function receives
+    already-normalized paths from agents, and direct paths from the UI.
+    """
     base = _agent_base_dir(agent_id)
-    full = (base / _normalize_file_path(rel_path)).resolve()
+    full = (base / rel_path).resolve()
     if not str(full).startswith(str(base.resolve())):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Path traversal not allowed")
     return full
