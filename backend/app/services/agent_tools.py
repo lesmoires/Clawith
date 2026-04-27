@@ -2235,10 +2235,10 @@ async def _send_channel_file(agent_id: uuid.UUID, ws: Path, arguments: dict) -> 
         return "Error: file_path is required"
 
     # Resolve file path within agent workspace
-    file_path = (ws / rel_path).resolve()
+    file_path = (ws / _normalize_agent_path(rel_path)).resolve()
     ws_resolved = ws.resolve()
     if not str(file_path).startswith(str(ws_resolved)):
-        file_path = (WORKSPACE_ROOT / str(agent_id) / rel_path).resolve()
+        file_path = (WORKSPACE_ROOT / str(agent_id) / _normalize_agent_path(rel_path)).resolve()
         if not file_path.exists():
             return f"Error: File not found: {rel_path}"
     if not file_path.exists():
@@ -2781,7 +2781,7 @@ async def _read_document(ws: Path, rel_path: str, max_chars: int = 8000, tenant_
         if not str(file_path).startswith(str(enterprise_root)):
             return "Access denied for this path"
     else:
-        file_path = (ws / rel_path).resolve()
+        file_path = (ws / _normalize_agent_path(rel_path)).resolve()
         if not str(file_path).startswith(str(ws.resolve())):
             return "Access denied for this path"
 
@@ -3372,11 +3372,11 @@ async def _send_file_to_agent(from_agent_id: uuid.UUID, ws: Path, args: dict) ->
         return "❌ Please provide both agent_name and file_path"
 
     # Resolve source file path inside sender workspace
-    source_file_path = (ws / rel_path).resolve()
+    source_file_path = (ws / _normalize_agent_path(rel_path)).resolve()
     ws_resolved = ws.resolve()
     sender_root = (WORKSPACE_ROOT / str(from_agent_id)).resolve()
     if not str(source_file_path).startswith(str(ws_resolved)):
-        source_file_path = (sender_root / rel_path).resolve()
+        source_file_path = (sender_root / _normalize_agent_path(rel_path)).resolve()
     if not str(source_file_path).startswith(str(sender_root)):
         return "❌ Access denied: source path is outside your workspace"
 
@@ -4706,7 +4706,7 @@ async def _upload_image(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
 
     if file_path:
         # Read from workspace
-        full_path = (ws / file_path).resolve()
+        full_path = (ws / _normalize_agent_path(file_path)).resolve()
         if not str(full_path).startswith(str(ws)):
             return "❌ Access denied: path is outside the workspace"
         if not full_path.exists():
@@ -6023,7 +6023,7 @@ async def _publish_page(agent_id: uuid.UUID, user_id: uuid.UUID, ws: Path, argum
         return "Only .html and .htm files can be published"
 
     # Resolve and check file exists
-    full_path = (ws / path).resolve()
+    full_path = (ws / _normalize_agent_path(path)).resolve()
     if not str(full_path).startswith(str(ws.resolve())):
         return "Path traversal not allowed"
     if not full_path.exists() or not full_path.is_file():
@@ -6351,7 +6351,7 @@ async def search_files(
         import re
         from pathlib import Path
         ws = await ensure_workspace(agent_id)
-        search_path = ws / path if path != "." else ws
+        search_path = ws / _normalize_agent_path(path) if path != "." else ws
         search_path = Path(search_path)
         if not search_path.exists():
             return f"Path not found: {path}"
@@ -6386,7 +6386,7 @@ async def find_files(
     try:
         from pathlib import Path
         ws = await ensure_workspace(agent_id)
-        search_path = ws / path if path != "." else ws
+        search_path = ws / _normalize_agent_path(path) if path != "." else ws
         search_path = Path(search_path)
         if not search_path.exists():
             return f"Path not found: {path}"
@@ -6416,7 +6416,7 @@ async def edit_file(
     try:
         from pathlib import Path
         ws = await ensure_workspace(agent_id)
-        file_path = ws / path
+        file_path = ws / _normalize_agent_path(path)
         file_path = Path(file_path)
         if not file_path.exists():
             return f"File not found: {path}"
