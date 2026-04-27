@@ -54,7 +54,7 @@ AGENT_TOOLS = [
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Directory path to list, defaults to root (empty string). e.g.: '', 'skills', 'workspace', 'enterprise_info', 'enterprise_info/knowledge_base'",
+                        "description": "Directory path to list, defaults to root (empty string). e.g.: '', 'skills', 'enterprise_info', 'enterprise_info/knowledge_base'",
                     }
                 },
             },
@@ -87,7 +87,7 @@ AGENT_TOOLS = [
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "File path, e.g.: memory/memory.md, workspace/report.md, skills/data_analysis.md",
+                        "description": "File path, e.g.: report.md, memory/memory.md, skills/data_analysis.md",
                     },
                     "content": {
                         "type": "string",
@@ -213,7 +213,7 @@ AGENT_TOOLS = [
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Workspace-relative path to the file, e.g. workspace/report.md",
+                        "description": "Workspace-relative path to the file, e.g. report.md",
                     },
                     "member_name": {
                         "type": "string",
@@ -323,7 +323,7 @@ AGENT_TOOLS = [
                     },
                     "file_path": {
                         "type": "string",
-                        "description": "Workspace-relative path of the source file, e.g. workspace/report.md",
+                        "description": "Workspace-relative path of the source file, e.g. report.md",
                     },
                     "message": {
                         "type": "string",
@@ -386,7 +386,7 @@ AGENT_TOOLS = [
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Document file path, e.g.: workspace/knowledge_base/report.pdf, enterprise_info/knowledge_base/policy.docx",
+                        "description": "Document file path, e.g.: knowledge_base/report.pdf, enterprise_info/knowledge_base/policy.docx",
                     }
                 },
                 "required": ["path"],
@@ -408,7 +408,7 @@ AGENT_TOOLS = [
                     },
                     "code": {
                         "type": "string",
-                        "description": "Code to execute. For Python, you can import standard libraries (json, csv, math, re, collections, etc.). Working directory is your workspace/.",
+                        "description": "Code to execute. For Python, you can import standard libraries (json, csv, math, re, collections, etc.). Working directory is your workspace root.",
                     },
                     "timeout": {
                         "type": "integer",
@@ -429,7 +429,7 @@ AGENT_TOOLS = [
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Workspace-relative path to the image file, e.g. workspace/chart.png or workspace/knowledge_base/diagram.jpg",
+                        "description": "Workspace-relative path to the image file, e.g. chart.png or knowledge_base/diagram.jpg",
                     },
                     "url": {
                         "type": "string",
@@ -862,7 +862,7 @@ AGENT_TOOLS = [
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "File path in workspace, e.g. 'workspace/output.html'",
+                        "description": "File path in workspace, e.g. 'output.html'",
                     },
                 },
                 "required": ["path"],
@@ -2235,10 +2235,10 @@ async def _send_channel_file(agent_id: uuid.UUID, ws: Path, arguments: dict) -> 
         return "Error: file_path is required"
 
     # Resolve file path within agent workspace
-    file_path = (ws / rel_path).resolve()
+    file_path = (ws / _normalize_agent_path(rel_path)).resolve()
     ws_resolved = ws.resolve()
     if not str(file_path).startswith(str(ws_resolved)):
-        file_path = (WORKSPACE_ROOT / str(agent_id) / rel_path).resolve()
+        file_path = (WORKSPACE_ROOT / str(agent_id) / _normalize_agent_path(rel_path)).resolve()
         if not file_path.exists():
             return f"Error: File not found: {rel_path}"
     if not file_path.exists():
@@ -2663,6 +2663,27 @@ async def _smithery_auto_recover(api_key: str, mcp_url: str, namespace: str, con
         return f"❌ Auto-recovery failed: {str(e)[:200]}"
 
 
+_KNOWN_PREFIXES = ("workspace/", "skills/", "memory/")
+
+def _normalize_agent_path(rel_path: str) -> str:
+    """Strip known top-level directory prefixes that agents may duplicate.
+
+    E.g. an agent at /agents/foo (whose root already contains workspace/, skills/, memory/)
+    might request "workspace/report.md" → we strip it to "report.md" so it resolves
+    under the agent's own workspace/ directory.
+    """
+    if not rel_path:
+        return rel_path
+    clean = rel_path.strip("/")
+    for prefix in _KNOWN_PREFIXES:
+        p = prefix.rstrip("/")
+        if clean == p:
+            return ""
+        if clean.startswith(prefix):
+            return clean[len(prefix):]
+    return rel_path
+
+
 def _list_files(ws: Path, rel_path: str, tenant_id: str | None = None) -> str:
     # Handle enterprise_info/ as shared directory (tenant-scoped)
     if rel_path and rel_path.startswith("enterprise_info"):
@@ -2676,7 +2697,7 @@ def _list_files(ws: Path, rel_path: str, tenant_id: str | None = None) -> str:
         if not str(target).startswith(str(enterprise_root)):
             return "Access denied for this path"
     else:
-        target = (ws / rel_path) if rel_path else ws
+        target = (ws / _normalize_agent_path(rel_path)) if rel_path else ws
         target = target.resolve()
         if not str(target).startswith(str(ws.resolve())):
             return "Access denied for this path"
@@ -2731,7 +2752,7 @@ def _read_file(ws: Path, rel_path: str, tenant_id: str | None = None) -> str:
         if not str(file_path).startswith(str(enterprise_root)):
             return "Access denied for this path"
     else:
-        file_path = (ws / rel_path).resolve()
+        file_path = (ws / _normalize_agent_path(rel_path)).resolve()
         if not str(file_path).startswith(str(ws.resolve())):
             return "Access denied for this path"
 
@@ -2760,7 +2781,7 @@ async def _read_document(ws: Path, rel_path: str, max_chars: int = 8000, tenant_
         if not str(file_path).startswith(str(enterprise_root)):
             return "Access denied for this path"
     else:
-        file_path = (ws / rel_path).resolve()
+        file_path = (ws / _normalize_agent_path(rel_path)).resolve()
         if not str(file_path).startswith(str(ws.resolve())):
             return "Access denied for this path"
 
@@ -2892,7 +2913,7 @@ def _write_file(ws: Path, rel_path: str, content: str, tenant_id: str | None = N
         if not str(file_path).startswith(str(enterprise_root)):
             return "Access denied for this path"
     else:
-        file_path = (ws / rel_path).resolve()
+        file_path = (ws / _normalize_agent_path(rel_path)).resolve()
         if not str(file_path).startswith(str(ws.resolve())):
             return "Access denied for this path"
 
@@ -2909,7 +2930,7 @@ def _delete_file(ws: Path, rel_path: str) -> str:
     if rel_path.strip("/") in protected:
         return f"{rel_path} cannot be deleted (protected)"
 
-    file_path = (ws / rel_path).resolve()
+    file_path = (ws / _normalize_agent_path(rel_path)).resolve()
     if not str(file_path).startswith(str(ws.resolve())):
         return "Access denied for this path"
     if not file_path.exists():
@@ -3351,11 +3372,11 @@ async def _send_file_to_agent(from_agent_id: uuid.UUID, ws: Path, args: dict) ->
         return "❌ Please provide both agent_name and file_path"
 
     # Resolve source file path inside sender workspace
-    source_file_path = (ws / rel_path).resolve()
+    source_file_path = (ws / _normalize_agent_path(rel_path)).resolve()
     ws_resolved = ws.resolve()
     sender_root = (WORKSPACE_ROOT / str(from_agent_id)).resolve()
     if not str(source_file_path).startswith(str(ws_resolved)):
-        source_file_path = (sender_root / rel_path).resolve()
+        source_file_path = (sender_root / _normalize_agent_path(rel_path)).resolve()
     if not str(source_file_path).startswith(str(sender_root)):
         return "❌ Access denied: source path is outside your workspace"
 
@@ -4685,7 +4706,7 @@ async def _upload_image(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
 
     if file_path:
         # Read from workspace
-        full_path = (ws / file_path).resolve()
+        full_path = (ws / _normalize_agent_path(file_path)).resolve()
         if not str(full_path).startswith(str(ws)):
             return "❌ Access denied: path is outside the workspace"
         if not full_path.exists():
@@ -6002,7 +6023,7 @@ async def _publish_page(agent_id: uuid.UUID, user_id: uuid.UUID, ws: Path, argum
         return "Only .html and .htm files can be published"
 
     # Resolve and check file exists
-    full_path = (ws / path).resolve()
+    full_path = (ws / _normalize_agent_path(path)).resolve()
     if not str(full_path).startswith(str(ws.resolve())):
         return "Path traversal not allowed"
     if not full_path.exists() or not full_path.is_file():
@@ -6330,7 +6351,7 @@ async def search_files(
         import re
         from pathlib import Path
         ws = await ensure_workspace(agent_id)
-        search_path = ws / path if path != "." else ws
+        search_path = ws / _normalize_agent_path(path) if path != "." else ws
         search_path = Path(search_path)
         if not search_path.exists():
             return f"Path not found: {path}"
@@ -6365,7 +6386,7 @@ async def find_files(
     try:
         from pathlib import Path
         ws = await ensure_workspace(agent_id)
-        search_path = ws / path if path != "." else ws
+        search_path = ws / _normalize_agent_path(path) if path != "." else ws
         search_path = Path(search_path)
         if not search_path.exists():
             return f"Path not found: {path}"
@@ -6395,7 +6416,7 @@ async def edit_file(
     try:
         from pathlib import Path
         ws = await ensure_workspace(agent_id)
-        file_path = ws / path
+        file_path = ws / _normalize_agent_path(path)
         file_path = Path(file_path)
         if not file_path.exists():
             return f"File not found: {path}"
