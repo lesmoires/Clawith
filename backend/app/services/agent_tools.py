@@ -2666,21 +2666,22 @@ async def _smithery_auto_recover(api_key: str, mcp_url: str, namespace: str, con
 _KNOWN_PREFIXES = ("workspace/", "skills/", "memory/")
 
 def _normalize_agent_path(rel_path: str) -> str:
-    """Strip known top-level directory prefixes that agents may duplicate.
+    """Strip DUPLICATE top-level directory prefixes that agents may add.
 
-    E.g. an agent at /agents/foo (whose root already contains workspace/, skills/, memory/)
-    might request "workspace/report.md" → we strip it to "report.md" so it resolves
-    under the agent's own workspace/ directory.
+    The agent root already contains workspace/, skills/, memory/ subdirectories.
+    If an agent requests "workspace/workspace/report.md" (double prefix),
+    we strip it to "workspace/report.md".
+
+    A single prefix like "workspace/report.md" is kept as-is — it resolves
+    correctly under the agent root.
     """
     if not rel_path:
         return rel_path
     clean = rel_path.strip("/")
     for prefix in _KNOWN_PREFIXES:
-        p = prefix.rstrip("/")
-        if clean == p:
-            return ""
-        if clean.startswith(prefix):
-            return clean[len(prefix):]
+        double = prefix + prefix  # e.g. "workspace/workspace/"
+        if clean.startswith(double):
+            return clean[len(prefix):]  # strip one copy
     return rel_path
 
 
