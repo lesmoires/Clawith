@@ -559,6 +559,26 @@ Plan would be:
         "is_default": True,
         "files": [],  # populated at runtime from agent_template/skills/MCP_INSTALLER.md
     },
+    # ─── Newsletter Email ────────────────────────────────────
+    {
+        "name": "Newsletter Email",
+        "description": "Generate branded HTML email newsletters with data tables, KPI cards, and charts. Outputs both HTML and text versions. Compiles MJML templates into email-compatible HTML.",
+        "category": "content",
+        "icon": "📧",
+        "folder_name": "newsletter-email",
+        "is_default": True,
+        "files": [],  # populated at runtime from workspace skills directory
+    },
+    # ─── Color Harmony ───────────────────────────────────────
+    {
+        "name": "Color Harmony Generator",
+        "description": "Generate a complete color palette (light mode, dark mode, charts, accents) from a single primary hex color using HSL color theory. Zero external dependencies.",
+        "category": "utilities",
+        "icon": "🎨",
+        "folder_name": "color-harmony",
+        "is_default": True,
+        "files": [],  # populated at runtime from workspace skills directory
+    },
 ]
 
 
@@ -569,6 +589,23 @@ async def seed_skills():
 
     _files_dir = _Path(__file__).parent / "skill_creator_files"
     _template_skills_dir = _Path(__file__).parent.parent.parent / "agent_template" / "skills"
+    _workspace_skills = _Path("/data/workspace/skills")
+
+    def _load_skill_files(skill_folder: str) -> list[dict]:
+        """Load all text files from a workspace skill directory."""
+        skill_dir = _workspace_skills / skill_folder
+        if not skill_dir.is_dir():
+            logger.warning(f"[SkillSeeder] Workspace skill not found: {skill_folder}")
+            return []
+        files = []
+        for f in skill_dir.rglob("*"):
+            if f.is_file() and not f.name.startswith(".") and not f.name.startswith("__"):
+                try:
+                    rel = str(f.relative_to(skill_dir))
+                    files.append({"path": rel, "content": f.read_text(encoding="utf-8")})
+                except (UnicodeDecodeError, PermissionError):
+                    pass  # Skip binary files
+        return files
 
     # Populate skill-creator files at runtime
     for s in BUILTIN_SKILLS:
@@ -585,6 +622,10 @@ async def seed_skills():
                 s["files"] = [{"path": "SKILL.md", "content": mcp_file.read_text(encoding="utf-8")}]
             else:
                 logger.warning("[SkillSeeder] MCP_INSTALLER.md not found in agent_template/skills/")
+        elif s["folder_name"] == "newsletter-email" and not s["files"]:
+            s["files"] = _load_skill_files("newsletter-email")
+        elif s["folder_name"] == "color-harmony" and not s["files"]:
+            s["files"] = _load_skill_files("color-harmony")
 
     async with async_session() as db:
         for skill_data in BUILTIN_SKILLS:
